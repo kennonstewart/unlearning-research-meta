@@ -13,3 +13,6 @@
 [submodule "experiments/post_deletion_accuracy"]
 	path = experiments/post_deletion_accuracy
 	url = https://github.com/kennonstewart/mp_post_deletion_accuracy_experiment.git
+[submodule "data"]
+	path = data
+	url = https://github.com/kennonstewart/data_loader.git
