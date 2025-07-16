@@ -19,43 +19,39 @@ This is a meta-repository that organizes multiple components using git submodule
 
 ```
 .
-├── README.md # this file
+├── README.md
 ├── code
-│   ├── memory_pair # contains the memory pair object definition
-│   │   ├── README.md
-│   │   ├── example_usage.py
-│   │   ├── pyproject.toml
-│   │   ├── src
-│   │   │   ├── __init__.py
-│   │   │   ├── event_logging
-│   │   │   │   ├── __init__.py
-│   │   │   │   └── config.yaml
-│   │   │   ├── fogo.egg-info
-│   │   │   │   ├── PKG-INFO
-│   │   │   │   ├── SOURCES.txt
-│   │   │   │   ├── dependency_links.txt
-│   │   │   │   ├── requires.txt
-│   │   │   │   └── top_level.txt
-│   │   │   ├── l_bfgs.py
-│   │   │   └── memory_pair.py
-│   │   └── test_standalone.py
-│   └── memory_pair_exp # contains legacy experiments for sublinear regret
-│       ├── Memory Pair Paper.pdf
+│   ├── memory_pair
+│   └── memory_pair_exp
+├── data
+│   ├── README.md
+│   └── data_loader
 │       ├── README.md
+│       ├── __init__.py
+│       ├── __pycache__
+│       │   ├── __init__.cpython-312.pyc
+│       │   ├── cifar10.cpython-312.pyc
+│       │   ├── covtype.cpython-312.pyc
+│       │   ├── mnist.cpython-312.pyc
+│       │   ├── streams.cpython-312.pyc
+│       │   └── utils.cpython-312.pyc
+│       ├── cifar10.py
+│       ├── covtype.py
+│       ├── data_loader.egg-info
+│       │   ├── PKG-INFO
+│       │   ├── SOURCES.txt
+│       │   ├── dependency_links.txt
+│       │   ├── requires.txt
+│       │   └── top_level.txt
+│       ├── mnist.py
+│       ├── pyproject.toml
 │       ├── requirements.txt
-│       ├── run_regret.py
-│       └── src
-│           ├── __init__.py
-│           ├── algorithms.py
-│           ├── data_streams.py
-│           ├── l_bfgs.py
-│           └── memory_pair.py
+│       ├── sanity_check.py
+│       ├── streams.py
+│       └── utils.py
 ├── experiments
-│   ├── deletion_capacity # experiment to test the deletion capacity
-│   │   └── README.md
-│   ├── post_deletion_accuracy # experiment to ensure accuracy following deletions
-│   │   └── README.md
-│   └── sublinear_regret # experiment testing the regret bounds for the algorithm
-│       └── README.md
+│   ├── deletion_capacity
+│   ├── post_deletion_accuracy
+│   └── sublinear_regret
 └── structure.txt
 ```
