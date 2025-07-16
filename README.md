@@ -55,3 +55,58 @@ This is a meta-repository that organizes multiple components using git submodule
 │   └── sublinear_regret
 └── structure.txt
 ```
+
+## 🚀 Getting Started
+Follow these steps to set up the project environment.
+
+### Clone the Repository
+
+Clone this meta-repository using the --recurse-submodules flag to automatically fetch all the component code.
+
+```bash
+git clone --recurse-submodules https://github.com/your-username/unlearning-research-meta.git
+cd unlearning-research-meta
+Set up the Python Environment
+```
+
+Create and activate a virtual environment.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+Install Dependencies
+```
+
+Install all required packages from the top-level `requirements.txt`. Then, install our local fogo package in editable mode so it can be used by the experiment modules.
+
+```bash
+pip install -r requirements.txt
+pip install -e code/fogo
+```
+
+🧪 Running Experiments
+To run an experiment, navigate to its directory and execute the main script. For example, to run the sublinear regret experiment:
+
+```bash
+cd code/sublinear_regret_experiment
+python run_regret.py --dataset rotmnist --stream drift --T 10000
+```
+
+## ✍️ Contribution Workflow
+To make changes to a specific component (like the fogo algorithm):
+Navigate to the submodule directory: `cd code/fogo`
+Make, commit, and push your changes within that directory.
+Navigate back to the meta-repo root: `cd ../..`
+
+Commit the submodule pointer update: `git add code/fogo and git commit -m "docs: Update Fogo component"`. This final commit registers the new version of the submodule with the main project.
+
+## 📜 Citation
+If you use this work, please cite:
+
+Code snippet
+@inproceedings{yourname2025unlearning,
+  title={Online Machine Unlearning: Regret, Capacity, and Accuracy},
+  author={Your Name and Collaborator Name},
+  booktitle={Conference on Neural Information Processing Systems},
+  year={2025}
+}
