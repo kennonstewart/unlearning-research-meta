@@ -10,9 +10,6 @@
 [submodule "experiments/deletion_capacity"]
 	path = experiments/deletion_capacity
 	url = https://github.com/kennonstewart/mp_deletion_capacity_experiment.git
-[submodule "experiemnts/post_deletion_accuracy"]
-	path = experiemnts/post_deletion_accuracy
-	url = https://github.com/kennonstewart/mp_post_deletion_accuracy_experiment.git
 [submodule "experiments/post_deletion_accuracy"]
 	path = experiments/post_deletion_accuracy
 	url = https://github.com/kennonstewart/mp_post_deletion_accuracy_experiment.git
