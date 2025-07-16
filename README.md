@@ -15,7 +15,7 @@ What is the deletion capacity of privacy-preserving unlearning methods?
 How does model accuracy degrade as a function of sequential deletion operations?
 
 ## 📂 Repository Structure
-This is a meta-repository that organizes multiple components using git submodule.
+This is a meta-repository that organizes multiple components using git submodule. Note that the directory structure within the submodule may have changed from the structure below.
 
 ```
 .
