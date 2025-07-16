@@ -64,7 +64,7 @@ Follow these steps to set up the project environment.
 Clone this meta-repository using the --recurse-submodules flag to automatically fetch all the component code.
 
 ```bash
-git clone --recurse-submodules https://github.com/your-username/unlearning-research-meta.git
+git clone --recurse-submodules https://github.com/kennonstewart/unlearning-research-meta.git
 cd unlearning-research-meta
 Set up the Python Environment
 ```
@@ -99,14 +99,3 @@ Make, commit, and push your changes within that directory.
 Navigate back to the meta-repo root: `cd ../..`
 
 Commit the submodule pointer update: `git add code/fogo and git commit -m "docs: Update Fogo component"`. This final commit registers the new version of the submodule with the main project.
-
-## 📜 Citation
-If you use this work, please cite:
-
-Code snippet
-@inproceedings{yourname2025unlearning,
-  title={Online Machine Unlearning: Regret, Capacity, and Accuracy},
-  author={Your Name and Collaborator Name},
-  booktitle={Conference on Neural Information Processing Systems},
-  year={2025}
-}
