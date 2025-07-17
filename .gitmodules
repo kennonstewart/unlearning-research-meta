@@ -4,15 +4,6 @@
 [submodule "code/memory_pair_exp"]
 	path = code/memory_pair_exp
 	url = https://github.com/kennonstewart/memory-pair-exp.git
-[submodule "experiments/sublinear_regret"]
-	path = experiments/sublinear_regret
-	url = https://github.com/kennonstewart/mp_sublinear_regret_experiment.git
-[submodule "experiments/deletion_capacity"]
-	path = experiments/deletion_capacity
-	url = https://github.com/kennonstewart/mp_deletion_capacity_experiment.git
-[submodule "experiments/post_deletion_accuracy"]
-	path = experiments/post_deletion_accuracy
-	url = https://github.com/kennonstewart/mp_post_deletion_accuracy_experiment.git
 [submodule "data"]
 	path = data
 	url = https://github.com/kennonstewart/data_loader.git
