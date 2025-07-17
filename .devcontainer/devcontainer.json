@@ -1,0 +1,51 @@
+// .devcontainer/devcontainer.json
+{
+  "name": "Online Unlearning Research",
+
+  // Use the official Microsoft Python image for a standardized base.
+  // Pinning to a specific Python version ensures reproducibility.
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bullseye",
+
+  "features": {
+    // Adds LaTeX (TexLive) for writing research papers and documentation.
+    "ghcr.io/rocker-org/devcontainer-features/texlive:latest": {},
+    // Installs common utilities like git, curl, etc.
+    "ghcr.io/devcontainers/features/common-utils": {
+      "installZsh": "false",
+      "username": "vscode",
+      "userUid": "1000",
+      "userGid": "1000"
+    }
+  },
+
+  // VS Code specific settings and extensions.
+  "customizations": {
+    "vscode": {
+      "settings": {
+        // Point VS Code to the Python interpreter inside the virtual environment.
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+        // Use Ruff for high-performance linting and formatting.
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.fixAll": "explicit"
+        },
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        }
+      },
+      // Install extensions essential for Python ML research and LaTeX.
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.debugpy",
+        "charliermarsh.ruff",
+        "ms-toolsai.jupyter",
+        "james-yu.latex-workshop",
+        "mutantdino.resourcemonitor"
+      ]
+    }
+  },
+
+  // This command runs after the container is created to automate setup.
+  "postCreateCommand": "bash .devcontainer/post-create.sh"
+}
