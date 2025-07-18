@@ -5,7 +5,6 @@ This experiment empirically validates the **Memory Pair** online learner’s t
 ## Why sub‑linear regret matters
 
 For an online learner, **cumulative regret**
-\[
 R_T \;=\;\sum_{t=1}^{T} \bigl(\ell_t(\theta_t) - \ell_t(\theta^\star)\bigr)
 \]
 measures how much worse we perform than the best fixed model chosen in hindsight.  
