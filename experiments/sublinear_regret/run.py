@@ -8,7 +8,8 @@ from baselines import OnlineSGD, AdaGrad, OnlineNewtonStep
 from plotting import plot_regret
 
 from data_loader import get_rotating_mnist_stream, get_covtype_stream
-from code.memory_pair.src.memory_pair import MemoryPair
+# StreamNewtonMemoryPair provides the online delete-insert functionality
+from code.memory_pair.src.memory_pair import StreamNewtonMemoryPair as MemoryPair
 
 ALGO_MAP = {
     "memorypair": MemoryPair,
@@ -31,6 +32,15 @@ DATASET_MAP = {
 def main(dataset, stream, algo, t, seed):
     gen_fn = DATASET_MAP[dataset]
     stream_gen = gen_fn(mode=stream, batch_size=1, seed=seed)
+    first_x, first_y = next(stream_gen)
+    dim = first_x.size
+    first_x = first_x.reshape(-1)
+    algo_cls = ALGO_MAP[algo]
+    model = algo_cls(dim)
+
+    results_dir = os.path.join(os.path.dirname(__file__), "results")
+    os.makedirs(results_dir, exist_ok=True)
+    csv_path = os.path.join(results_dir, f"{dataset}_{stream}_{algo}.csv")
     first_x, _ = next(stream_gen)
     dim = first_x.size
     algo_cls = ALGO_MAP[algo]
@@ -42,11 +52,13 @@ def main(dataset, stream, algo, t, seed):
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["step", "regret"])
+        x, y = first_x, first_y
         x, y = first_x, _
         loss = model.step(x, y)
         cum_regret += loss
         writer.writerow([1, cum_regret])
         for step, (x, y) in enumerate(stream_gen, start=2):
+            x = x.reshape(-1)
             loss = model.step(x, y)
             cum_regret += loss
             if step % 100 == 0:
