@@ -41,12 +41,19 @@ def main(dataset, stream, algo, t, seed):
     results_dir = os.path.join(os.path.dirname(__file__), "results")
     os.makedirs(results_dir, exist_ok=True)
     csv_path = os.path.join(results_dir, f"{dataset}_{stream}_{algo}.csv")
+    first_x, _ = next(stream_gen)
+    dim = first_x.size
+    algo_cls = ALGO_MAP[algo]
+    model = algo_cls(dim)
+
+    csv_path = os.path.join("results", f"{dataset}_{stream}_{algo}.csv")
     png_path = csv_path.replace(".csv", ".png")
     cum_regret = 0.0
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["step", "regret"])
         x, y = first_x, first_y
+        x, y = first_x, _
         loss = model.step(x, y)
         cum_regret += loss
         writer.writerow([1, cum_regret])
