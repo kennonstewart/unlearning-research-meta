@@ -1,15 +1,16 @@
 import csv
 import os
+import sys
 import click
-import numpy as np
-from tqdm import tqdm
-
 from baselines import OnlineSGD, AdaGrad, OnlineNewtonStep
 from plotting import plot_regret
 
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../data"))
 from data_loader import get_rotating_mnist_stream, get_covtype_stream
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../code"))
 # StreamNewtonMemoryPair provides the online delete-insert functionality
-from code.memory_pair.src.memory_pair import StreamNewtonMemoryPair as MemoryPair
+from memory_pair.src.memory_pair import StreamNewtonMemoryPair as MemoryPair
 
 ALGO_MAP = {
     "memorypair": MemoryPair,
@@ -22,6 +23,7 @@ DATASET_MAP = {
     "rotmnist": get_rotating_mnist_stream,
     "covtype": get_covtype_stream,
 }
+
 
 @click.command()
 @click.option("--dataset", type=click.Choice(["rotmnist", "covtype"]), required=True)
@@ -54,12 +56,12 @@ def main(dataset, stream, algo, t, seed):
         writer.writerow(["step", "regret"])
         x, y = first_x, first_y
         x, y = first_x, _
-        loss = model.step(x, y)
+        loss = model.insert(x, y)
         cum_regret += loss
         writer.writerow([1, cum_regret])
         for step, (x, y) in enumerate(stream_gen, start=2):
             x = x.reshape(-1)
-            loss = model.step(x, y)
+            loss = model.insert(x, y)
             cum_regret += loss
             if step % 100 == 0:
                 writer.writerow([step, cum_regret])
@@ -69,7 +71,10 @@ def main(dataset, stream, algo, t, seed):
     plot_regret(csv_path, png_path)
     os.system("git add results/*")
     hash_short = os.popen("git rev-parse --short HEAD").read().strip()
-    os.system(f"git commit -m 'EXP:sublinear_regret {dataset}-{stream}-{algo} {hash_short}'")
+    os.system(
+        f"git commit -m 'EXP:sublinear_regret {dataset}-{stream}-{algo} {hash_short}'"
+    )
+
 
 if __name__ == "__main__":
     main()
