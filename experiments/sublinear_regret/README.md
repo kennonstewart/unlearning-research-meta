@@ -44,7 +44,7 @@ pip install -r requirements.txt
 # Run 1e5 steps of Memory Pair on rotating‑MNIST with drift
 PYTHONPATH=.:data python run.py \
     --dataset rotmnist \
-    --stream drift \
+    --stream iid \
     --algo memorypair \
     --T 100000 \
     --seed 42
