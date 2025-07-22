@@ -1,6 +1,3 @@
-[submodule "code/memory_pair"]
-	path = code/memory_pair
-	url = https://github.com/kennonstewart/Fogo.git
 [submodule "code/memory_pair_exp"]
 	path = code/memory_pair_exp
 	url = https://github.com/kennonstewart/memory-pair-exp.git
