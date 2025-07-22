@@ -1,7 +1,9 @@
 class PrivacyOdometer:
     """Track privacy budget consumption for deletions."""
 
-    def __init__(self, eps_total: float = 1.0, delta_total: float = 1e-5, max_deletions: int = 20):
+    def __init__(
+        self, eps_total: float = 1.0, delta_total: float = 1e-5, max_deletions: int = 20
+    ):
         self.eps_total = eps_total
         self.delta_total = delta_total
         self.max_deletions = max_deletions
@@ -21,4 +23,5 @@ class PrivacyOdometer:
 
     def noise_scale(self, sensitivity: float) -> float:
         import numpy as np
+
         return sensitivity * (2 * np.log(1.25 / self.delta_step)) ** 0.5 / self.eps_step

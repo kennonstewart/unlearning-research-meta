@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class LimitedMemoryBFGS:
     """Simple L-BFGS helper storing curvature pairs."""
 
@@ -9,6 +10,10 @@ class LimitedMemoryBFGS:
         self.Y = []  # list of y vectors
 
     def add_pair(self, s: np.ndarray, y: np.ndarray) -> None:
+        # Ensure yᵀs > 0 to keep B⁻¹ positive‑definite (oLBFGS requirement)
+        ys = float(y @ s)
+        if ys <= 1e-10:
+            return  # discard pair
         self.S.append(s.astype(float))
         self.Y.append(y.astype(float))
         if len(self.S) > self.m_max:
@@ -28,7 +33,11 @@ class LimitedMemoryBFGS:
             a = r * (s @ q)
             alpha.append(a)
             q = q - a * y
-        r = q
+        # ----- initial H⁻¹ scaling per Mokhtari & Ribeiro (eq. 19) -----
+        y_last = self.Y[-1]
+        s_last = self.S[-1]
+        gamma = float(s_last @ y_last) / float(y_last @ y_last)
+        r = gamma * q
         for s, y, a, r_i in zip(self.S, self.Y, reversed(alpha), reversed(rho)):
             b = r_i * (y @ r)
             r = r + s * (a - b)

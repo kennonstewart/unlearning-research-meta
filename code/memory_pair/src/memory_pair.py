@@ -6,6 +6,7 @@ from .odometer import PrivacyOdometer
 
 logger = logging.getLogger(__name__)
 
+
 class StreamNewtonMemoryPair:
     """Online learner with support for deletion using L-BFGS."""
 
@@ -13,10 +14,15 @@ class StreamNewtonMemoryPair:
         self,
         dim: int,
         lam: float = 1.0,
+        lr0: float = 0.5,
+        t0: int = 10,
         odometer: PrivacyOdometer | None = None,
     ) -> None:
         self.dim = dim
         self.lam = lam
+        self.lr0 = lr0
+        self.t0 = t0
+        self.t = 0  # iteration counter
         self.theta = np.zeros(dim)
         self.lbfgs = LimitedMemoryBFGS(m_max=10)
         self.odometer = odometer or PrivacyOdometer()
@@ -27,9 +33,10 @@ class StreamNewtonMemoryPair:
 
     # -------- learning ---------
     def step(self, x: np.ndarray, y: float) -> float:
+        self.t += 1
         g_old = self._grad_point(x, y)
         d = self.lbfgs.direction(g_old)
-        lr = 0.5
+        lr = self.lr0 * self.t0 / (self.t0 + self.t)  # decaying schedule
         theta_new = self.theta + lr * d
         s = theta_new - self.theta
         self.theta = theta_new
@@ -54,5 +61,6 @@ class StreamNewtonMemoryPair:
         sigma = self.odometer.noise_scale(np.linalg.norm(d))
         self.theta += np.random.normal(0.0, sigma, size=self.dim)
         logger.debug("delete", extra={"remaining_eps": self.odometer.remaining()})
+
 
 MemoryPair = StreamNewtonMemoryPair
