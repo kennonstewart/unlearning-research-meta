@@ -6,7 +6,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
 from data_loader import get_rotating_mnist_stream
-from code.memory_pair.src.memory_pair import StreamNewtonMemoryPair as MemoryPair
+from memory_pair.src.memory_pair import StreamNewtonMemoryPair as MemoryPair
 from baselines import SekhariBatchUnlearning, QiaoHessianFree
 
 ALGO_MAP = {
@@ -14,6 +14,7 @@ ALGO_MAP = {
     "sekhari": SekhariBatchUnlearning,
     "qiao": QiaoHessianFree,
 }
+
 
 @click.command()
 @click.option("--schedule", type=click.Choice(["burst", "trickle"]), default="burst")
@@ -47,6 +48,7 @@ def main(schedule, seed, algo, max_events):
     os.system(f"git add {path}")
     hash_short = os.popen("git rev-parse --short HEAD").read().strip()
     os.system(f"git commit -m 'EXP:del_capacity {algo}-{schedule} {hash_short}'")
+
 
 if __name__ == "__main__":
     main()
