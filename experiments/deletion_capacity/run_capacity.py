@@ -6,7 +6,7 @@ import numpy as np
 
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../code"))
-from memory_pair.src.memory_pair import StreamNewtonMemoryPair as MemoryPair
+from memory_pair.memory_pair import StreamNewtonMemoryPair as MemoryPair
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../data"))
 from data_loader import get_rotating_mnist_stream

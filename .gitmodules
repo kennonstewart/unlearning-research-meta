@@ -1,6 +1,3 @@
 [submodule "code/memory_pair_exp"]
 	path = code/memory_pair_exp
 	url = https://github.com/kennonstewart/memory-pair-exp.git
-[submodule "data"]
-	path = data
-	url = https://github.com/kennonstewart/data_loader.git
