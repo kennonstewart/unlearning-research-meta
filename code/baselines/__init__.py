@@ -37,3 +37,31 @@ class OnlineNewtonStep:
         self.H += np.outer(x, x)
         self.theta -= np.linalg.inv(self.H) @ grad
         return 0.5 * (pred - y) ** 2
+
+class SekhariBatchUnlearning:
+    def __init__(self, dim):
+        self.theta = np.zeros(dim)
+
+    def insert(self, x, y):
+        pass
+
+    def delete(self, x, y):
+        pass
+
+class QiaoHessianFree:
+    def __init__(self, dim):
+        self.theta = np.zeros(dim)
+
+    def insert(self, x, y):
+        pass
+
+    def delete(self, x, y):
+        pass
+
+__all__ = [
+    'OnlineSGD',
+    'AdaGrad',
+    'OnlineNewtonStep',
+    'SekhariBatchUnlearning',
+    'QiaoHessianFree',
+]

@@ -1,14 +1,18 @@
 import json
 import os
+import sys
 import click
 import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
 from data_loader import get_cifar10_stream, get_covtype_stream
 from code.memory_pair.src.memory_pair import StreamNewtonMemoryPair as MemoryPair
+from baselines import SekhariBatchUnlearning, QiaoHessianFree
 
 ALGO_MAP = {
     "memorypair": MemoryPair,
-    "sekhari": MemoryPair,
-    "qiao": MemoryPair,
+    "sekhari": SekhariBatchUnlearning,
+    "qiao": QiaoHessianFree,
 }
 
 DATASET_MAP = {
