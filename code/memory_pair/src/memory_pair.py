@@ -1,3 +1,6 @@
+# code/memory_pair/src/memory_pair.py
+# Stream-based Newton method with L-BFGS for online learning and deletion.
+# This module implements a memory pair model that supports efficient unlearning.
 import logging
 import numpy as np
 

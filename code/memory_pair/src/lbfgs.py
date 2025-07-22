@@ -1,3 +1,5 @@
+# /code/memory_pair/src/lbfgs.py
+# Limited Memory BFGS implementation for curvature pair storage and direction computation.
 import numpy as np
 
 
