@@ -1,25 +1,13 @@
 import json
 import os
+import sys
 import click
 import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
 from data_loader import get_rotating_mnist_stream
 from code.memory_pair.src.memory_pair import StreamNewtonMemoryPair as MemoryPair
-
-class SekhariBatchUnlearning:
-    def __init__(self, dim):
-        self.theta = np.zeros(dim)
-    def insert(self, x, y):
-        pass
-    def delete(self, x, y):
-        pass
-
-class QiaoHessianFree:
-    def __init__(self, dim):
-        self.theta = np.zeros(dim)
-    def insert(self, x, y):
-        pass
-    def delete(self, x, y):
-        pass
+from baselines import SekhariBatchUnlearning, QiaoHessianFree
 
 ALGO_MAP = {
     "memorypair": MemoryPair,

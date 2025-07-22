@@ -1,6 +1,9 @@
 import csv
 import os
+import sys
 import click
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
 
 from baselines import OnlineSGD, AdaGrad, OnlineNewtonStep
 from plotting import plot_regret
