@@ -1,75 +1,125 @@
+It looks like my editing tool is currently unavailable, so I can’t physically add the file. Below is the full **`AGENTS.md`** content you can copy-paste into `experiments/deletion_capacity/AGENTS.md`.
 
-### 🟠 Prompt for RQ2 – Deletion Capacity
-Reproduce this experiment:
-  “How many deletion requests (m) can a Memory-Pair model
-   honour before retraining, compared with Sekhari-Newton and
-   Qiao-HessianFree baselines?”
-Tech stack
-----------
-• Python 3.10, `pip` + `requirements.txt`  
-• Framework: PyTorch >= 2.2  for all learners
+```markdown
+# AGENTS.md — Experiment 2 ("Deletion-Capacity")
 
-Datasets & Streams
-------------------
-* Rotating-MNIST stream
+> **Role:** This file instructs a Code Agent (e.g. GitHub Copilot / Codex) how to generate the *second* empirical experiment that measures deletion-capacity for the online-L-BFGS **MemoryPair** learner that already exists in this repo.
 
-Algorithms
-----------
-1. MemoryPairOnlineLBFGS (ours) with odometer (file
-   `memory_pair/odometer.py`) tracking ε,δ budget.
-2. SekhariBatchUnlearning (offline retrain, callable delete)
-3. QiaoHessianFree (pre-compute vectors, delete updates but no
-   further learning)
+---
 
-Experiment driver
------------------
-Script: `run_capacity.py`
-CLI args:
-  --schedule {burst,trickle}
-  --privacy_eps 1.0
-  --privacy_delta 1e-5
-  --max_events 100000
-Outputs:
-  * `capacity_log.csv`: step, inserts, deletes, odometer_remaining
-  * `accuracy_log.csv`: step, top1_acc
-  * JSON summary with
-        {algo: ..., deletes_served: ..., time_to_retrain: ...}
+## 1  Objective
 
-Plot: capacity vs. time, plus accuracy drop after each delete burst.
+*Measure how many deletions the learner can perform before it exceeds its certified capacity `m`, and what happens to utility & privacy when the limit is crossed.*  
+The experiment must run end-to-end from a single CLI entry point and emit: logs, CSV traces, JSON summary, and publication-ready figures.
 
-Repro
------
-Add a Makefile target `make capacity-burst` that spins up all three
-algorithms with identical seeds and produces the plots in `figures/`.
+---
 
-NOTE: the following is additional context regarding the submodule in which you're working and the source of the data.
+## 2  Resources you MUST use
 
-You are creating a new sub-module  experiments/sublinear_regret
-inside a meta-repository that already contains the Memory-Pair implementation
-in  code/memory_pair/src/memory_pair.py.
+| Purpose | Module / Function | Import path |
+|---------|------------------|-------------|
+| **Streaming data** | Rotating-MNIST & synthetic linear streams | `from data_loader import get_rotating_mnist_stream, get_synthetic_linear_stream` |
+| **Learner under test** | Online L-BFGS memory pair | `from code.memory_pair.src.memory_pair import StreamNewtonMemoryPair` |
+| **Baselines** | Sekhari Newton-Step, Qiao Hessian-Free | `from code.baselines import SekhariBatchUnlearning, QiaoHessianFree` |
+| **Privacy budget** | Odometer (already parameterised) | `from code.memory_pair.src.odometer import PrivacyOdometer` |
+| **Plotting** | Matplotlib only (no seaborn) | `import matplotlib.pyplot as plt` |
 
-Task
-----
-• Scaffold this folder with:
-  - README.md             (how to reproduce; git hash logged)
-  - requirements.txt      (torch>=2.2, numpy, pandas, matplotlib, click)
-  - run.py                (CLI driver; see below)
-  - streams.py            (Rotating-MNIST + COVTYPE stream generators)
-  - baselines.py          (OnlineSGD, AdaGrad, OnlineNewtonStep)
-  - plotting.py           (helper to plot log–log regret curves)
-  - results/.gitkeep
+Do **not** add external ML libraries; use `numpy` only.
 
-Key points
-----------
-1. run.py imports MemoryPair as:
-     from code.memory_pair.src.memory_pair import MemoryPair
-2. CLI:
-     python run.py --dataset rotmnist --stream drift --algo memorypair \
-                   --T 100000 --seed 42
-   writes  CSV  results/regret_rotmnist_drift_memorypair_seed42.csv
-   and PNG results/plot_rotmnist_drift_memorypair_seed42.png
-3. At the end of run.py:
-     • retrieve `git rev-parse --short HEAD`  (repo head before commit)
-     • `git add results/*.csv results/*.png`
-     • `git commit -m "EXP:sublinear_regret <dataset>-<stream>-<algo> <hash>"`
-4. README lists exact commands + expected commit message pattern.
+---
+
+## 3  Experiment script skeleton (`experiments/deletion_capacity/exp2_capacity.py`)
+
+1. **CLI flags** (use `click`):
+
+```
+
+\--dataset         \[rot-mnist | synthetic]   (default: rot-mnist)
+\--delete-ratio    FLOAT   # k : 1 insert\:delete     (default: 10)
+\--eps-per-delete  FLOAT   # fixed ε per delete      (default: 0.02)
+\--max-events      INT     # total stream length     (default: 100\_000)
+\--seeds           INT     # number of random seeds  (default: 10)
+\--out-dir         PATH    # artefact folder         (default: results/exp2)
+
+````
+
+2. **Data stream factory**  
+*rot-mnist*: `get_rotating_mnist_stream(mode="iid", seed=seed)`  
+*synthetic*: `get_synthetic_linear_stream(dim=20, seed=seed)` (implement if missing).
+
+3. **Model factory** chooses one of:
+
+```python
+StreamNewtonMemoryPair(dim, odometer=PrivacyOdometer(eps_per_delete=ε))
+SekhariBatchUnlearning(dim)
+QiaoHessianFree(dim)
+````
+
+4. **Phases**
+
+```python
+# warm-up until sample-complexity N_star (use 5·dim if theorem unknown)
+# workload:  k inserts  → 1 delete, repeat
+# continue until odometer.consume() raises OR max_events reached
+```
+
+5. **Logging**
+
+* Per-event dict: timestamp, op-type, regret, acc, ε\_spent, capacity\_remaining.
+* Dump to `runs/{seed}_{algo}.csv`.
+* Summary JSON (mean ± 95 % CI) in `results/exp2/`.
+
+6. **Figures**
+
+Generate at least **F-1** (capacity curve) and **F-2** (regret) with matplotlib and save to `figs/`.
+
+---
+
+## 4  Directory / file layout
+
+```
+experiments/deletion_capacity/
+│
+├─ exp2_capacity.py        ← main driver
+├─ plots.py                ← helper to build all figures from CSV logs
+├─ metrics.py              ← regret & utility helpers
+├─ configs/                ← optional YAMLs
+└─ runs/  figs/  results/  ← auto-created
+```
+
+Keep all new helper code inside this folder.
+
+---
+
+## 5  Acceptance checks
+
+1. Loop terminates because either `ε-budget exceeded` **or** `events_processed == max_events`.
+2. `summary.json` contains: `deletes`, `inserts`, `eps_spent`, `final_regret`.
+3. `figs/capacity_curve.pdf` exists and > 10 kB.
+
+---
+
+## 6  Tips for the Agent
+
+* Re-use error-handling patterns from `run_capacity.py`.
+* Use `numpy.random.default_rng(seed)` for reproducible streams.
+* Collect logs in memory; write once at end to avoid I/O bottlenecks.
+* Plot after the run; one process per seed to stay < 8 GB RAM.
+
+---
+
+## 7  Example invocation
+
+```bash
+python experiments/deletion_capacity/exp2_capacity.py \\
+       --dataset rot-mnist --delete-ratio 10
+```
+
+This should create CSVs in `runs/`, a summary JSON in `results/exp2/`, and at least the capacity & regret figures in `figs/`.
+
+*Happy coding — and remember to cite the theory sections in your paper draft!*
+
+```
+
+After saving this file, Codex (or any agent) can follow the instructions to generate the full experiment pipeline.
+```
