@@ -1,0 +1,8 @@
+[project]
+name = "memory_pair"
+version = "0.0.1"
+dependencies = ["numpy"]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
