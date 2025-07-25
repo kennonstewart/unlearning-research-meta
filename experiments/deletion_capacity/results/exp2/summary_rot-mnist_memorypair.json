@@ -5,6 +5,6 @@
   "deletes_ci95": 0.0,
   "eps_spent_mean": 0.9800000000000006,
   "eps_spent_ci95": 7.253457094217689e-17,
-  "final_regret_mean": 9.312090229513503e+34,
-  "final_regret_ci95": 1.2051872794823574e+19
+  "final_regret_mean": 4952897879425343.0,
+  "final_regret_ci95": 2233073498710132.2
 }
