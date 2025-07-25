@@ -1,0 +1,21 @@
+% Minimal algorithm.sty for LaTeX algorithm environment
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{algorithm}[2025/07/25 Minimal algorithm environment]
+
+% Define the algorithm float
+def\@algocf@float{%
+  \newfloat{algorithm}{htbp}{loa}
+  \floatname{algorithm}{Algorithm}
+}
+\@algocf@float
+
+% Provide \caption for algorithm
+\newcommand{\algcaption}[1]{\caption{#1}}
+
+% Provide \listofalgorithms
+\newcommand{\listofalgorithms}{\listof{algorithm}{List of Algorithms}}
+
+% Provide \algref for referencing
+\newcommand{\algref}[1]{Algorithm~\ref{#1}}
+
+% End of minimal algorithm.sty

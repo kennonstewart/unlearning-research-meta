@@ -2,13 +2,16 @@
 
 \usepackage[utf8]{inputenc}
 \usepackage[english]{babel}
+\usepackage{algorithm}
 \usepackage{comment}
 \usepackage{amssymb,amsmath,amsthm}
-\usepackage{algpseudocode, algorithm}
-\newtheorem{theorem}{Theorem}
-\newtheorem{lemma}{Lemma}
-\newtheorem{assumption}{Assumption}
-\newtheorem{definition}{Definition}
+\usepackage{graphicx}
+
+% set the theorem styles according to the argument
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{assumption}[theorem]{Assumption}
+\newtheorem{definition}[theorem]{Definition}
 
 
 \begin{document}
@@ -21,6 +24,7 @@ Modern digital services need ML pipelines that learn, unlearn, and predict conti
 
 
 \section{Introduction}
+\label{sec:intro}
 
 Industry has transitioned to a serverless and event-based cloud architecture for software. State changes are communicated with ACID transactions that contain as much information as the data store itself. Developers need stream-native learners that can learn continuously while performing inference.
 
@@ -28,11 +32,10 @@ The problem is made more interesting by recent legislation. The European Union's
 
 We provide a framework for online algorithms that encompasses both learning and unlearning. We build specifically for the case of distributed systems where learning and unlearning are \textbf{necessary, interleaved} operations used to refine model accuracy. We show that the memory pair meets state of the art regret guarantees with a sublinear memory footprint particularly suited for online learning. It also satisfies $(\epsilon,\delta)$-unlearning requirements, which makes it particularly suitable for the task of machine learning.
 
-\Comment{Mention something about the carbon footprint!}
-
 Machine unlearning research has begun to address the privacy side.  The frameworks of Sekhari et al. and Qiao et al. provide provable $(\varepsilon,\delta)$ guarantees that a post-hoc deletion yields (in distribution) the same parameters as a fresh retrain.  However, both assume an offline model that never learns again after deletion. We assume a stream environment where distributions drift continuously, and we show that our model adapts to such environments while preserving performance.
 
 \section{Stream-Native Learning}
+\label{sec:stream-native}
 
 The next generation of ML systems must treat \textit{learning}, \textit{forgetting}, and \textit{predicting} as first-class, intertwined operations performed on a live data stream.  To this end we introduce the \textbf{Memory Pair} pipeline:
 
@@ -52,6 +55,7 @@ Our Memory Pair framework adapts these core ideas for a dynamic, online setting.
 The Memory Pair is not just a generalization of the batch algorithm but a \textit{necessary evolution} designed to handle the continuous learning, forgetting, and inference demands of a live data stream.
 
 \section{Preliminaries}
+\label{sec:prelim}
 
 We start by framing our learners within the online learning paradigm. Batch learning  minimizes the loss function evaluated over a static training set. We instead use the seminal notion of regret, which appropriately compares the online learner to the best possible model in hindsight for a particular realized sequence of events.
 
@@ -94,10 +98,10 @@ $$
 \text{unlearn step: } \bar{\theta_{t}} = \bar{A}(\theta_{t-1},E_{t})
 $$
 
-Denote by $\tilde\theta_{t}$ the ideal replay model: the model state achieved by processing all \textsc{insert} events up to time $t$ except those whose index has appeared in a prior \textsc{delete} event. Fix an accuracy target $\gamma$, confidence $\delta$, privacy budget $(\varepsilon^\star,\delta^\star)$, and deletion capacity $m$. Then $(A,\bar A)$ is a \emph{$(\gamma,m,\varepsilon^\star,\delta^\star)$-memory pair} if the following hold for every event stream and for all horizons $N$:
+Denote by $\tilde \theta_{t}$ the ideal replay model: the model state achieved by processing all \textsc{insert} events up to time $t$ except those whose index has appeared in a prior \textsc{delete} event. Fix an accuracy target $\gamma$, confidence $\delta$, privacy budget $(\varepsilon^{\star},\delta^{\star})$, and deletion capacity $m$. Then $(A,\bar A)$ is a \emph{$(\gamma,m,\varepsilon^{\star},\delta^{\star})$-memory pair} if the following hold for every event stream and for all horizons $N$:
 
 \begin{enumerate}
-\item \textbf{Online accuracy.} The learner’s average regret over the realized stream satisfies
+\item \textbf{Online accuracy.} The average regret over the realized stream satisfies
 
 \[
 \Pr\!\bigl[\tfrac{1}{N} R_N(\theta)\le\gamma\bigr] \;\ge\; 1-\delta.
@@ -108,7 +112,7 @@ Denote by $\tilde\theta_{t}$ the ideal replay model: the model state achieved by
     \Pr[\tilde\theta_t\in S] \le e^{\varepsilon^\star}\Pr[\bar\theta_t\in S]+\delta^\star \quad \text{and} \quad \Pr[\bar\theta_t\in S] \le e^{\varepsilon^\star}\Pr[\tilde\theta_t\in S]+\delta^\star.
 \]
 
-\item \textbf{m-deletion capacity.} Let $D_N$ be the number of \textsc{delete} events up to $N$. If $D_N\le m$, then Conditions (I)–(II) hold.
+\item \textbf{m-deletion capacity.} Let $D_N$ be the number of \textsc{delete} events up to $N$. If $D_N\le m$, then Conditions (I) and (II) hold.
 
 \end{enumerate}
 \end{definition}
@@ -122,6 +126,7 @@ This algorithm is inspired by the Newton Step algorithm for certifiable machine 
 There is a very natural relationship between performing well on an unseen test dataset and performing well on a sequence of incrementally-revealed stream events in the online setting. We build on Sekhari et al.'s initial work by pairing the learning and unlearning processes into a single framework, expanding performance guarantees to the online case, and providing online generalizations of the notions of sample complexity and deletion capacity. We additionally replace the expensive Hessian inversion with an online variant of L-BFGS that removes the linearly-scaled memory footprint.
 
 \section{Memory Pair}
+\label{sec:memory-pair}
 
 \subsection{Newton-Step Approach to Machine Unlearning}
 
@@ -140,7 +145,6 @@ The insert method implements online learning without the expensive Hessian inver
 The method efficiently updates the gradient near-instantaneously by computing the current gradient with respect to the point. The curvature points from the L-BFGS are then used to approximate something like a Hessian inversion. The key is to use the second-order curvature information from the saved points to approximate the curvature of the whole function.
 
 When the curvature points are used to approximate the second-order information for a whole function, the choice of points holds some weight. The online variant of L-BFGS is used for precisely this reason, easily ingesting and disposing of curvature points as additional information is fed through the insertion operations.
-
 
 \begin{algorithm}
 \caption{Memory Pair Insertion}\label{alg:insertion}
@@ -218,6 +222,7 @@ The framework acts as accountant by tracking two metrics: \texttt{deletions\_so\
 This finite capacity is not an arbitrary limitation but a necessary consequence of the inherent tension between privacy and accuracy. Each deletion operation injects calibrated noise into the model's parameters to satisfy the $(\epsilon, \delta)$-unlearning guarantee. While a single injection has a negligible effect, the cumulative impact of this noise degrades model accuracy. The $m$-deletion capacity thus represents the maximum number of deletions the model can sustain while ensuring that the cumulative noise does not overwhelm the learning signal and violate the learner's average regret bound, $\gamma$.
 
 \section{Theoretical Evaluation}
+\label{sec:theory}
 
 The move from batch to stochastic setting is made easier by Sekhari et al.'s  proof of an unlearning algorithm with guaranteed performance on unseen data. Such a tool wonderfully translates the stochastic notion of population risk to the online notion of regret. While population risk measures the model's performance against a static underlying dataset, cumulative regret evaluates our learner against the \textit{best static model in hindsight for the specific, realized sequence of data}.
 
@@ -226,14 +231,6 @@ Our goal becomes more complex because of the optimizations used to approximate t
 \subsection{Analyzing the Impact of a Single Deletion}
 
 We first analyze the impact of a single \textsc{delete} operation on the model's state. We use the convexity assumptions that are common in linear optimization to derive a bound in terms of the strength of the convexity assumption, $\lambda$, and the number of parameters, $L$.
-
-\begin{lemma}[Bounded Influence of a Single Deletion]
-\label{lem:bounded-influence}
-For a deletion operation on a data point $z=(x, y)$, let the influence direction be $d$. Under Assumptions A and B, the L2-norm of the influence direction is bounded such that:
-$$
-||d||_2 \leq \frac{L}{\lambda}
-$$
-\end{lemma}
 
 \begin{assumption}[L-Bounded Gradients]
 \label{assum:lipschitz}
@@ -245,16 +242,22 @@ The loss function $\mathcal{L}(\theta; z) = \frac{1}{2}(\theta^T x - y)^2$ has L
 The online L-BFGS procedure maintains an inverse Hessian approximation, $B^{-1}$, whose spectral norm is bounded. This reflects the $\lambda$-strong convexity of the learning problem, such that $||B^{-1}||_2 \leq 1/\lambda$.
 \end{assumption}
 
-The key is in the calibration. We use the upper bound of the norm of the step direction to indicate the "worst-case" of a single deletion. We're then able to carefully calibrate the noise in our Gaussian Mechanism to "blur" the effect of the deletion itself. This ensures that the deletion of one point is statistically indistinguishable from that of another, and prevents adversarial information leakage.
+\begin{lemma}[Influence of a Single Deletion]
+\label{lem:bounded-influence}
+For a deletion operation on a data point $z=(x, y)$, let the influence direction be $d$. Under Assumptions A and B, the L2-norm of the influence direction is bounded such that:
+$$
+||d||_2 \leq \frac{L}{\lambda}
+$$
+\end{lemma}
 
+The key is in the calibration. We use the upper bound of the norm of the step direction to indicate the worst-case of a single deletion. We're then able to carefully calibrate the noise in our Gaussian Mechanism to blur the effect of the deletion itself. This ensures that the deletion of one point is statistically indistinguishable from that of another, and prevents adversarial information leakage.
 
-\begin{theorem}
+\begin{theorem}[Single‑step $(\varepsilon,\delta)$‑unlearning]
 \label{thm:single-step-unlearning}
-Let the influence direction $d$ be bounded as in Lemma \ref{lem:bounded-influence}. If noise $\eta \sim \mathcal{N}(0, \sigma^2 I)$ is drawn with variance $\sigma^2$ calibrated such that:
-$$
-\sigma \ge \frac{(L/\lambda) \sqrt{2 \ln(1.25/\delta)}}{\epsilon}
-$$
-The updated model $\bar{\theta} = \theta - d + \eta$ satisfies $(\epsilon, \delta)$-unlearning with respect to the deleted point.
+If noise $\eta\sim\mathcal N(0,\sigma^2 I)$ with  
+$\sigma \ge \frac{(L/\lambda)\sqrt{2\ln(1.25/\delta)}}{\varepsilon}$  
+is added as in Algorithm \ref{alg:deletion}, the update
+$\bar\theta=\theta-d+\eta$ satisfies $(\varepsilon,\delta)$‑unlearning.
 \end{theorem}
 
 Since we've bound the largest possible impact from a single deletion, we're able to generalize to a stream of up to $m$ valid deletions. We bound the strength of our noise to the sensitivity of the delete operation to ensure the injected noise doesn't degrade model performance.
@@ -265,7 +268,7 @@ Since we've bound the largest possible impact from a single deletion, we're able
 Fix a privacy target $(\varepsilon^{\star},\delta^{\star})\in(0,1]^{2}$ and a maximum deletion capacity $m\in\mathbb{N}$. Let the memory pair $(A,\bar A)$ operate on a stream of $T$ events that contains at most $m$ delete requests. During the $j^{\text{th}}$ delete ($1\le j\le m$) the unlearning routine
 
 \begin{enumerate}
-    \item computes the influence vector $d_{j} = -B_{t_{j}}^{-1}\nabla \ell_{t_{j}}(w_{t_{j}})$, which is bounded by Lemma~\ref{lem:bounded-influence}
+    \item computes the influence vector $d_{j} = -B_{t_{j}}^{-1}\nabla \ell_{t_{j}}(w_{t_{j}})$, which is bounded by Lemma~\ref{assum:lipschitz}
     \item adds Gaussian noise $\eta_j\sim\mathcal N\!\bigl(0,\sigma_{\text{step}}^2\mathbf I_d\bigr)$ with 
     \[
     \sigma_{\text{step}}^2
@@ -283,7 +286,7 @@ Fix a privacy target $(\varepsilon^{\star},\delta^{\star})\in(0,1]^{2}$ and a ma
 
 Then, for \emph{any} sequence of at most $m$ deletions and \emph{any}
 adversarially chosen stream of $T$ loss functions
-$\{\ell_t\}_{t=1}^{T}$ that satisfy Assumption~\ref{ass:lipschitz},
+$\{\ell_t\}_{t=1}^{T}$ that satisfy Assumption~\ref{assum:lipschitz},
 
 \begin{enumerate}
 \item \textbf{Privacy / unlearning.}  
@@ -364,6 +367,7 @@ We show that the regret bounds established for a single event hold across the en
 We're able to then describe the $\gamma$-deletion capacity bound or the $\gamma$-sample complexity bound as follows.
 
 \begin{theorem} [$\gamma$-Deletion Capacity Bound]
+\label{thm:gamma-capacity}
 
 The memory pair processes valid sequences of up to $m$ deletions without sacrificing $\gamma$ regret bound guarantees.
 
@@ -374,6 +378,7 @@ $$
 \end{theorem}
 
 \begin{theorem} [$\gamma$-Sample Complexity Bound]
+\label{them:gamma-sample}
 
 At least $N$ training examples are required to achieve $\gamma$-regret guarantees.
 
@@ -382,7 +387,7 @@ We take the inequality from Theorem 4 and plug in the maximum value for $N$, whi
 \end{theorem}
 
 \begin{theorem}[Bounded Cumulative Regret for Online L-BFGS]
-\label{thm:regret-bound}
+\label{thm:regret-lbfgs}
 Let the online learner operate under Assumption \ref{assum:online-setting}. Let the inverse curvature matrix $B_t^{-1}$ be updated by the L-BFGS algorithm and satisfy the eigenvalue bounds from Lemma \ref{lem:eigenvalue-bound}. With a non-increasing step size sequence, the cumulative regret $R_T$ against the best fixed comparator $w^\star$ is bounded by:
 $$
 R_T \le GD\sqrt{cCT} = O(\sqrt{T})
@@ -441,9 +446,25 @@ R_T \le GD\sqrt{cCT} = O(\sqrt{T})
 $$
 Since $c$ and $C$ are constants independent of $T$, the cumulative regret is sub-linear, completing the proof.
 \end{proof}
+\section{Experiments}
+\subsection{Sublinear Regret Experiment}
 
+We evaluate the performance of the Memory Pair algorithm on a nonstationary variant of the Rotated MNIST dataset, streamed as a sequence of \texttt{insert} events. Our goal is to assess whether the algorithm achieves sublinear cumulative regret under continual learning.
 
-\section{Experimental Analysis}
+\paragraph{Experimental Setup.} We benchmark against AdaGrad, Stochastic Gradient Descent (SGD), and the Online Newton Step (ONS), three canonical online learners with varying adaptability to nonstationarity. Each method processes a shared data stream, and cumulative regret is computed with respect to a hindsight-optimal comparator.
+
+\paragraph{Asymptotic Behavior.} Figure~\ref{fig:enter-label} displays the log-log plot of cumulative regret versus the number of iterations for the Memory Pair algorithm. The curvature of the trajectory initially follows a steep slope, which eventually flattens in the asymptotic region. To quantify this plateau, we fit a linear model to the tail of the log-log curve.
+
+The resulting slope of approximately $0.0016$ suggests that the per-iteration regret approaches zero asymptotically, consistent with sublinear cumulative regret. This behavior contrasts with ONS and SGD, which plateau at nonzero slopes or exhibit linear growth, indicating constant or unbounded per-step regret.
+
+\paragraph{Interpretation.} The nearly flat tail of the log-log curve implies that the cumulative regret grows sublinearly with the number of rounds, i.e., $\mathcal{R}_T = o(T)$, which in turn guarantees that the average regret $\mathcal{R}_T / T \to 0$ as $T \to \infty$. This empirical result validates the design goal of the Memory Pair: to ensure long-term learning performance in streaming settings without incurring linear regret under drift.
+
+\begin{figure}
+\centering
+\includegraphics[width=1\linewidth]{rotmnist_drift_memorypair_loglog_fit.png}
+\caption{Log-log cumulative regret of the Memory Pair algorithm on streaming Rotated MNIST. A linear fit to the asymptotic regime indicates a slope of $0.0016$, supporting the sublinear regret claim.}
+\label{fig:enter-label}
+\end{figure}
 
 \section{Related Work}
 
@@ -451,67 +472,6 @@ Since $c$ and $C$ are constants independent of $T$, the cumulative regret is sub
 
 
 \section{Appendix}
-
-Proof of Lemma 1
-The unlearning algorithm computes the influence direction $d$ by approximating the Newton step $d \approx -B^{-1}g$, where $g$ is the gradient for the deleted point. Taking the L2-norm and applying the property of matrix norms, we have:
-$$
-||d||_2 = ||-B^{-1}g||_2 \le ||B^{-1}||_2 ||g||_2
-$$
-Substituting the bounds from Assumption \ref{assum:stable-lbfgs} ($||B^{-1}||_2 \leq 1/\lambda$) and Assumption \ref{assum:lipschitz} ($||g||_2 \leq L$), we arrive at the bound:
-$$
-||d||_2 \le \frac{L}{\lambda}
-$$
-Proof of Theorem 1
-
-
-\begin{theorem}
-\label{thm:single-step-unlearning}
-Let the influence direction $d$ be bounded as in Lemma \ref{lem:bounded-influence}. If noise $\eta \sim \mathcal{N}(0, \sigma^2 I)$ is drawn with variance $\sigma^2$ calibrated such that:
-$$
-\sigma \ge \frac{(L/\lambda) \sqrt{2 \ln(1.25/\delta)}}{\epsilon}
-$$
-The updated model $\bar{\theta} = \theta - d + \eta$ satisfies $(\epsilon, \delta)$-unlearning with respect to the deleted point.
-
-(i) Privacy.}
-Each deletion step is a Gaussian mechanism whose $(\varepsilon_{\text{step}},\,
-\delta_{\text{step}})$ parameters are calibrated exactly as in
-Theorem~\ref{thm:gaussian}.  
-By basic sequential composition for differential privacy,
-the $m$ deletions together are
-$(m\varepsilon_{\text{step}},\,m\delta_{\text{step}})$‑DP, i.e.\
-$(\varepsilon^\star,\delta^\star)$‑DP, which coincides with the
-online‑unlearning requirement of Def.\,\ref{def:memory-pair}(II).
-
-\medskip
-\noindent
-\textbf{(ii) Regret.}
-Let $R_{T}^{0}$ denote the regret incurred by the noise‑free iterates
-$\{\hat w_{t}\}$ obtained from Algorithm 1 (insertions) and noiseless
-Algorithm 2 (deletions).
-Theorem~\ref{thm:regret-lbfgs} gives
-$R_{T}^{0} \le GD\sqrt{cCT}$.
-
-For the $j^{\text{th}}$ deletion, loss Lipschitzness implies  
-$\bigl|\ell_{t_j}(w_{t_j}^{\text{new}})-\ell_{t_j}(\hat w_{t_j})\bigr|
-      \le G\lVert\eta_j\rVert_2$.
-Because $\lVert\eta_j\rVert_2$ is sub‑Gaussian with parameter
-$\sigma_{\text{step}}$, a union bound plus
-$\|\eta_j\|_2 \le
-  (L/\lambda)\sqrt{2\ln(1.25m/\delta^{\star})}\,/\varepsilon^{\star}
-  \cdot\sqrt{2\ln(1/\delta_{\mathrm{B}})}$
-holds simultaneously for all $m$ deletions
-with probability $1-\delta^\star-\delta_{\mathrm{B}}$.
-Adding these $m$ increments to $R_{T}^{0}$ yields the stated bound.
-
-Since the noise term is $O(m)$ while the first term is
-$O(\sqrt{T})$, the overall regret remains sub‑linear in $T$.
-
-Consider the Hessian approximation $B_t$ generated by the online L-BFGS updates. If Assumption \ref{assum:bounded-hessian} holds, then the trace of $B_t$ is uniformly upper-bounded and its determinant is uniformly lower-bounded for all $t \ge 1$:
-\begin{enumerate}
-    \item $tr(B_t) \le (n+\tau)\tilde{M}$
-    \item $det(B_t) \ge \frac{\tilde{m}^{n+\tau}}{[(n+\tau)\tilde{M}]^{\tau}}$
-\end{enumerate}
-
 
 \begin{lemma}[Positive Curvature Condition]
 \label{lem:positive-curvature}
@@ -575,49 +535,9 @@ The bounds are a direct consequence of Lemma \ref{lem:trace-det-bound}.
 \end{enumerate}
 \end{proof}
 
-
-\begin{proof}
-\textbf{(i) Privacy.}
-Each deletion step is a Gaussian mechanism whose $(\varepsilon_{\text{step}},\,
-\delta_{\text{step}})$ parameters are calibrated exactly as in
-Theorem~\ref{thm:gaussian}.  
-By basic sequential composition for differential privacy,
-the $m$ deletions together are
-$(m\varepsilon_{\text{step}},\,m\delta_{\text{step}})$‑DP, i.e.\
-$(\varepsilon^\star,\delta^\star)$‑DP, which coincides with the
-online‑unlearning requirement of Def.\,\ref{def:memory-pair}(II).
-
-\medskip
-\noindent
-\textbf{(ii) Regret.}
-Let $R_{T}^{0}$ denote the regret incurred by the noise‑free iterates
-$\{\hat w_{t}\}$ obtained from Algorithm 1 (insertions) and noiseless
-Algorithm 2 (deletions).
-Theorem~\ref{thm:regret-lbfgs} gives
-$R_{T}^{0} \le GD\sqrt{cCT}$.
-
-For the $j^{\text{th}}$ deletion, loss Lipschitzness implies  
-$\bigl|\ell_{t_j}(w_{t_j}^{\text{new}})-\ell_{t_j}(\hat w_{t_j})\bigr|
-      \le G\lVert\eta_j\rVert_2$.
-Because $\lVert\eta_j\rVert_2$ is sub‑Gaussian with parameter
-$\sigma_{\text{step}}$, a union bound plus
-$\|\eta_j\|_2 \le
-  (L/\lambda)\sqrt{2\ln(1.25m/\delta^{\star})}\,/\varepsilon^{\star}
-  \cdot\sqrt{2\ln(1/\delta_{\mathrm{B}})}$
-holds simultaneously for all $m$ deletions
-with probability $1-\delta^\star-\delta_{\mathrm{B}}$.
-Adding these $m$ increments to $R_{T}^{0}$ yields the stated bound.
-
-Since the noise term is $O(m)$ while the first term is
-$O(\sqrt{T})$, the overall regret remains sub‑linear in $T$.
-\end{proof}
-
-
 \begin{proof}
 The proof proceeds by first bounding the per-round regret and then summing these bounds over all $T$ rounds. The learner produces weights via the update $w_{t+1} = \Pi_{\mathcal{W}}(w_t + \eta_t d_t)$, where $d_t = -B_t^{-1}g_t$ and $g_t = \nabla\ell_t(w_t)$.
-
 \textbf{Step 1: Bounding the per-round regret.}
-
 By the convexity of $\ell_t$, the per-round regret is bounded by the inner product with the gradient:
 $$
 \ell_t(w_t) - \ell_t(w^\star) \le \langle g_t, w_t - w^\star \rangle
@@ -635,9 +555,7 @@ From Lemma \ref{lem:eigenvalue-bound}, we know $||B_t^{-1}||_2 \le 1/c$, so $||d
 \begin{equation} \label{eq:per_round_bound}
 \ell_t(w_t) - \ell_t(w^\star) \le \frac{\|w_t - w^\star\|^2 - \|w_{t+1} - w^\star\|^2}{2\eta_t} + \frac{\eta_t G^2}{2c}
 \end{equation}
-
 \textbf{Step 2: Summing over rounds.}
-
 We sum the bound in \eqref{eq:per_round_bound} from $t=1$ to $T$. The first term on the right-hand side telescopes:
 $$
 R_T = \sum_{t=1}^T (\ell_t(w_t) - \ell_t(w^\star)) \le \sum_{t=1}^T \frac{\|w_t - w^\star\|^2 - \|w_{t+1} - w^\star\|^2}{2\eta_t} + \frac{G^2}{2c}\sum_{t=1}^T \eta_t
@@ -654,31 +572,6 @@ While a more careful analysis of the telescoping sum with a time-varying step si
 $$
 R_T \le GD\sqrt{cCT} = O(\sqrt{T})
 $$
-Since $c$ and $C$ are constants independent of $T$, the cumulative regret is sub-linear, completing the proof.
+Since $c$ and $C$ are constants independen of $T$, the cumulative regret is sub-linear, completing the proof.
 \end{proof}
-
-\subsection{Additional Definitions}
-
-\begin{definition}[Sample Complexity of Online Learning]
-    The $\gamma$-sample complexity of an online algorithm A is defined as the minimum number of learned points such that average regret is bounded to $\gamma$.
-    $$
-    n_{\gamma}(A) = \min \{n \mid \exists \text{ A s.t. }\mathbb{E}[ R_{N}] \leq \gamma \text{ and } c_{A(N)} \geq m\}
-    $$
-    where $c_{A(N)}$ is the remaining odometer budget after $A$ has processed at least $N$ samples.
-\end{definition}
-
-\begin{definition}[$\gamma$-Deletion Capacity]
-    The $\gamma$-deletion capacity of an unlearning algorithm $\bar{A}$ is the largest integer $m$ such that for every outcome stream of length N, and deletion schedule $\mid \mathcal{D} \mid \leq m$ the learner satisfies
-
-    $$
-    \Pr [ R^{\bar{A}}_{N} \leq \gamma] \geq 1-\delta
-    $$
-
-    even after having fulfilled any sequence of up to $m$ deletion requests.
-\end{definition}
-
-
-\bibliographystyle{IEEEtran}
-\bibliography{references}
-
 \end{document}

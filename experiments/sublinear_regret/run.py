@@ -11,7 +11,7 @@ from plotting import plot_regret
 from data_loader import get_rotating_mnist_stream, get_covtype_stream
 
 # StreamNewtonMemoryPair provides the online delete-insert functionality
-from code.memory_pair.src.memory_pair import StreamNewtonMemoryPair as MemoryPair
+from memory_pair.src.memory_pair import StreamNewtonMemoryPair as MemoryPair
 
 ALGO_MAP = {
     "memorypair": MemoryPair,
@@ -50,12 +50,12 @@ def main(dataset, stream, algo, t, seed):
         writer = csv.writer(f)
         writer.writerow(["step", "regret"])
         x, y = first_x, first_y
-        loss = model.step(x, y)
+        loss = model.insert(x, y)
         cum_regret += loss
         writer.writerow([1, cum_regret])
         for step, (x, y) in enumerate(stream_gen, start=2):
             x = x.reshape(-1)
-            loss = model.step(x, y)
+            loss = model.insert(x, y)
             cum_regret += loss
             if step % 100 == 0:
                 writer.writerow([step, cum_regret])
