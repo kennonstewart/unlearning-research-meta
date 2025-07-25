@@ -34,8 +34,7 @@ class StreamNewtonMemoryPair:
     def _grad_point(self, x: np.ndarray, y: float) -> np.ndarray:
         return (self.theta @ x - y) * x
 
-    # -------- learning ---------
-    def step(self, x: np.ndarray, y: float) -> float:
+    def insert(self, x: np.ndarray, y: float) -> float:
         self.t += 1
         g_old = self._grad_point(x, y)
         d = self.lbfgs.direction(g_old)
@@ -50,17 +49,19 @@ class StreamNewtonMemoryPair:
         logger.debug("step", extra={"loss": float(loss)})
         return loss
 
-    def insert(self, x: np.ndarray, y: float) -> float:
-        return self.step(x, y)
-
     # -------- deletion ---------
     def delete(self, x: np.ndarray, y: float) -> None:
         if not self.lbfgs.S:
             raise RuntimeError("No curvature pairs to use for unlearning")
         g = self._grad_point(x, y)
+        clip = 1.0  # or tune
         d = self.lbfgs.direction(g)
+        norm_d = np.linalg.norm(d)
+        if norm_d > clip:
+            d = d * (clip / norm_d)
         self.theta -= d
         self.odometer.consume()
+        self.lbfgs.remove_pair(0)
         sigma = self.odometer.noise_scale(np.linalg.norm(d))
         self.theta += np.random.normal(0.0, sigma, size=self.dim)
         logger.debug("delete", extra={"remaining_eps": self.odometer.remaining()})

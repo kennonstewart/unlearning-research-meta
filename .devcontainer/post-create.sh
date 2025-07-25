@@ -5,11 +5,6 @@ set -e
 
 echo "🚀 Starting post-creation setup..."
 
-# The dev container feature automatically clones submodules.
-# This command ensures they are fully updated.
-echo "Updating Git submodules..."
-git submodule update --init --recursive
-
 # Create a Python virtual environment.
 echo "Creating Python virtual environment..."
 python3 -m venv .venv
@@ -23,5 +18,8 @@ source .venv/bin/activate && pip install -r requirements.txt
 # which is the source of truth.
 echo "Installing local 'memory_pair' package in editable mode..."
 pip install -e code/memory_pair
+
+echo "Installing local 'baselines' package in editable mode..."
+pip install -e code/baselines
 
 echo "✅ Environment setup complete. Ready to run experiments!"
