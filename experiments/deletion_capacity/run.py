@@ -59,7 +59,8 @@ def main(
     # ... (setup remains the same)
 
     for seed in range(seeds):
-        # ... (model initialization remains the same)
+        summaries = []
+        csv_paths: List[str] = []
         
         logs = []
         inserts = deletes = 0
