@@ -1,70 +1,60 @@
-# code/memory_pair/src/memory_pair.py
-# Stream-based Newton method with L-BFGS for online learning and deletion.
-# This module implements a memory pair model that supports efficient unlearning.
-import logging
 import numpy as np
-
-from .lbfgs import LimitedMemoryBFGS
+from .lbfgs import LBFGS
 from .odometer import PrivacyOdometer
-
-logger = logging.getLogger(__name__)
-
+from .metrics import regret
 
 class StreamNewtonMemoryPair:
-    """Online learner with support for deletion using L-BFGS."""
-
-    def __init__(
-        self,
-        dim: int,
-        lam: float = 1.0,
-        lr0: float = 0.5,
-        t0: int = 10,
-        odometer: PrivacyOdometer | None = None,
-    ) -> None:
-        self.dim = dim
-        self.lam = lam
-        self.lr0 = lr0
-        self.t0 = t0
-        self.t = 0  # iteration counter
+    def __init__(self, dim: int, odometer: PrivacyOdometer = None):
         self.theta = np.zeros(dim)
-        self.lbfgs = LimitedMemoryBFGS(m_max=10)
-        self.odometer = odometer or PrivacyOdometer()
-
-    # -------- utilities ---------
-    def _grad_point(self, x: np.ndarray, y: float) -> np.ndarray:
-        return (self.theta @ x - y) * x
+        self.lbfgs = LBFGS(dim)
+        self.odometer = odometer
+        # --- NEW ATTRIBUTES ---
+        self.cumulative_regret = 0.0
+        self.events_seen = 0
 
     def insert(self, x: np.ndarray, y: float) -> float:
-        self.t += 1
-        g_old = self._grad_point(x, y)
-        d = self.lbfgs.direction(g_old)
-        lr = self.lr0 * self.t0 / (self.t0 + self.t)  # decaying schedule
-        theta_new = self.theta + lr * d
-        s = theta_new - self.theta
-        self.theta = theta_new
-        g_new = self._grad_point(x, y)
+        """
+        Inserts a point and updates internal regret.
+        Returns the prediction made *before* the update.
+        """
+        # 1. Make prediction
+        pred = float(self.theta @ x)
+
+        # 2. Update internal regret state
+        self.cumulative_regret += regret(pred, y)
+        self.events_seen += 1
+
+        # 3. Perform the L-BFGS update
+        g_old = (pred - y) * x
+        direction = self.lbfgs.direction(g_old)
+        # Assuming a simple learning rate of 1.0 for this example
+        alpha = 1.0
+        s = alpha * direction
+        theta_new = self.theta + s
+        
+        g_new = (float(theta_new @ x) - y) * x
         y_vec = g_new - g_old
+        
         self.lbfgs.add_pair(s, y_vec)
-        loss = 0.5 * (self.theta @ x - y) ** 2
-        logger.debug("step", extra={"loss": float(loss)})
-        return loss
+        self.theta = theta_new
 
-    # -------- deletion ---------
+        return pred
+
     def delete(self, x: np.ndarray, y: float) -> None:
-        if not self.lbfgs.S:
-            raise RuntimeError("No curvature pairs to use for unlearning")
-        g = self._grad_point(x, y)
-        clip = 1.0  # or tune
-        d = self.lbfgs.direction(g)
-        norm_d = np.linalg.norm(d)
-        if norm_d > clip:
-            d = d * (clip / norm_d)
-        self.theta -= d
-        self.odometer.consume()
-        self.lbfgs.remove_pair(0)
-        sigma = self.odometer.noise_scale(np.linalg.norm(d))
-        self.theta += np.random.normal(0.0, sigma, size=self.dim)
-        logger.debug("delete", extra={"remaining_eps": self.odometer.remaining()})
+        if self.odometer:
+            self.odometer.spend()
+        
+        g = (float(self.theta @ x) - y) * x
+        influence = self.lbfgs.direction(g)
+        
+        sensitivity = np.linalg.norm(influence)
+        sigma = self.odometer.get_noise_std(sensitivity)
+        noise = np.random.normal(0, sigma, self.theta.shape)
 
+        self.theta = self.theta - influence + noise
 
-MemoryPair = StreamNewtonMemoryPair
+    def get_average_regret(self) -> float:
+        """Calculates the average regret over all seen events."""
+        if self.events_seen == 0:
+            return float('inf')
+        return self.cumulative_regret / self.events_seen
