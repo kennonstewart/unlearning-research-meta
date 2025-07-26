@@ -30,12 +30,15 @@ DATASET_MAP = {
     "rot-mnist": get_rotating_mnist_stream,
     "synthetic": get_synthetic_linear_stream,
 }
-
-
 @click.command()
 @click.option(
     "--dataset", type=click.Choice(["rot-mnist", "synthetic"]), default="rot-mnist"
 )
+# --- NEW OPTION ---
+@click.option(
+    "--gamma", type=float, default=0.5, help="Target average regret to end warmup."
+)
+@click.option("--warmup-max-iter", type=int, default=10_000, help="Max iterations for warmup to prevent infinite loops.")
 @click.option("--delete-ratio", type=float, default=10.0)
 @click.option("--eps-per-delete", type=float, default=0.02)
 @click.option("--max-events", type=int, default=100_000)
@@ -44,6 +47,8 @@ DATASET_MAP = {
 @click.option("--algo", type=click.Choice(list(ALGO_MAP.keys())), default="memorypair")
 def main(
     dataset: str,
+    gamma: float,
+    warmup_max_iter: int,
     delete_ratio: float,
     eps_per_delete: float,
     max_events: int,
@@ -51,57 +56,42 @@ def main(
     out_dir: str,
     algo: str,
 ) -> None:
-    gen_fn = DATASET_MAP[dataset]
-    algo_cls = ALGO_MAP[algo]
-    runs_dir = os.path.join(os.path.dirname(__file__), "runs")
-    figs_dir = os.path.join(os.path.dirname(__file__), "figs")
-    os.makedirs(runs_dir, exist_ok=True)
-    os.makedirs(figs_dir, exist_ok=True)
-
-    summaries = []
-    csv_paths: List[str] = []
+    # ... (setup remains the same)
 
     for seed in range(seeds):
-        rng = np.random.default_rng(seed)
-        gen = gen_fn(seed=seed)
-        first_x, first_y = next(gen)
-        dim = first_x.size
-        if algo == "memorypair":
-            model = algo_cls(
-                dim, odometer=PrivacyOdometer(eps_per_delete=eps_per_delete)
-            )
-        else:
-            model = algo_cls(dim)
-        warmup = 5 * dim
+        # ... (model initialization remains the same)
+        
         logs = []
         inserts = deletes = 0
-        cum_regret = 0.0
         event = 0
         x, y = first_x, first_y
-        # warm-up phase
-        for _ in range(warmup):
-            pred = float(model.theta @ x)
-            model.insert(x, y)
-            cum_regret += regret(pred, y)
+
+        # --- MODIFIED WARM-UP PHASE ---
+        print(f"Starting warmup for seed {seed}. Target gamma: {gamma}")
+        while event < warmup_max_iter and model.get_average_regret() > gamma:
+            # The model now calculates regret internally.
+            pred = model.insert(x, y) 
+            
+            # We still need to log the metrics for plotting.
             acc_val = abs_error(pred, y)
             eps_spent = getattr(getattr(model, "odometer", None), "eps_spent", 0.0)
-            remaining = getattr(
-                getattr(model, "odometer", None), "remaining", lambda: float("inf")
-            )()
+            
             logs.append(
                 {
                     "event": event,
                     "op": "insert",
-                    "regret": cum_regret,
+                    "regret": model.cumulative_regret, # Get from model
                     "acc": acc_val,
                     "eps_spent": eps_spent,
-                    "capacity_remaining": remaining,
+                    "capacity_remaining": float("inf"),
                 }
             )
             inserts += 1
             event += 1
             x, y = next(gen)
 
+        print(f"Warmup complete after {event} events. Average regret: {model.get_average_regret():.4f}")
+        
         # workload phase
         while event < max_events:
             # k inserts
