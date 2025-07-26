@@ -1,13 +1,13 @@
 import numpy as np
-from .lbfgs import LBFGS
+from .lbfgs import LimitedMemoryBFGS
 from .odometer import PrivacyOdometer
 from .metrics import regret
 
 
-class StreamNewtonMemoryPair:
+class MemoryPair:
     def __init__(self, dim: int, odometer: PrivacyOdometer = None):
         self.theta = np.zeros(dim)
-        self.lbfgs = LBFGS(dim)
+        self.lbfgs = LimitedMemoryBFGS(dim)
         self.odometer = odometer
         # --- NEW ATTRIBUTES ---
         self.cumulative_regret = 0.0

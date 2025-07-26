@@ -10,8 +10,7 @@ from plotting import plot_regret
 
 from data_loader import get_rotating_mnist_stream, get_covtype_stream
 
-# StreamNewtonMemoryPair provides the online delete-insert functionality
-from memory_pair.src.memory_pair import StreamNewtonMemoryPair as MemoryPair
+from memory_pair.src.memory_pair import MemoryPair
 
 ALGO_MAP = {
     "memorypair": MemoryPair,
