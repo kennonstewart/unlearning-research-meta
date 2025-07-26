@@ -3,6 +3,7 @@ from .lbfgs import LBFGS
 from .odometer import PrivacyOdometer
 from .metrics import regret
 
+
 class StreamNewtonMemoryPair:
     def __init__(self, dim: int, odometer: PrivacyOdometer = None):
         self.theta = np.zeros(dim)
@@ -31,10 +32,10 @@ class StreamNewtonMemoryPair:
         alpha = 1.0
         s = alpha * direction
         theta_new = self.theta + s
-        
+
         g_new = (float(theta_new @ x) - y) * x
         y_vec = g_new - g_old
-        
+
         self.lbfgs.add_pair(s, y_vec)
         self.theta = theta_new
 
@@ -43,10 +44,10 @@ class StreamNewtonMemoryPair:
     def delete(self, x: np.ndarray, y: float) -> None:
         if self.odometer:
             self.odometer.spend()
-        
+
         g = (float(self.theta @ x) - y) * x
         influence = self.lbfgs.direction(g)
-        
+
         sensitivity = np.linalg.norm(influence)
         sigma = self.odometer.get_noise_std(sensitivity)
         noise = np.random.normal(0, sigma, self.theta.shape)
@@ -56,5 +57,5 @@ class StreamNewtonMemoryPair:
     def get_average_regret(self) -> float:
         """Calculates the average regret over all seen events."""
         if self.events_seen == 0:
-            return float('inf')
+            return float("inf")
         return self.cumulative_regret / self.events_seen

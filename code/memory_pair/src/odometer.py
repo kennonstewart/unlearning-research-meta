@@ -11,22 +11,17 @@ class PrivacyOdometer:
         self,
         *,
         eps_total: float | None = 1.0,
-        eps_per_delete: float | None = None,
         delta_total: float = 1e-5,
         max_deletions: int | None = None,
     ):
         self.eps_total = eps_total
-        self.eps_per_delete = eps_per_delete
         self.delta_total = delta_total
         self.max_deletions = max_deletions
         self.eps_spent = 0.0
-        self.deletes = 0
+        self.deletions_count = 0
         # ε consumed at each deletion
-        if eps_per_delete is not None:
-            self.eps_step = eps_per_delete
-        else:
-            denom = 2 * (max_deletions if max_deletions else 1)
-            self.eps_step = eps_total / denom
+        denom = 2 * (max_deletions if max_deletions else 1)
+        self.eps_step = eps_total / denom
 
         self.delta_step = delta_total / (2 * (max_deletions if max_deletions else 1))
         if eps_total is not None and max_deletions is not None:
@@ -39,18 +34,14 @@ class PrivacyOdometer:
                     "eps_total must be non-negative and max_deletions must be positive."
                 )
 
-    def consume(self) -> None:
-        # Optional hard‑cap on number of deletions
-        if self.max_deletions is not None and self.deletes >= self.max_deletions:
-            raise RuntimeError("max_deletions budget exceeded")
-        # Optional ε‑budget cap
-        if (
-            self.eps_total is not None
-            and (self.eps_spent + self.eps_step) > self.eps_total
-        ):
-            raise RuntimeError("ε-budget exceeded")
-        self.deletes += 1
-        self.eps_spent += self.eps_step
+    def spend(self):
+        if self.deletions_count >= self.max_deletions:
+            raise RuntimeError(
+                f"Deletion capacity of {self.max_deletions} has been exceeded. "
+                "Model guarantees are void."
+            )
+        self.eps_spent += self.eps_per_delete
+        self.deletions_count += 1
 
     def remaining(self) -> float:
         return self.eps_total - self.eps_spent
