@@ -16,7 +16,7 @@ The experiment must run end-to-end from a single CLI entry point and emit: logs,
 | Purpose | Module / Function | Import path |
 |---------|------------------|-------------|
 | **Streaming data** | Rotating-MNIST & synthetic linear streams | `from data_loader import get_rotating_mnist_stream, get_synthetic_linear_stream` |
-| **Learner under test** | Online L-BFGS memory pair | `from code.memory_pair.src.memory_pair import StreamNewtonMemoryPair` |
+| **Learner under test** | Online L-BFGS memory pair | `from code.memory_pair.src.memory_pair import MemoryPair` |
 | **Baselines** | Sekhari Newton-Step, Qiao Hessian-Free | `from code.baselines import SekhariBatchUnlearning, QiaoHessianFree` |
 | **Privacy budget** | Odometer (already parameterised) | `from code.memory_pair.src.odometer import PrivacyOdometer` |
 | **Plotting** | Matplotlib only (no seaborn) | `import matplotlib.pyplot as plt` |
