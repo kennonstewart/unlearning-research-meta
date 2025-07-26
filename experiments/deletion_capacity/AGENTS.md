@@ -1,6 +1,3 @@
-It looks like my editing tool is currently unavailable, so I can’t physically add the file. Below is the full **`AGENTS.md`** content you can copy-paste into `experiments/deletion_capacity/AGENTS.md`.
-
-```markdown
 # AGENTS.md — Experiment 2 ("Deletion-Capacity")
 
 > **Role:** This file instructs a Code Agent (e.g. GitHub Copilot / Codex) how to generate the *second* empirical experiment that measures deletion-capacity for the online-L-BFGS **MemoryPair** learner that already exists in this repo.
@@ -58,7 +55,7 @@ QiaoHessianFree(dim)
 4. **Phases**
 
 ```python
-# warm-up until sample-complexity N_star (use 5·dim if theorem unknown)
+# warm-up until sample-complexity N_star 
 # workload:  k inserts  → 1 delete, repeat
 # continue until odometer.consume() raises OR max_events reached
 ```
@@ -67,7 +64,7 @@ QiaoHessianFree(dim)
 
 * Per-event dict: timestamp, op-type, regret, acc, ε\_spent, capacity\_remaining.
 * Dump to `runs/{seed}_{algo}.csv`.
-* Summary JSON (mean ± 95 % CI) in `results/exp2/`.
+* Summary JSON (mean ± 95 % CI) in `results/`.
 
 6. **Figures**
 
@@ -80,7 +77,7 @@ Generate at least **F-1** (capacity curve) and **F-2** (regret) with matplotlib 
 ```
 experiments/deletion_capacity/
 │
-├─ exp2_capacity.py        ← main driver
+├─ run.py                  ← main driver
 ├─ plots.py                ← helper to build all figures from CSV logs
 ├─ metrics.py              ← regret & utility helpers
 ├─ configs/                ← optional YAMLs
@@ -111,15 +108,8 @@ Keep all new helper code inside this folder.
 ## 7  Example invocation
 
 ```bash
-python experiments/deletion_capacity/exp2_capacity.py \\
+python experiments/deletion_capacity/run.py \\
        --dataset rot-mnist --delete-ratio 10
 ```
 
-This should create CSVs in `runs/`, a summary JSON in `results/exp2/`, and at least the capacity & regret figures in `figs/`.
-
-*Happy coding — and remember to cite the theory sections in your paper draft!*
-
-```
-
-After saving this file, Codex (or any agent) can follow the instructions to generate the full experiment pipeline.
-```
+This should create CSVs in `runs/`, a summary JSON in `results/`, and at least the capacity & regret figures in `figs/`.
