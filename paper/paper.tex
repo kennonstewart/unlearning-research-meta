@@ -140,8 +140,6 @@ There has also been recent work into Hessian-Free unlearning, which stores gradi
 
 We specifically target the Hessian inversion operation of the Newton-Step update for our unlearning algorithm. We replace the Hessian inversion with an online variant of the L-BFGS optimization algorithm. This eliminates the need for the precomputation stage present in Hessian-Free and standard Newton Step unlearning. In fact, it enables a broader prediction space entirely. With no precompute required for deletion, interleaved learning and unlearning operations can be processed sequentially as the events are read from a data stream. This is especially attractive for the prospect of federated learning with on-device learning. More on this in Future Work.
 
-The insert method implements online learning without the expensive Hessian inversion that's typically done for the model update. It approximates the same using an online variant of BFGS optimization specifically formulated for constrained memory environments.
-
 The method efficiently updates the gradient near-instantaneously by computing the current gradient with respect to the point. The curvature points from the L-BFGS are then used to approximate something like a Hessian inversion. The key is to use the second-order curvature information from the saved points to approximate the curvature of the whole function.
 
 When the curvature points are used to approximate the second-order information for a whole function, the choice of points holds some weight. The online variant of L-BFGS is used for precisely this reason, easily ingesting and disposing of curvature points as additional information is fed through the insertion operations.

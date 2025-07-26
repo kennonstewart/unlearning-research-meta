@@ -1,7 +1,6 @@
-from .src import StreamNewtonMemoryPair, MemoryPair, PrivacyOdometer, LimitedMemoryBFGS
+from .src import MemoryPair, PrivacyOdometer, LimitedMemoryBFGS
 
 __all__ = [
-    "StreamNewtonMemoryPair",
     "MemoryPair",
     "PrivacyOdometer",
     "LimitedMemoryBFGS",
