@@ -49,7 +49,7 @@ class StreamNewtonMemoryPair:
         influence = self.lbfgs.direction(g)
 
         sensitivity = np.linalg.norm(influence)
-        sigma = self.odometer.get_noise_std(sensitivity)
+        sigma = self.odometer.noise_scale(sensitivity)
         noise = np.random.normal(0, sigma, self.theta.shape)
 
         self.theta = self.theta - influence + noise
