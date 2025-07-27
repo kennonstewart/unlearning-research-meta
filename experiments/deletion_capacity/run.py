@@ -30,6 +30,8 @@ DATASET_MAP = {
     "rot-mnist": get_rotating_mnist_stream,
     "synthetic": get_synthetic_linear_stream,
 }
+
+
 @click.command()
 @click.option(
     "--dataset", type=click.Choice(["rot-mnist", "synthetic"]), default="rot-mnist"
@@ -38,9 +40,13 @@ DATASET_MAP = {
 @click.option(
     "--gamma", type=float, default=0.5, help="Target average regret to end warmup."
 )
-@click.option("--warmup-max-iter", type=int, default=10_000, help="Max iterations for warmup to prevent infinite loops.")
+@click.option(
+    "--warmup-max-iter",
+    type=int,
+    default=10_000,
+    help="Max iterations for warmup to prevent infinite loops.",
+)
 @click.option("--delete-ratio", type=float, default=10.0)
-@click.option("--eps-per-delete", type=float, default=0.02)
 @click.option("--max-events", type=int, default=100_000)
 @click.option("--seeds", type=int, default=10)
 @click.option("--out-dir", type=click.Path(), default="results/exp2")
@@ -50,7 +56,6 @@ def main(
     gamma: float,
     warmup_max_iter: int,
     delete_ratio: float,
-    eps_per_delete: float,
     max_events: int,
     seeds: int,
     out_dir: str,
@@ -69,7 +74,7 @@ def main(
 
     # Instantiate model and odometer
     model_class = ALGO_MAP[algo]
-    odometer = PrivacyOdometer(eps_per_delete=eps_per_delete)
+    odometer = PrivacyOdometer()
 
     # Initialize model (dim inferred from first_x)
     model = model_class(dim=first_x.shape[0], odometer=odometer)
@@ -80,7 +85,7 @@ def main(
     for seed in range(seeds):
         summaries = []
         csv_paths: List[str] = []
-        
+
         logs = []
         inserts = deletes = 0
         event = 0
@@ -90,17 +95,17 @@ def main(
         print(f"Starting warmup for seed {seed}. Target gamma: {gamma}")
         while event < warmup_max_iter and model.get_average_regret() > gamma:
             # The model now calculates regret internally.
-            pred = model.insert(x, y) 
-            
+            pred = model.insert(x, y)
+
             # We still need to log the metrics for plotting.
             acc_val = abs_error(pred, y)
             eps_spent = getattr(getattr(model, "odometer", None), "eps_spent", 0.0)
-            
+
             logs.append(
                 {
                     "event": event,
                     "op": "insert",
-                    "regret": model.cumulative_regret, # Get from model
+                    "regret": model.cumulative_regret,  # Get from model
                     "acc": acc_val,
                     "eps_spent": eps_spent,
                     "capacity_remaining": float("inf"),
@@ -110,8 +115,10 @@ def main(
             event += 1
             x, y = next(gen)
 
-        print(f"Warmup complete after {event} events. Average regret: {model.get_average_regret():.4f}")
-        
+        print(
+            f"Warmup complete after {event} events. Average regret: {model.get_average_regret():.4f}"
+        )
+
         # workload phase
         while event < max_events:
             # k inserts
