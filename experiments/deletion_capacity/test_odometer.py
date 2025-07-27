@@ -1,5 +1,5 @@
 import numpy as np
-from memory_pair.src.odometer import PrivacyOdometer
+from code.memory_pair.src.odometer import PrivacyOdometer
 
 
 def test_odometer():

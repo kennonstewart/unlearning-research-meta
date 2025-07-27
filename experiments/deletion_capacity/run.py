@@ -1,8 +1,26 @@
+"""
+Experiment 2 runner with:
+  1) 500-step bootstrap to estimate G, D, and (c, C) from L-BFGS.
+  2) Automatic computation of sample complexity N* (warmup length) using theory.
+  3) Adaptive PrivacyOdometer finalization after warmup to derive deletion capacity, eps_step, etc.
+
+Assumptions:
+  - MemoryPair.insert(x, y, return_grad=True) returns (pred, grad). If not, see the helper
+    `get_pred_and_grad` below and adapt to your actual API.
+  - MemoryPair exposes either:
+        * model.lbfgs.B_matrix()  -> returns current B approximation (d x d)
+      or  * model.lbfgs_bounds()  -> returns (c_hat, C_hat)
+    If not, we fallback to conservative c=1.0, C=1.0.
+  - PrivacyOdometer is the adaptive version you implemented earlier.
+
+Edit where marked if your APIs differ.
+"""
+
 import csv
 import json
 import os
 import sys
-from typing import List
+from typing import List, Tuple
 
 import click
 import numpy as np
@@ -20,6 +38,61 @@ from baselines import SekhariBatchUnlearning, QiaoHessianFree
 from metrics import regret, abs_error
 from plots import plot_capacity_curve, plot_regret
 
+
+# ---------------------- Utilities ---------------------- #
+
+def estimate_lbfgs_bounds(model) -> Tuple[float, float]:
+    """Estimate eigenvalue bounds (c, C) of the L-BFGS Hessian approx.
+    Try to access a matrix or bounds method; otherwise fallback to (1.0, 1.0).
+    """
+    # If the model provides direct bounds
+    if hasattr(model, "lbfgs_bounds"):
+        cC = model.lbfgs_bounds()
+        if isinstance(cC, (tuple, list)) and len(cC) == 2:
+            return float(cC[0]), float(cC[1])
+    # If the model exposes B approximation
+    if hasattr(model, "lbfgs") and hasattr(model.lbfgs, "B_matrix"):
+        try:
+            B = model.lbfgs.B_matrix()
+            eigs = np.linalg.eigvalsh(B)
+            c_hat = float(np.max([np.min(eigs), 1e-12]))  # avoid zero
+            C_hat = float(np.max(eigs))
+            return c_hat, C_hat
+        except Exception:
+            pass
+    # Fallback conservative constants
+    return 1.0, 1.0
+
+
+def compute_sample_complexity(G: float, D: float, gamma: float, c: float = 1.0, C: float = 1.0) -> int:
+    """N* = ceil( ( G * D * sqrt(c*C) / gamma )^2 )"""
+    N_star = int(np.ceil(((G * D * np.sqrt(c * C)) / gamma) ** 2))
+    return max(N_star, 1)
+
+
+def get_pred_and_grad(model, x, y):
+    """Helper to obtain (pred, grad). Adjust for your API.
+    Expected: model.insert(x, y, return_grad=True) -> (pred, grad)
+    Otherwise, compute pred and grad manually if model exposes methods.
+    """
+    if hasattr(model, "insert"):
+        try:
+            return model.insert(x, y, return_grad=True)
+        except TypeError:
+            # Fallback if insert doesn't return grad
+            pred = model.insert(x, y)
+            if hasattr(model, "last_grad"):
+                grad = model.last_grad
+            elif hasattr(model, "gradient"):
+                grad = model.gradient(x, y)
+            else:
+                raise RuntimeError("Model must expose gradient to estimate G.")
+            return pred, grad
+    raise RuntimeError("Model has no insert method.")
+
+
+# ---------------------- CLI Config ---------------------- #
+
 ALGO_MAP = {
     "memorypair": MemoryPair,
     "sekhari": SekhariBatchUnlearning,
@@ -33,33 +106,31 @@ DATASET_MAP = {
 
 
 @click.command()
-@click.option(
-    "--dataset", type=click.Choice(["rot-mnist", "synthetic"]), default="rot-mnist"
-)
-# --- NEW OPTION ---
-@click.option(
-    "--gamma", type=float, default=0.5, help="Target average regret to end warmup."
-)
-@click.option(
-    "--warmup-max-iter",
-    type=int,
-    default=10_000,
-    help="Max iterations for warmup to prevent infinite loops.",
-)
-@click.option("--delete-ratio", type=float, default=10.0)
+@click.option("--dataset", type=click.Choice(["rot-mnist", "synthetic"]), default="rot-mnist")
+@click.option("--gamma", type=float, default=0.5, help="Target avg regret (per-step) for theory bounds.")
+@click.option("--bootstrap-iters", type=int, default=500, help="Initial inserts to estimate G, D, c, C.")
+@click.option("--delete-ratio", type=float, default=10.0, help="k inserts per delete.")
 @click.option("--max-events", type=int, default=100_000)
 @click.option("--seeds", type=int, default=10)
 @click.option("--out-dir", type=click.Path(), default="results/")
 @click.option("--algo", type=click.Choice(list(ALGO_MAP.keys())), default="memorypair")
+@click.option("--eps-total", type=float, default=1.0)
+@click.option("--delta-total", type=float, default=1e-5)
+@click.option("--lambda-strong", "lambda_", type=float, default=0.1, help="Strong convexity lower-bound.")
+@click.option("--delta-B", type=float, default=0.05, help="Failure prob for regret noise term.")
 def main(
     dataset: str,
     gamma: float,
-    warmup_max_iter: int,
+    bootstrap_iters: int,
     delete_ratio: float,
     max_events: int,
     seeds: int,
     out_dir: str,
     algo: str,
+    eps_total: float,
+    delta_total: float,
+    lambda_: float,
+    delta_B: float,
 ) -> None:
     # Setup output directories
     os.makedirs(out_dir, exist_ok=True)
@@ -68,79 +139,116 @@ def main(
     os.makedirs(figs_dir, exist_ok=True)
     os.makedirs(runs_dir, exist_ok=True)
 
-    # Initialize data stream generator
-    gen = DATASET_MAP[dataset](seed=0)  # Use seed=0 for deterministic warmup start
-    first_x, first_y = next(gen)
-
-    # Instantiate model and odometer
-    model_class = ALGO_MAP[algo]
-    odometer = PrivacyOdometer()
-
-    # Initialize model (dim inferred from first_x)
-    model = model_class(dim=first_x.shape[0], odometer=odometer)
-
-    # Regret tracking
-    cum_regret = 0.0
-
     for seed in range(seeds):
+        print(f"\n=== Seed {seed} ===")
+        gen = DATASET_MAP[dataset](seed=seed)
+        first_x, first_y = next(gen)
+
+        # Instantiate odometer in adaptive mode; T is unknown yet but set to max_events for upper-bound
+        odometer = PrivacyOdometer(
+            eps_total=eps_total,
+            delta_total=delta_total,
+            T=max_events,
+            gamma=gamma,
+            lambda_=lambda_,
+            delta_B=delta_B,
+        )
+
+        # Initialize model
+        model_class = ALGO_MAP[algo]
+        model = model_class(dim=first_x.shape[0], odometer=odometer)
+
+        # Regret tracking
+        cum_regret = 0.0
+
         summaries = []
         csv_paths: List[str] = []
-
         logs = []
         inserts = deletes = 0
         event = 0
         x, y = first_x, first_y
 
-        # --- MODIFIED WARM-UP PHASE ---
-        print(f"Starting warmup for seed {seed}. Target gamma: {gamma}")
-        while event < warmup_max_iter and model.get_average_regret() > gamma:
-            # The model now calculates regret internally.
-            pred = model.insert(x, y)
+        # -------- Bootstrap to estimate G, D, c, C -------- #
+        grads = []
+        thetas = [model.theta.copy()]
+        print(f"[Bootstrap] Collecting {bootstrap_iters} steps to estimate G, D, c, C...")
+        for _ in range(bootstrap_iters):
+            pred, grad = get_pred_and_grad(model, x, y)
+            gnorm = np.linalg.norm(grad)
+            grads.append(gnorm)
+            thetas.append(model.theta.copy())
 
-            # We still need to log the metrics for plotting.
+            # Feed odometer for later L, D
+            odometer.observe(grad, model.theta)
+
             acc_val = abs_error(pred, y)
-            eps_spent = getattr(getattr(model, "odometer", None), "eps_spent", 0.0)
-
-            logs.append(
-                {
-                    "event": event,
-                    "op": "insert",
-                    "regret": model.cumulative_regret,  # Get from model
-                    "acc": acc_val,
-                    "eps_spent": eps_spent,
-                    "capacity_remaining": float("inf"),
-                }
-            )
+            logs.append({
+                "event": event,
+                "op": "insert",
+                "regret": model.cumulative_regret if hasattr(model, "cumulative_regret") else np.nan,
+                "acc": acc_val,
+                "eps_spent": odometer.eps_spent,
+                "capacity_remaining": float("inf"),
+            })
             inserts += 1
             event += 1
+            if event >= max_events:
+                break
             x, y = next(gen)
 
-        print(
-            f"Warmup complete after {event} events. Average regret: {model.get_average_regret():.4f}"
-        )
+        G_hat = float(max(grads)) if grads else 1.0
+        D_hat = float(max(np.linalg.norm(th - thetas[0]) for th in thetas)) if len(thetas) > 1 else 1.0
+        c_hat, C_hat = estimate_lbfgs_bounds(model)
+        print(f"[Bootstrap] G={G_hat:.4f}, D={D_hat:.4f}, c={c_hat:.4e}, C={C_hat:.4e}")
 
-        # workload phase
+        # -------- Compute sample complexity N* & finish warmup -------- #
+        N_star = compute_sample_complexity(G_hat, D_hat, gamma, c_hat, C_hat)
+        print(f"[Warmup] Target sample complexity N* = {N_star} (current inserts={inserts})")
+
+        while inserts < N_star and event < max_events:
+            pred, grad = get_pred_and_grad(model, x, y)
+            odometer.observe(grad, model.theta)
+
+            cum_regret += regret(pred, y)
+            acc_val = abs_error(pred, y)
+            logs.append({
+                "event": event,
+                "op": "insert",
+                "regret": cum_regret,
+                "acc": acc_val,
+                "eps_spent": odometer.eps_spent,
+                "capacity_remaining": float("inf"),
+            })
+            inserts += 1
+            event += 1
+            if event >= max_events:
+                break
+            x, y = next(gen)
+
+        print(f"[Warmup] Complete after {inserts} inserts.")
+
+        # -------- Finalize odometer (compute m, eps_step, etc.) -------- #
+        # We already observed grads/thetas through odometer.observe
+        odometer.finalize()
+
+        # -------- Workload phase: interleave inserts/deletes -------- #
         while event < max_events:
             # k inserts
             for _ in range(int(delete_ratio)):
                 pred = float(model.theta @ x)
-                model.insert(x, y)
+                model.insert(x, y)  # no need for grad now
                 cum_regret += regret(pred, y)
                 acc_val = abs_error(pred, y)
                 eps_spent = getattr(getattr(model, "odometer", None), "eps_spent", 0.0)
-                remaining = getattr(
-                    getattr(model, "odometer", None), "remaining", lambda: float("inf")
-                )()
-                logs.append(
-                    {
-                        "event": event,
-                        "op": "insert",
-                        "regret": cum_regret,
-                        "acc": acc_val,
-                        "eps_spent": eps_spent,
-                        "capacity_remaining": remaining,
-                    }
-                )
+                remaining = getattr(getattr(model, "odometer", None), "remaining", lambda: float("inf"))()
+                logs.append({
+                    "event": event,
+                    "op": "insert",
+                    "regret": cum_regret,
+                    "acc": acc_val,
+                    "eps_spent": eps_spent,
+                    "capacity_remaining": remaining,
+                })
                 inserts += 1
                 event += 1
                 if event >= max_events:
@@ -148,6 +256,7 @@ def main(
                 x, y = next(gen)
             if event >= max_events:
                 break
+
             # delete
             try:
                 pred = float(model.theta @ x)
@@ -158,22 +267,23 @@ def main(
                 eps_spent = getattr(model.odometer, "eps_spent", 0.0)
                 remaining = getattr(model.odometer, "remaining", lambda: 0.0)()
             except RuntimeError:
+                print("[Delete] Capacity exceeded. Stopping deletes.")
                 break
-            logs.append(
-                {
-                    "event": event,
-                    "op": "delete",
-                    "regret": cum_regret,
-                    "acc": acc_val,
-                    "eps_spent": eps_spent,
-                    "capacity_remaining": remaining,
-                }
-            )
+
+            logs.append({
+                "event": event,
+                "op": "delete",
+                "regret": cum_regret,
+                "acc": acc_val,
+                "eps_spent": eps_spent,
+                "capacity_remaining": remaining,
+            })
             event += 1
             if event >= max_events:
                 break
             x, y = next(gen)
 
+        # -------- Write CSV for this seed -------- #
         csv_path = os.path.join(runs_dir, f"{seed}_{algo}.csv")
         csv_paths.append(csv_path)
         with open(csv_path, "w", newline="") as f:
@@ -181,43 +291,46 @@ def main(
             writer.writeheader()
             writer.writerows(logs)
 
-        summaries.append(
-            {
-                "inserts": inserts,
-                "deletes": deletes,
-                "eps_spent": getattr(
-                    getattr(model, "odometer", None), "eps_spent", 0.0
-                ),
-                "final_regret": cum_regret,
-            }
-        )
+        summaries.append({
+            "inserts": inserts,
+            "deletes": deletes,
+            "eps_spent": getattr(getattr(model, "odometer", None), "eps_spent", 0.0),
+            "final_regret": cum_regret,
+            "N_star": N_star,
+            "G_hat": G_hat,
+            "D_hat": D_hat,
+            "c_hat": c_hat,
+            "C_hat": C_hat,
+            "m_capacity": getattr(model.odometer, "deletion_capacity", None),
+        })
 
-    # aggregate summary
+    # -------- Aggregate summary across seeds -------- #
     def mean_ci(values: List[float]):
         arr = np.array(values, dtype=float)
         mean = float(arr.mean())
-        ci = float(1.96 * arr.std(ddof=1) / np.sqrt(len(arr)))
+        ci = float(1.96 * arr.std(ddof=1) / np.sqrt(len(arr))) if len(arr) > 1 else 0.0
         return mean, ci
 
     summary = {}
-    for key in ["inserts", "deletes", "eps_spent", "final_regret"]:
-        mean, ci = mean_ci([s[key] for s in summaries])
+    keys = ["inserts", "deletes", "eps_spent", "final_regret", "N_star", "G_hat", "D_hat", "c_hat", "C_hat", "m_capacity"]
+    for key in keys:
+        mean, ci = mean_ci([s[key] for s in summaries if s[key] is not None])
         summary[f"{key}_mean"] = mean
         summary[f"{key}_ci95"] = ci
 
-    os.makedirs(out_dir, exist_ok=True)
     summary_path = os.path.join(out_dir, f"summary_{dataset}_{algo}.json")
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
 
-    # plots
+    # Plots
     plot_capacity_curve(csv_paths, os.path.join(figs_dir, "capacity_curve.pdf"))
     plot_regret(csv_paths, os.path.join(figs_dir, "regret.pdf"))
 
+    # Git stage & commit (optional)
     os.system(f"git add {summary_path}")
     os.system(f"git add {figs_dir}/*.pdf")
     hash_short = os.popen("git rev-parse --short HEAD").read().strip()
-    os.system(f"git commit -m 'EXP:del_capacity2 {dataset}-{algo} {hash_short}'")
+    os.system(f"git commit -m 'EXP2:auto_warmup {dataset}-{algo} {hash_short}'")
 
 
 if __name__ == "__main__":
