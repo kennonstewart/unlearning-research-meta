@@ -75,25 +75,32 @@ def compute_sample_complexity(G, D, gamma, c=1.0, C=1.0, max_cap=None, q=None):
     return max(N_star, 1)
 
 
-def get_pred_and_grad(model, x, y):
+def get_pred_and_grad(model, x, y, is_calibration=False):
     """Helper to obtain (pred, grad). Adjust for your API.
-    Expected: model.insert(x, y, return_grad=True) -> (pred, grad)
-    Otherwise, compute pred and grad manually if model exposes methods.
+    For calibration phase, uses calibrate_step(). For other phases, uses insert().
     """
-    if hasattr(model, "insert"):
+    if is_calibration and hasattr(model, "calibrate_step"):
+        # During calibration, use calibrate_step and get gradient from last_grad
+        pred = model.calibrate_step(x, y)
+        if hasattr(model, "last_grad") and model.last_grad is not None:
+            grad = model.last_grad
+            return pred, grad
+        else:
+            raise RuntimeError("Model must expose last_grad after calibrate_step.")
+    elif hasattr(model, "insert"):
         try:
             return model.insert(x, y, return_grad=True)
-        except TypeError:
-            # Fallback if insert doesn't return grad
+        except (TypeError, RuntimeError):
+            # Fallback if insert doesn't return grad or is in wrong phase
             pred = model.insert(x, y)
-            if hasattr(model, "last_grad"):
+            if hasattr(model, "last_grad") and model.last_grad is not None:
                 grad = model.last_grad
             elif hasattr(model, "gradient"):
                 grad = model.gradient(x, y)
             else:
                 raise RuntimeError("Model must expose gradient to estimate G.")
             return pred, grad
-    raise RuntimeError("Model has no insert method.")
+    raise RuntimeError("Model has no insert or calibrate_step method.")
 
 
 # ---------------------- CLI Config ---------------------- #
@@ -193,26 +200,19 @@ def main(
         event = 0
         x, y = first_x, first_y
 
-        # -------- Bootstrap to estimate G, D, c, C -------- #
-        grads = []
-        thetas = [model.theta.copy()]
-        print(
-            f"[Bootstrap] Collecting {bootstrap_iters} steps to estimate G, D, c, C..."
-        )
+        # -------- Bootstrap/Calibration Phase -------- #
+        print(f"[Bootstrap] Collecting {bootstrap_iters} steps to estimate G, D, c, C...")
+        
+        # Use the new calibration API
         for _ in range(bootstrap_iters):
-            pred, grad = get_pred_and_grad(model, x, y)
+            pred, grad = get_pred_and_grad(model, x, y, is_calibration=True)
             gnorm = np.linalg.norm(grad)
-            grads.append(gnorm)
-            thetas.append(model.theta.copy())
-
-            # Feed odometer for later L, D
-            odometer.observe(grad, model.theta)
-
+            
             acc_val = abs_error(pred, y)
             logs.append(
                 {
                     "event": event,
-                    "op": "insert",
+                    "op": "calibrate",
                     "regret": model.cumulative_regret
                     if hasattr(model, "cumulative_regret")
                     else np.nan,
@@ -227,27 +227,17 @@ def main(
                 break
             x, y = next(gen)
 
-        G_hat = float(max(grads)) if grads else 1.0
-        D_hat = (
-            float(max(np.linalg.norm(th - thetas[0]) for th in thetas))
-            if len(thetas) > 1
-            else 1.0
-        )
-        c_hat, C_hat = estimate_lbfgs_bounds(model)
-        print(f"[Bootstrap] G={G_hat:.4f}, D={D_hat:.4f}, c={c_hat:.4e}, C={C_hat:.4e}")
+        # Finalize calibration 
+        print(f"[Bootstrap] Finalizing calibration...")
+        model.finalize_calibration(gamma=gamma)
+        N_star = model.N_star
 
-        # -------- Compute sample complexity N* & finish warmup -------- #
-        N_star = compute_sample_complexity(
-            G_hat, D_hat, gamma, c_hat, C_hat, max_cap=max_events, q=0.95
-        )
-        print(
-            f"[Warmup] Target sample complexity N* = {N_star} (current inserts={inserts})"
-        )
+        print(f"[Warmup] Target sample complexity N* = {N_star} (current inserts={inserts})")
 
+        # Continue learning phase until N_star (if needed)
         while inserts < N_star and event < max_events:
-            pred, grad = get_pred_and_grad(model, x, y)
-            odometer.observe(grad, model.theta)
-
+            pred, grad = get_pred_and_grad(model, x, y, is_calibration=False)
+            
             cum_regret += regret(pred, y)
             acc_val = abs_error(pred, y)
             logs.append(
@@ -257,7 +247,7 @@ def main(
                     "regret": cum_regret,
                     "acc": acc_val,
                     "eps_spent": odometer.eps_spent,
-                    "capacity_remaining": float("inf"),
+                    "capacity_remaining": odometer.remaining() if odometer.ready_to_delete else float("inf"),
                 }
             )
             inserts += 1
@@ -266,11 +256,9 @@ def main(
                 break
             x, y = next(gen)
 
-        print(f"[Warmup] Complete after {inserts} inserts.")
+        print(f"[Warmup] Complete after {inserts} inserts. Ready to predict: {model.can_predict}")
 
-        # -------- Finalize odometer (compute m, eps_step, etc.) -------- #
-        # We already observed grads/thetas through odometer.observe
-        odometer.finalize()
+        # Odometer should already be finalized from model.finalize_calibration()
 
         # -------- Workload phase: interleave inserts/deletes -------- #
         while event < max_events:
@@ -347,10 +335,10 @@ def main(
                 ),
                 "final_regret": cum_regret,
                 "N_star": N_star,
-                "G_hat": G_hat,
-                "D_hat": D_hat,
-                "c_hat": c_hat,
-                "C_hat": C_hat,
+                "G_hat": model.calibration_stats.get("G") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
+                "D_hat": model.calibration_stats.get("D") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
+                "c_hat": model.calibration_stats.get("c") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
+                "C_hat": model.calibration_stats.get("C") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
                 "m_capacity": getattr(model.odometer, "deletion_capacity", None),
             }
         )

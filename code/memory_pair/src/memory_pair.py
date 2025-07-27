@@ -76,6 +76,7 @@ class MemoryPair:
         self.deletes_seen = 0
         self.N_star: Optional[int] = None
         self.ready_to_predict = False
+        self.calibration_stats: Optional[dict] = None
         
         # For external gradient access
         self.last_grad: Optional[np.ndarray] = None
@@ -147,6 +148,9 @@ class MemoryPair:
         # Get calibration statistics
         stats = self.calibrator.finalize(gamma, self)
         self.N_star = stats["N_star"]
+        
+        # Store stats for later access
+        self.calibration_stats = stats
         
         # Configure odometer with statistics
         if hasattr(self.odometer, 'finalize_with'):
