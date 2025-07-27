@@ -127,7 +127,7 @@ DATASET_MAP = {
     help="Initial inserts to estimate G, D, c, C.",
 )
 @click.option("--delete-ratio", type=float, default=10.0, help="k inserts per delete.")
-@click.option("--max-events", type=int, default=100_000)
+@click.option("--max-events", type=int, default=10_000_000)
 @click.option("--seeds", type=int, default=10)
 @click.option("--out-dir", type=click.Path(), default="results/")
 @click.option("--algo", type=click.Choice(list(ALGO_MAP.keys())), default="memorypair")

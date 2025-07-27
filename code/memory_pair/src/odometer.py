@@ -12,17 +12,17 @@ class PrivacyOdometer:
         *,
         eps_total: float = 1.0,
         delta_total: float = 1e-5,
-        T: int,
-        gamma: float,
+        T: int = 10000,
+        gamma: float = 0.5,
         lambda_: float = 0.1,
-        delta_B: float = 0.05,
+        delta_b: float = 0.05,
     ):
         self.eps_total = eps_total
         self.delta_total = delta_total
         self.T = T
         self.gamma = gamma
         self.lambda_ = lambda_
-        self.delta_B = delta_B
+        self.delta_b = delta_b
 
         # Dynamic warmup statistics
         self._grad_norms = []
@@ -50,7 +50,8 @@ class PrivacyOdometer:
         theta_0 = self._theta_traj[0]
         self.D = max(np.linalg.norm(theta - theta_0) for theta in self._theta_traj)
 
-        self.deletion_capacity = self._compute_capacity()
+        m = self._compute_capacity()
+        self.deletion_capacity = max(1, m)  # <- guard
         self.eps_step = self.eps_total / self.deletion_capacity
         self.delta_step = self.delta_total / self.deletion_capacity
 
@@ -69,27 +70,32 @@ class PrivacyOdometer:
         )
 
     def _compute_capacity(self) -> int:
-        """Solve for the largest m such that regret stays under γ."""
-
         def regret_bound(m):
-            # Insertion regret
             insertion_regret = self.L * self.D * np.sqrt(self.T)
-
-            # Deletion regret (from Theorem 5.5)
             deletion_regret = (m * self.L / self.lambda_) * np.sqrt(
-                (2 * np.log(1.25 * m / self.delta_total) / self.eps_total)
-                * (2 * np.log(1 / self.delta_B))
+                (2 * np.log(1.25 * max(m, 1) / self.delta_total) / self.eps_total)
+                * (2 * np.log(1 / self.delta_b))
             )
-
             return (insertion_regret + deletion_regret) / self.T
 
-        # Linear search until bound exceeded
-        m = 1
-        while regret_bound(m) <= self.gamma and m < self.T:
-            m += 1
-        return m - 1
+        # If even m=1 fails, bail out early
+        if regret_bound(1) > self.gamma:
+            return 0
+
+        lo, hi = 1, self.T
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if regret_bound(mid) <= self.gamma:
+                lo = mid
+            else:
+                hi = mid - 1
+        return lo
 
     def spend(self):
+        if self.deletion_capacity is None:
+            raise RuntimeError(
+                "Deletion capacity is not set. Call `finalize()` before spending."
+            )
         if self.deletions_count >= self.deletion_capacity:
             raise RuntimeError(
                 f"Deletion capacity {self.deletion_capacity} exceeded. Retraining required."

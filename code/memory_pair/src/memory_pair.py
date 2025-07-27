@@ -5,7 +5,7 @@ from .metrics import regret
 
 
 class MemoryPair:
-    def __init__(self, dim: int, odometer: PrivacyOdometer = None):
+    def __init__(self, dim: int, odometer: PrivacyOdometer = PrivacyOdometer()):
         self.theta = np.zeros(dim)
         self.lbfgs = LimitedMemoryBFGS(dim)
         self.odometer = odometer
@@ -13,22 +13,30 @@ class MemoryPair:
         self.cumulative_regret = 0.0
         self.events_seen = 0
 
-    def insert(self, x: np.ndarray, y: float) -> float:
+    def insert(
+        self,
+        x: np.ndarray,
+        y: float,
+        *,
+        return_grad: bool = False,
+        log_to_odometer: bool = False,
+    ) -> float | tuple[float, np.ndarray]:
         """
-        Inserts a point and updates internal regret.
+        Inserts a point, updates internal regret and L-BFGS state.
         Returns the prediction made *before* the update.
+        If return_grad=True, also returns the pre-update gradient g_old.
         """
-        # 1. Make prediction
+
+        # 1. Prediction before update
         pred = float(self.theta @ x)
 
-        # 2. Update internal regret state
+        # 2. Update regret counters
         self.cumulative_regret += regret(pred, y)
         self.events_seen += 1
 
-        # 3. Perform the L-BFGS update
-        g_old = (pred - y) * x
+        # 3. Compute gradients and L-BFGS direction
+        g_old = (pred - y) * x  # <-- gradient you want
         direction = self.lbfgs.direction(g_old)
-        # Assuming a simple learning rate of 1.0 for this example
         alpha = 1.0
         s = alpha * direction
         theta_new = self.theta + s
@@ -39,6 +47,15 @@ class MemoryPair:
         self.lbfgs.add_pair(s, y_vec)
         self.theta = theta_new
 
+        # Expose for outside consumers
+        self.last_grad = g_old
+
+        # Optional: push stats to odometer during bootstrap/warmup
+        if log_to_odometer and hasattr(self, "odometer"):
+            self.odometer.observe(g_old, self.theta)
+
+        if return_grad:
+            return pred, g_old
         return pred
 
     def delete(self, x: np.ndarray, y: float) -> None:
