@@ -5,46 +5,45 @@ import numpy as np
 
 
 class PrivacyOdometer:
-    """Track privacy budget consumption for deletions."""
+    """Privacy accountant using principled bounds for (ε, δ)-unlearning."""
 
     def __init__(
         self,
         *,
-        eps_total: float | None = 1.0,
+        eps_total: float = 1.0,
         delta_total: float = 1e-5,
-        max_deletions: int | None = None,
+        deletion_capacity: int,
+        L: float = 1.0,
+        lambda_: float = 0.1,  # Strong convexity bound
     ):
+        assert deletion_capacity > 0, "Deletion capacity must be positive."
         self.eps_total = eps_total
         self.delta_total = delta_total
-        self.max_deletions = max_deletions
+        self.m = deletion_capacity
+
+        self.L = L
+        self.lambda_ = lambda_
+
         self.eps_spent = 0.0
         self.deletions_count = 0
-        # ε consumed at each deletion
-        denom = 2 * (max_deletions if max_deletions else 1)
-        self.eps_step = eps_total / denom
 
-        self.delta_step = delta_total / (2 * (max_deletions if max_deletions else 1))
-        if eps_total is not None and max_deletions is not None:
-            if eps_per_delete is not None:
-                raise ValueError(
-                    "Specify either eps_per_delete or max_deletions, not both."
-                )
-            if eps_total < 0 or max_deletions <= 0:
-                raise ValueError(
-                    "eps_total must be non-negative and max_deletions must be positive."
-                )
+        self.eps_step = eps_total / self.m
+        self.delta_step = delta_total / self.m
+
+        self._sigma2_step = (L / lambda_) ** 2 * (
+            2 * np.log(1.25 / self.delta_step) / self.eps_step**2
+        )
+        self._sigma_step = np.sqrt(self._sigma2_step)
 
     def spend(self):
-        if self.deletions_count >= self.max_deletions:
-            raise RuntimeError(
-                f"Deletion capacity of {self.max_deletions} has been exceeded. "
-                "Model guarantees are void."
-            )
-        self.eps_spent += self.eps_per_delete
+        if self.deletions_count >= self.m:
+            raise RuntimeError("Exceeded deletion capacity. Retraining required.")
+        self.eps_spent += self.eps_step
         self.deletions_count += 1
 
-    def remaining(self) -> float:
+    def remaining(self):
         return self.eps_total - self.eps_spent
 
-    def noise_scale(self, sensitivity: float) -> float:
-        return sensitivity * (2 * np.log(1.25 / self.delta_step)) ** 0.5 / self.eps_step
+    def noise_scale(self) -> float:
+        """Standard deviation of Gaussian noise to inject."""
+        return self._sigma_step

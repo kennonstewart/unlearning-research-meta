@@ -13,7 +13,7 @@ from data_loader import (
     get_rotating_mnist_stream,
     get_synthetic_linear_stream,
 )
-from memory_pair.src.memory_pair import StreamNewtonMemoryPair
+from memory_pair.src.memory_pair import MemoryPair
 from memory_pair.src.odometer import PrivacyOdometer
 from baselines import SekhariBatchUnlearning, QiaoHessianFree
 
@@ -21,7 +21,7 @@ from metrics import regret, abs_error
 from plots import plot_capacity_curve, plot_regret
 
 ALGO_MAP = {
-    "memorypair": StreamNewtonMemoryPair,
+    "memorypair": MemoryPair,
     "sekhari": SekhariBatchUnlearning,
     "qiao": QiaoHessianFree,
 }
@@ -56,7 +56,26 @@ def main(
     out_dir: str,
     algo: str,
 ) -> None:
-    # ... (setup remains the same)
+    # Setup output directories
+    os.makedirs(out_dir, exist_ok=True)
+    figs_dir = os.path.join(out_dir, "figs")
+    runs_dir = os.path.join(out_dir, "runs")
+    os.makedirs(figs_dir, exist_ok=True)
+    os.makedirs(runs_dir, exist_ok=True)
+
+    # Initialize data stream generator
+    gen = DATASET_MAP[dataset](seed=0)  # Use seed=0 for deterministic warmup start
+    first_x, first_y = next(gen)
+
+    # Instantiate model and odometer
+    model_class = ALGO_MAP[algo]
+    odometer = PrivacyOdometer(eps_per_delete=eps_per_delete)
+
+    # Initialize model (dim inferred from first_x)
+    model = model_class(dim=first_x.shape[0], odometer=odometer)
+
+    # Regret tracking
+    cum_regret = 0.0
 
     for seed in range(seeds):
         summaries = []
