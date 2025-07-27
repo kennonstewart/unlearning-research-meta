@@ -49,7 +49,7 @@ DATASET_MAP = {
 @click.option("--delete-ratio", type=float, default=10.0)
 @click.option("--max-events", type=int, default=100_000)
 @click.option("--seeds", type=int, default=10)
-@click.option("--out-dir", type=click.Path(), default="results/exp2")
+@click.option("--out-dir", type=click.Path(), default="results/")
 @click.option("--algo", type=click.Choice(list(ALGO_MAP.keys())), default="memorypair")
 def main(
     dataset: str,
