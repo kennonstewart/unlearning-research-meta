@@ -1,5 +1,3 @@
-
-
 # Research on Online Machine Unlearning
 
 ## Introduction
@@ -8,94 +6,173 @@ This repository contains the code and experiments for our research into the perf
 
 This project investigates several key questions:
 
-Does the Memory-Pair learner achieve sub-linear cumulative regret on drifting data streams?
-
-What is the deletion capacity of privacy-preserving unlearning methods?
-
-How does model accuracy degrade as a function of sequential deletion operations?
+- Does the Memory-Pair learner achieve sub-linear cumulative regret on drifting data streams?
+- What is the deletion capacity of privacy-preserving unlearning methods?
+- How does model accuracy degrade as a function of sequential deletion operations?
 
 ## 📂 Repository Structure
-This is a meta-repository that organizes multiple components using git submodule. Note that the directory structure within the submodule may have changed from the structure below.
+
+This repository is organized as a unified codebase with shared components and independent experiments:
 
 ```
 .
 ├── README.md
-├── code
-│   ├── memory_pair
-│   └── memory_pair_exp
-├── data
-│   ├── README.md
-│   └── data_loader
-│       ├── README.md
-│       ├── __init__.py
-│       ├── __pycache__
-│       │   ├── __init__.cpython-312.pyc
-│       │   ├── cifar10.cpython-312.pyc
-│       │   ├── covtype.cpython-312.pyc
-│       │   ├── mnist.cpython-312.pyc
-│       │   ├── streams.cpython-312.pyc
-│       │   └── utils.cpython-312.pyc
-│       ├── cifar10.py
-│       ├── covtype.py
-│       ├── data_loader.egg-info
-│       │   ├── PKG-INFO
-│       │   ├── SOURCES.txt
-│       │   ├── dependency_links.txt
-│       │   ├── requires.txt
-│       │   └── top_level.txt
-│       ├── mnist.py
-│       ├── pyproject.toml
-│       ├── requirements.txt
-│       ├── sanity_check.py
-│       ├── streams.py
-│       └── utils.py
-├── experiments
-│   ├── deletion_capacity
-│   ├── post_deletion_accuracy
-│   └── sublinear_regret
-└── structure.txt
+├── AGENTS.md                    # Meta-repository guide for AI agents
+├── code/                        # Canonical, installable source code
+│   ├── memory_pair/            # Memory-Pair algorithm implementation
+│   │   └── src/
+│   │       ├── memory_pair.py  # Main algorithm with state machine
+│   │       ├── calibrator.py   # Theoretical constants estimation
+│   │       ├── odometer.py     # Privacy budget tracking
+│   │       ├── lbfgs.py        # L-BFGS optimization
+│   │       └── metrics.py      # Performance metrics
+│   ├── data_loader/            # Unified dataset loaders
+│   │   ├── mnist.py           # MNIST and Rotating-MNIST streams
+│   │   ├── cifar10.py         # CIFAR-10 streams
+│   │   ├── covtype.py         # Forest CoverType dataset
+│   │   ├── linear.py          # Synthetic linear data
+│   │   ├── streams.py         # Stream utilities
+│   │   └── utils.py           # Common utilities
+│   └── baselines/             # Baseline algorithm implementations
+├── experiments/               # Independent experimental studies
+│   ├── deletion_capacity/     # Deletion capacity analysis
+│   ├── post_deletion_accuracy/ # Model accuracy degradation
+│   └── sublinear_regret/      # Regret analysis on drifting streams
+└── paper/                     # Research paper materials
 ```
+
+### Key Components
+
+- **Memory-Pair Algorithm**: Implements a three-phase state machine (calibration, learning, interleaving) with privacy-preserving deletion capabilities
+- **Data Loaders**: Unified, fail-safe dataset loaders for various machine learning benchmarks
+- **Experiments**: Each subdirectory contains an independent study with its own `AGENTS.md` for specific instructions
 
 ## 🚀 Getting Started
-Follow these steps to set up the project environment.
 
-### Clone the Repository
+### Prerequisites
 
-Clone this meta-repository using the --recurse-submodules flag to automatically fetch all the component code.
+- Python 3.8+
+- Virtual environment (recommended)
 
+### Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/kennonstewart/unlearning-research-meta.git
+   cd unlearning-research-meta
+   ```
+
+2. **Set up the Python environment:**
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   ```
+
+3. **Install the packages in editable mode:**
+   ```bash
+   pip install -e code/memory_pair
+   pip install -e code/data_loader
+   ```
+
+### Verification
+
+Run the data loader sanity check to ensure everything is working:
 ```bash
-git clone --recurse-submodules https://github.com/kennonstewart/unlearning-research-meta.git
-cd unlearning-research-meta
-Set up the Python Environment
+python code/data_loader/sanity_check.py
 ```
 
-Create and activate a virtual environment.
+## 🧪 Running Experiments
 
+Each experiment is self-contained with its own instructions. Navigate to an experiment directory and follow its `AGENTS.md`:
+
+### Deletion Capacity Experiment
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-Install Dependencies
+cd experiments/deletion_capacity
+python run.py --algo memorypair --schedule burst --seed 42
 ```
 
-Install all required packages from the top-level `requirements.txt`. Then, install our local fogo package in editable mode so it can be used by the experiment modules.
-
+### Sublinear Regret Experiment  
 ```bash
-pip install -r requirements.txt
-pip install -e code/fogo
+cd experiments/sublinear_regret
+python run.py --dataset rotmnist --stream drift --T 10000 --seed 42
 ```
 
-🧪 Running Experiments
-To run an experiment, navigate to its directory and execute the main script. For example, to run the sublinear regret experiment:
-
+### Post-Deletion Accuracy Experiment
 ```bash
-cd code/sublinear_regret_experiment
-python run_regret.py --dataset rotmnist --stream drift --T 10000
+cd experiments/post_deletion_accuracy
+python run_accuracy.py --dataset mnist --deletions 100 --seed 42
 ```
 
-## ✍️ Contribution Workflow
-To make changes to a specific component (like the fogo algorithm):
-Navigate to the submodule directory: `cd code/fogo`
-Make, commit, and push your changes within that directory.
-Navigate back to the meta-repo root: `cd ../..`
+## 🔬 Key Features
 
-Commit the submodule pointer update: `git add code/fogo and git commit -m "docs: Update Fogo component"`. This final commit registers the new version of the submodule with the main project.
+### Memory-Pair Algorithm
+- **Three-Phase State Machine**: Calibration → Learning → Interleaving
+- **Automatic Calibration**: Estimates theoretical constants (G, D, c, C) from bootstrap data
+- **Privacy-Preserving Deletions**: Uses differential privacy with regret-constrained optimization
+- **Sample Complexity**: Automatically computes N* for optimal learning-to-prediction transition
+
+### Privacy Odometer
+- **Regret-Constrained Optimization**: Maximizes deletion capacity under regret bounds
+- **Adaptive Noise Scaling**: Computes optimal Gaussian noise for each deletion
+- **Budget Tracking**: Monitors ε and δ expenditure across deletions
+
+## ✍️ Development Guidelines
+
+### Import Policy
+Always use the canonical imports for consistency:
+
+```python
+# Algorithms
+from code.memory_pair.src.memory_pair import MemoryPair
+from code.memory_pair.src.odometer import PrivacyOdometer
+
+# Data
+from code.data_loader import get_rotating_mnist_stream
+```
+
+### Experiment Structure
+Each experiment must:
+- Include an `AGENTS.md` with specific instructions
+- Accept `--seed` parameter for reproducibility  
+- Auto-commit results with standardized commit messages
+- Store outputs in `experiments/<name>/results/`
+
+### Reproducibility
+All scripts must be deterministic. Use the provided seeding utility:
+```python
+from code.data_loader.utils import set_global_seed
+set_global_seed(args.seed)
+```
+
+## 📊 Results and Analysis
+
+Results are automatically committed to version control with structured commit messages:
+- Format: `EXP:<experiment> <algorithm>-<config> <short-hash>`
+- Example: `EXP:deletion_capacity memorypair-burst a1b2c3d`
+
+Each experiment directory contains:
+- `results/`: JSON files with experimental outcomes
+- `figs/`: Generated plots and visualizations  
+- `runs/`: Detailed run logs and intermediate outputs
+
+## 🤝 Contributing
+
+1. **Check experiment-specific guidelines**: Read `experiments/<name>/AGENTS.md`
+2. **Follow import conventions**: Use canonical paths from `code/`
+3. **Ensure reproducibility**: All scripts must accept `--seed`
+4. **Test thoroughly**: Run relevant sanity checks and unit tests
+5. **Document changes**: Update relevant README files
+
+## 📚 References
+
+This implementation follows the theoretical framework established in our research on online machine unlearning with differential privacy guarantees and regret minimization.
+
+## 📝 License
+
+[Add appropriate license information]
+
+## 👥 Maintainers
+
+- Primary maintainer: @kennonstewart
+- Issues & discussions: GitHub Issues tab
+- For urgent build failures, tag maintainers in your PR
