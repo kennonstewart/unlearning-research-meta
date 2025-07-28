@@ -1,6 +1,6 @@
 import numpy as np
 from enum import Enum
-from typing import Optional, Union, Tuple
+from typing import Optional, Union, Tuple, Dict, Any
 from .lbfgs import LimitedMemoryBFGS
 from .odometer import PrivacyOdometer, RDPOdometer
 from .metrics import regret
@@ -52,7 +52,8 @@ class MemoryPair:
         last_grad (Optional[np.ndarray]): Last computed gradient (for external access)
     """
     
-    def __init__(self, dim: int, odometer: Union[PrivacyOdometer, RDPOdometer] = None, calibrator: Optional[Calibrator] = None):
+    def __init__(self, dim: int, odometer: Union[PrivacyOdometer, RDPOdometer] = None, calibrator: Optional[Calibrator] = None, 
+                 recal_window: Optional[int] = None, recal_threshold: float = 0.3):
         """
         Initialize MemoryPair algorithm.
         
@@ -60,6 +61,8 @@ class MemoryPair:
             dim: Dimensionality of the parameter space
             odometer: Privacy odometer for deletion tracking (creates default if None)
             calibrator: Calibrator for bootstrap phase (creates default if None)
+            recal_window: Events between recalibration checks (None = disabled)
+            recal_threshold: Relative threshold for drift detection
         """
         self.theta = np.zeros(dim)
         self.lbfgs = LimitedMemoryBFGS(dim)
@@ -77,6 +80,12 @@ class MemoryPair:
         self.N_star: Optional[int] = None
         self.ready_to_predict = False
         self.calibration_stats: Optional[dict] = None
+        
+        # Adaptive recalibration attributes
+        self.recal_window = recal_window
+        self.recal_threshold = recal_threshold
+        self.last_recal_event = 0
+        self.recalibrations_count = 0
         
         # For external gradient access
         self.last_grad: Optional[np.ndarray] = None
@@ -227,6 +236,13 @@ class MemoryPair:
         # Store gradient for external access
         self.last_grad = g_old
 
+        # Update EMA tracking for drift detection (if past calibration phase)
+        if self.phase in [Phase.LEARNING, Phase.INTERLEAVING]:
+            self.calibrator.observe_ongoing(g_old)
+            
+            # Check for recalibration trigger
+            self._check_recalibration_trigger()
+
         # Optional: push stats to odometer during bootstrap/warmup (legacy)
         if log_to_odometer and hasattr(self.odometer, "observe"):
             self.odometer.observe(g_old, self.theta)
@@ -289,3 +305,51 @@ class MemoryPair:
         if self.events_seen == 0:
             return float("inf")
         return self.cumulative_regret / self.events_seen
+
+    def _check_recalibration_trigger(self) -> None:
+        """Check if recalibration should be triggered based on drift detection."""
+        if (self.recal_window is None or 
+            self.phase != Phase.INTERLEAVING or
+            not hasattr(self.odometer, 'supports_recalibration') or
+            not self.odometer.supports_recalibration()):
+            return
+        
+        # Check if it's time for a recalibration check
+        events_since_last_recal = self.events_seen - self.last_recal_event
+        if events_since_last_recal < self.recal_window:
+            return
+        
+        # Check for drift
+        if self.calibrator.check_drift(self.recal_threshold):
+            print(f"[MemoryPair] Drift detected at event {self.events_seen}. Triggering recalibration.")
+            self._perform_recalibration()
+        
+        self.last_recal_event = self.events_seen
+
+    def _perform_recalibration(self) -> None:
+        """Perform adaptive recalibration with updated statistics."""
+        try:
+            # Get updated statistics from calibrator
+            new_stats = self.calibrator.get_updated_stats(self)
+            
+            # Estimate remaining events
+            remaining_T = max(1000, self.events_seen)  # Conservative estimate
+            
+            # Recalibrate the odometer
+            self.odometer.recalibrate_with(new_stats, remaining_T)
+            
+            self.recalibrations_count += 1
+            print(f"[MemoryPair] Recalibration #{self.recalibrations_count} completed.")
+            
+        except Exception as e:
+            print(f"[MemoryPair] Recalibration failed: {e}")
+            # Continue without recalibration on failure
+
+    def get_recalibration_stats(self) -> Dict[str, Any]:
+        """Get statistics about recalibration events."""
+        return {
+            "recalibrations_count": self.recalibrations_count,
+            "last_recal_event": self.last_recal_event,
+            "current_G_ema": getattr(self.calibrator, 'G_ema', None),
+            "finalized_G": getattr(self.calibrator, 'finalized_G', None),
+        }

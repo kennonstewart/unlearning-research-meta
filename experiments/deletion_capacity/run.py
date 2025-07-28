@@ -20,7 +20,7 @@ import csv
 import json
 import os
 import sys
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import click
 import numpy as np
@@ -168,6 +168,18 @@ DATASET_MAP = {
 @click.option(
     "--alphas", type=str, default="1.5,2,3,4,8,16,32,64", help="Comma-separated RDP orders for RDP accountant."
 )
+@click.option(
+    "--ema-beta", type=float, default=0.9, help="EMA decay parameter for drift detection."
+)
+@click.option(
+    "--recal-window", type=int, default=None, help="Events between recalibration checks (None = disabled)."
+)
+@click.option(
+    "--recal-threshold", type=float, default=0.3, help="Relative threshold for drift detection."
+)
+@click.option(
+    "--m-max", type=int, default=None, help="Upper bound for deletion capacity binary search."
+)
 def main(
     dataset: str,
     gamma_learn: float,
@@ -186,6 +198,10 @@ def main(
     d_cap: float,
     accountant: str,
     alphas: str,
+    ema_beta: float,
+    recal_window: Optional[int],
+    recal_threshold: float,
+    m_max: Optional[int],
 ) -> None:
     # Setup output directories
     os.makedirs(out_dir, exist_ok=True)
@@ -197,6 +213,9 @@ def main(
     print(f"[Config] gamma_learn = {gamma_learn}, gamma_priv = {gamma_priv}")
     print(f"[Config] quantile = {quantile}, D_cap = {d_cap}")
     print(f"[Config] accountant = {accountant}")
+    print(f"[Config] EMA beta = {ema_beta}, recal_window = {recal_window}, recal_threshold = {recal_threshold}")
+    if m_max is not None:
+        print(f"[Config] m_max = {m_max}")
 
     for seed in range(seeds):
         print(f"\n=== Seed {seed} ===")
@@ -219,6 +238,7 @@ def main(
                 lambda_=lambda_,
                 delta_b=delta_b,
                 alphas=alpha_list,
+                m_max=m_max,
             )
         else:  # legacy
             odometer = PrivacyOdometer(
@@ -230,14 +250,15 @@ def main(
                 delta_b=delta_b,
             )
 
-        # Create calibrator with robust parameters
+        # Create calibrator with robust parameters and EMA tracking
         from memory_pair.src.calibrator import Calibrator
-        calibrator = Calibrator(quantile=quantile, D_cap=d_cap)
+        calibrator = Calibrator(quantile=quantile, D_cap=d_cap, ema_beta=ema_beta)
 
         # Initialize model
         model_class = ALGO_MAP[algo]
         if algo == "memorypair":
-            model = model_class(dim=first_x.shape[0], odometer=odometer, calibrator=calibrator)
+            model = model_class(dim=first_x.shape[0], odometer=odometer, calibrator=calibrator,
+                              recal_window=recal_window, recal_threshold=recal_threshold)
         else:
             model = model_class(dim=first_x.shape[0], odometer=odometer)
 
@@ -358,11 +379,21 @@ def main(
             "accountant_type": accountant,
         }
         
+        # Add recalibration information
+        recal_stats = model.get_recalibration_stats()
+        theoretical_metrics.update({
+            "recalibrations_count": recal_stats["recalibrations_count"],
+            "current_G_ema": recal_stats.get("current_G_ema"),
+            "finalized_G": recal_stats.get("finalized_G"),
+        })
+        
         # Add accountant-specific metrics
         if accountant == "rdp":
             theoretical_metrics.update({
                 "eps_total": odometer.eps_total,
                 "delta_total": odometer.delta_total,
+                "m_max_param": m_max,
+                "sens_bound": getattr(odometer, "sens_bound", None),
             })
         else:
             theoretical_metrics.update({
@@ -376,10 +407,17 @@ def main(
         def get_privacy_metrics(odometer_obj):
             if isinstance(odometer_obj, RDPOdometer):
                 eps_converted, delta_converted = odometer_obj.remaining_eps_delta()
+                sens_stats = odometer_obj.get_sensitivity_stats()
                 return {
                     "eps_converted": odometer_obj.eps_total - eps_converted,
                     "delta_total": delta_converted,
                     "eps_remaining": eps_converted,
+                    "m_current": odometer_obj.deletion_capacity,
+                    "sigma_current": odometer_obj.sigma_step,
+                    "sens_count": sens_stats.get("count", 0),
+                    "sens_mean": sens_stats.get("mean", 0.0),
+                    "sens_max": sens_stats.get("max", 0.0),
+                    "sens_q95": sens_stats.get("q95", 0.0),
                 }
             else:
                 return {
