@@ -18,6 +18,7 @@ class Calibrator:
     - Gradient norms: ||∇ℓ_t(w_t)||_2 to estimate G
     - Parameter trajectory: w_t to compute hypothesis diameter D  
     - L-BFGS curvature bounds: eigenvalue bounds (c, C) of Hessian approximation
+    - EMA tracking: Exponential moving average of gradient norms for drift detection
     
     After collection, it computes the sample complexity N* = ⌈(G·D·√(cC)/γ)²⌉
     
@@ -28,15 +29,20 @@ class Calibrator:
         D_cap (float): Upper bound for hypothesis diameter (default 10.0)
         c_hat (Optional[float]): Estimated lower curvature bound
         C_hat (Optional[float]): Estimated upper curvature bound
+        ema_beta (float): EMA decay parameter for drift detection
+        G_ema (float): Exponential moving average of gradient norms
+        G_ema_window (List[float]): Recent EMA values for drift detection
+        finalized_G (Optional[float]): G value used in last finalization
     """
     
-    def __init__(self, quantile: float = 0.95, D_cap: float = 10.0):
+    def __init__(self, quantile: float = 0.95, D_cap: float = 10.0, ema_beta: float = 0.9):
         """
         Initialize the Calibrator.
         
         Args:
             quantile: Quantile for gradient norm estimation (e.g., 0.95 to clip outliers)
             D_cap: Upper bound for hypothesis diameter to prevent extreme values
+            ema_beta: EMA decay parameter (higher = more smoothing)
         """
         self.grad_norms = []
         self.thetas = []
@@ -44,6 +50,12 @@ class Calibrator:
         self.D_cap = D_cap
         self.c_hat: Optional[float] = None
         self.C_hat: Optional[float] = None
+        
+        # EMA tracking for adaptive recalibration
+        self.ema_beta = ema_beta
+        self.G_ema: Optional[float] = None
+        self.G_ema_window = []  # Store recent EMA values
+        self.finalized_G: Optional[float] = None
 
     def observe(self, grad: np.ndarray, theta: np.ndarray) -> None:
         """
@@ -53,8 +65,34 @@ class Calibrator:
             grad: Gradient vector ∇ℓ_t(w_t)
             theta: Current parameter vector w_t
         """
-        self.grad_norms.append(np.linalg.norm(grad))
+        grad_norm = np.linalg.norm(grad)
+        self.grad_norms.append(grad_norm)
         self.thetas.append(theta.copy())
+        
+        # Update EMA of gradient norms
+        if self.G_ema is None:
+            self.G_ema = grad_norm
+        else:
+            self.G_ema = self.ema_beta * self.G_ema + (1 - self.ema_beta) * grad_norm
+
+    def observe_ongoing(self, grad: np.ndarray) -> None:
+        """
+        Update EMA tracking during ongoing learning (after calibration).
+        
+        Args:
+            grad: Gradient vector ∇ℓ_t(w_t)
+        """
+        grad_norm = np.linalg.norm(grad)
+        
+        if self.G_ema is None:
+            self.G_ema = grad_norm
+        else:
+            self.G_ema = self.ema_beta * self.G_ema + (1 - self.ema_beta) * grad_norm
+        
+        # Keep a sliding window of recent EMA values
+        self.G_ema_window.append(self.G_ema)
+        if len(self.G_ema_window) > 1000:  # Limit window size
+            self.G_ema_window.pop(0)
 
     def estimate_bounds(self, model) -> tuple[float, float]:
         """
@@ -124,6 +162,9 @@ class Calibrator:
         D_raw = float(max(distances)) if distances else 1.0
         D_hat = min(D_raw, self.D_cap)  # Clamp to prevent extreme values
         
+        # Store for future use
+        self.D = D_hat
+        
         # Estimate curvature bounds with fallback to conservative defaults
         self.c_hat, self.C_hat = self.estimate_bounds(model)
         
@@ -133,6 +174,9 @@ class Calibrator:
         
         # Add reasonable bounds to prevent overflow
         N_star = int(np.ceil(min(N_star_raw, 1e6)))  # Cap at 1M
+        
+        # Store finalized G for drift detection
+        self.finalized_G = G_hat
         
         print(f"[Calibrator] G_hat = {G_hat:.4f} (quantile {self.quantile})")
         print(f"[Calibrator] D_hat = {D_hat:.4f} (clamped by D_cap = {self.D_cap})")
@@ -144,4 +188,52 @@ class Calibrator:
             "c": self.c_hat,
             "C": self.C_hat,
             "N_star": max(1, N_star),
+        }
+
+    def check_drift(self, threshold: float = 0.3) -> bool:
+        """
+        Check if gradient norm EMA has drifted significantly from finalized value.
+        
+        Args:
+            threshold: Relative threshold for drift detection (e.g., 0.3 = 30% increase)
+            
+        Returns:
+            True if drift is detected, False otherwise
+        """
+        if self.finalized_G is None or self.G_ema is None:
+            return False
+        
+        drift_ratio = (self.G_ema - self.finalized_G) / self.finalized_G
+        return drift_ratio > threshold
+
+    def get_updated_stats(self, model) -> Dict[str, Any]:
+        """
+        Get updated calibration statistics using current EMA values.
+        
+        Args:
+            model: Model with L-BFGS optimizer for curvature estimation
+            
+        Returns:
+            Dictionary with updated statistics for recalibration
+        """
+        if self.G_ema is None:
+            raise ValueError("No EMA data available. Call observe_ongoing() first.")
+        
+        # Use current EMA as the updated G estimate
+        G_updated = self.G_ema
+        
+        # Keep the same D (hypothesis diameter doesn't change much)
+        D_updated = self.D if hasattr(self, 'D') else 1.0
+        
+        # Re-estimate curvature bounds
+        c_updated, C_updated = self.estimate_bounds(model)
+        
+        print(f"[Calibrator] Updated stats: G = {G_updated:.4f}, D = {D_updated:.4f}")
+        print(f"[Calibrator] Updated curvature: c = {c_updated:.4f}, C = {C_updated:.4f}")
+        
+        return {
+            "G": G_updated,
+            "D": D_updated,
+            "c": c_updated,
+            "C": C_updated,
         }

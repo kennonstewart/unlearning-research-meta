@@ -303,12 +303,117 @@ When deletion capacity is minimal (m=1):
 - Status tracking (`_status = 'degenerate'`) for diagnostics
 - User-facing messages: "Capacity is 1; next delete forces retrain"
 
-## 7. Developer Workflow
+## 7. RDP Accountant
+
+The system now supports **Rényi Differential Privacy (RDP)** accounting as an alternative to the traditional (ε, δ)-DP per-step allocation. RDP provides tighter composition bounds by tracking privacy loss at multiple orders α.
+
+### RDP vs Legacy Accountant
+
+**Legacy PrivacyOdometer:**
+- Uses uniform per-step allocation: ε_step = ε_total/m, δ_step = δ_total/m
+- Simple but potentially loose composition bounds
+- Fixed noise σ computed from per-step parameters
+
+**RDP Accountant (RDPOdometer):**
+- Tracks privacy loss at multiple RDP orders α = [1.5, 2, 3, 4, 8, 16, 32, 64, ∞]
+- Uses additive composition: ε_α^(total) = Σᵢ ε_α^(i) 
+- Converts to (ε, δ) via: ε = min_α (ε_α + log(1/δ)/(α-1))
+- Tighter bounds, especially for multiple operations
+
+### RDP Integration
+
+The RDPOdometer maintains the same API as PrivacyOdometer:
+
+```python
+# RDP accountant creation
+rdp_odometer = RDPOdometer(
+    eps_total=1.0,
+    delta_total=1e-5,
+    T=max_events,
+    gamma=gamma_priv,
+    lambda_=lambda_,
+    delta_b=0.05,
+    alphas=[1.5, 2, 3, 4, 8, 16, 32, 64, float("inf")]
+)
+
+# Same finalization API
+rdp_odometer.finalize_with(stats, T_estimate=max_events)
+
+# Enhanced spend API with actual sensitivity
+rdp_odometer.spend(sensitivity=||d||₂, sigma=σ)
+
+# RDP-specific queries
+eps_converted = rdp_odometer.to_eps_delta(delta_total)
+rdp_remaining = rdp_odometer.remaining_rdp()  # Dict[α] -> remaining ε_α
+```
+
+### Capacity Computation with RDP
+
+The capacity solver now uses RDP constraints:
+
+1. **Simulate m deletions:** For candidate capacity m, compute total RDP cost:
+   ```python
+   for α in alphas:
+       ε_α^(total) = m × α × (L/λ)² / (2σ²)
+   ```
+
+2. **Convert to (ε, δ):** Find tightest bound:
+   ```python
+   ε_converted = min_α (ε_α^(total) + log(1/δ_total)/(α-1))
+   ```
+
+3. **Check constraints:** Verify both:
+   - Privacy: ε_converted ≤ ε_total
+   - Regret: (R_ins + R_del(m))/T ≤ γ_priv
+
+4. **Binary search:** Find largest feasible m
+
+### CLI Usage
+
+```bash
+# Use RDP accountant (default)
+python run.py --accountant rdp --alphas "1.5,2,4,8,16,32"
+
+# Use legacy accountant  
+python run.py --accountant legacy
+
+# RDP with custom orders
+python run.py --accountant rdp --alphas "2,4,8"
+```
+
+### Logging Differences
+
+**RDP logs include:**
+- `eps_converted`: Current (ε, δ) conversion of RDP curve
+- `delta_total`: Fixed δ parameter
+- `eps_remaining`: Remaining ε budget after conversion
+
+**Legacy logs include:**
+- `eps_spent`: Cumulative ε spent via uniform allocation
+- `capacity_remaining`: Remaining deletion capacity
+- `eps_step_theory`, `delta_step_theory`: Per-step parameters
+
+### When to Use RDP
+
+**Use RDP when:**
+- Multiple deletions expected (m > 5-10)
+- Tight privacy bounds needed
+- Advanced composition analysis required
+
+**Use Legacy when:**
+- Few deletions (m ≤ 3)
+- Simple uniform allocation preferred
+- Backward compatibility needed
+
+## 8. Developer Workflow
 
 1. **Create model & odometer with calibrator**
    ```python
    from memory_pair.src.calibrator import Calibrator
+   from memory_pair.src.odometer import RDPOdometer  # or PrivacyOdometer
+   
    calibrator = Calibrator(quantile=0.95, D_cap=10.0)
+   odometer = RDPOdometer(eps_total=1.0, delta_total=1e-5, gamma=gamma_priv)
    model = MemoryPair(dim=d, odometer=odometer, calibrator=calibrator)
    ```
 2. **Phase: CALIBRATION**
@@ -319,11 +424,11 @@ When deletion capacity is minimal (m=1):
    - **After warmup**: Call `odometer.finalize_with(stats, T_estimate=max_events)` with `gamma_priv`
 4. **Phase: INTERLEAVING**
    - Run workload stream (e.g., 10 inserts : 1 delete)
-   - Odometer enforces capacity & noise
+   - Odometer enforces capacity & noise (RDP tracks actual sensitivity per delete)
 
 ---
 
-## 8. Logging & Testing
+## 9. Logging & Testing
 
 ### Empirical vs Theoretical Metrics
 
@@ -340,7 +445,9 @@ The pipeline now tracks both theoretical predictions and empirical observations:
 - Comparison with theoretical bounds for validation
 
 **Standard logging:**
-- `phase`, `eps_spent`, `capacity_remaining`, `gamma_learn`, `gamma_priv`, `quantile`, `D_cap`
+- `phase`, `accountant_type`, `gamma_learn`, `gamma_priv`, `quantile`, `D_cap`
+- **RDP-specific**: `eps_converted`, `delta_total`, `eps_remaining`  
+- **Legacy-specific**: `eps_spent`, `capacity_remaining`, `eps_step_theory`, `delta_step_theory`
 
 ### Unit Tests
   - Calibrator returns positive N\*; monotone in γ
@@ -349,7 +456,7 @@ The pipeline now tracks both theoretical predictions and empirical observations:
 
 ---
 
-## 8. Error Handling & Edge Cases
+## 10. Error Handling & Edge Cases
 
 - If `regret_bound(1) > γ`: degrade gracefully (set `m = 1`, warn).
 - If calibration collects too few points, fall back to defaults.
@@ -358,11 +465,12 @@ The pipeline now tracks both theoretical predictions and empirical observations:
 
 ---
 
-## 9. Future Extensions
+## 11. Future Extensions
 
 - Adaptive re-calibration on detected drift.
-- Different privacy accountants (RDP, zCDP) with tighter composition.
+- Different privacy accountants (zCDP, f-DP) with even tighter composition.
 - Phase-specific hooks for distributed/federated settings.
+- Advanced RDP orders optimization based on workload patterns.
 
 ---
 

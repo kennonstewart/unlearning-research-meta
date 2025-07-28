@@ -62,6 +62,47 @@ Deterministic outputs are mandatory for CI checks.
 
 ⸻
 
+2.1  RDP Accountant & Joint Optimization
+
+The MemoryPair algorithm supports advanced privacy accounting via
+Rényi Differential Privacy (RDP) with joint m-σ optimization and
+adaptive recalibration.
+
+	•	Privacy Accountant Types:
+	  --accountant rdp    # Recommended for research
+	  --accountant legacy # Backward compatibility
+
+	•	Joint m-σ Optimization:
+The RDPOdometer finds the largest deletion capacity m and
+smallest noise scale σ satisfying both:
+1. Privacy: m deletions with sensitivity bound ≤ RDP→(ε,δ) budget
+2. Regret: R_total(m,σ)/T ≤ γ_priv
+
+Binary search on m ∈ [1, m_max], then solve:
+σ ≥ max_α sqrt(m·α·sens²/(2·εα_budget[α]))
+
+	•	Per-Delete Sensitivity:
+Each delete uses actual influence norm ||d|| rather than
+global L/λ bound. Empirical 95th percentile becomes the
+sensitivity bound for subsequent optimizations.
+
+	•	Adaptive Recalibration:
+When gradient EMA drifts >threshold from calibrated value:
+1. Pause deletes, collect fresh statistics
+2. Re-run joint optimization with remaining RDP budget  
+3. Resume with updated m and σ
+
+	•	CLI Usage:
+python run.py --accountant rdp --alphas "2,4,8,16" \
+  --ema-beta 0.9 --recal-window 5000 --recal-threshold 0.3 \
+  --m-max 1000
+
+	•	Expected Outputs:
+Logs include: eps_converted, m_current, sigma_current,
+sens_count, sens_q95, recalibrations_count
+
+⸻
+
 3  How to Contribute
 	1.	Read the sub-module brief
 Navigate to experiments/<your-feature>/AGENTS.md and follow the

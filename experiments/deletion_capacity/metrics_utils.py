@@ -1,0 +1,86 @@
+"""
+Utility functions for metrics computation and aggregation.
+"""
+
+from typing import List, Tuple, Dict, Any
+import numpy as np
+
+
+def mean_ci(values: List[float]) -> Tuple[float, float]:
+    """Compute mean and 95% confidence interval."""
+    arr = np.array(values, dtype=float)
+    mean = float(arr.mean())
+    ci = float(1.96 * arr.std(ddof=1) / np.sqrt(len(arr))) if len(arr) > 1 else 0.0
+    return mean, ci
+
+
+def get_privacy_metrics(model) -> Dict[str, Any]:
+    """Extract privacy metrics from model's odometer."""
+    odometer = getattr(model, "odometer", None)
+    if odometer is None:
+        return {}
+    
+    metrics = {}
+    
+    # Common metrics for both accountant types
+    if hasattr(odometer, "eps_spent"):
+        metrics["eps_spent"] = odometer.eps_spent
+    if hasattr(odometer, "delta_spent"):
+        metrics["delta_spent"] = odometer.delta_spent
+    
+    # RDP-specific metrics
+    if hasattr(odometer, "eps_converted"):
+        metrics["eps_converted"] = odometer.eps_converted
+    if hasattr(odometer, "delta_total"):
+        metrics["delta_total"] = odometer.delta_total
+    if hasattr(odometer, "eps_remaining"):
+        metrics["eps_remaining"] = odometer.eps_remaining
+    if hasattr(odometer, "sens_count"):
+        metrics["sens_count"] = odometer.sens_count
+    if hasattr(odometer, "sens_q95"):
+        metrics["sens_q95"] = odometer.sens_q95
+    if hasattr(odometer, "recalibrations_count"):
+        metrics["recalibrations_count"] = odometer.recalibrations_count
+    if hasattr(odometer, "m_current"):
+        metrics["m_current"] = odometer.m_current
+    if hasattr(odometer, "sigma_current"):
+        metrics["sigma_current"] = odometer.sigma_current
+    
+    # Legacy metrics
+    if hasattr(odometer, "eps_step"):
+        metrics["eps_step_theory"] = odometer.eps_step
+    if hasattr(odometer, "delta_step"):
+        metrics["delta_step_theory"] = odometer.delta_step
+    
+    return metrics
+
+
+def aggregate_summaries(summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Aggregate summary statistics across seeds."""
+    if not summaries:
+        return {}
+    
+    # Get all unique keys from summaries
+    all_keys = set()
+    for s in summaries:
+        all_keys.update(s.keys())
+    
+    aggregated = {}
+    
+    # Add all numeric keys
+    for key in sorted(all_keys):
+        if key in ["accountant_type"]:  # Skip non-numeric keys
+            continue
+        
+        values = [
+            s.get(key)
+            for s in summaries
+            if s.get(key) is not None and isinstance(s.get(key), (int, float))
+        ]
+        
+        if values:
+            mean, ci = mean_ci(values)
+            aggregated[f"{key}_mean"] = mean
+            aggregated[f"{key}_ci95"] = ci
+    
+    return aggregated

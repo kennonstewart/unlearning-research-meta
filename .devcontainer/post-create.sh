@@ -14,3 +14,4 @@ echo "Installing Python dependencies..."
 source .venv/bin/activate && pip install -r .devcontainer/requirements.txt
 
 echo "✅ Environment setup complete. Ready to run experiments!"
+
