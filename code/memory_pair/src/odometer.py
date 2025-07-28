@@ -81,6 +81,7 @@ class PrivacyOdometer:
         self.eps_spent = 0.0
         self.deletions_count = 0
         self.ready_to_delete = False
+        self._status = 'unfinalized'  # Track odometer status
 
     def observe(self, grad: np.ndarray, theta: np.ndarray) -> None:
         """
@@ -194,10 +195,13 @@ class PrivacyOdometer:
             
             return (insertion_regret + deletion_regret) / self.T
 
-        # If even m=1 exceeds regret budget, return 0
+        # If even m=1 exceeds regret budget, set status and return minimal capacity
         if regret_bound(1) > self.gamma:
-            print(f"[Odometer] Warning: Even m=1 exceeds regret budget γ={self.gamma}")
-            return 0
+            self._status = 'degenerate'
+            print(f"[Odometer] Warning: Even m=1 exceeds regret budget γ={self.gamma:.4f}")
+            print(f"[Odometer] Regret bound for m=1: {regret_bound(1):.4f}")
+            print(f"[Odometer] Setting capacity to 1; next delete forces retrain.")
+            return 1
 
         # Binary search for maximum feasible capacity
         lo, hi = 1, self.T
@@ -207,6 +211,8 @@ class PrivacyOdometer:
                 lo = mid
             else:
                 hi = mid - 1
+        
+        self._status = 'normal'
         return lo
 
     def spend(self) -> None:
@@ -221,9 +227,14 @@ class PrivacyOdometer:
                 "Odometer not finalized. Call finalize() or finalize_with() before spending."
             )
         if self.deletions_count >= self.deletion_capacity:
-            raise RuntimeError(
-                f"Deletion capacity {self.deletion_capacity} exceeded. Retraining required."
-            )
+            if self.deletion_capacity == 1 and hasattr(self, '_status') and self._status == 'degenerate':
+                raise RuntimeError(
+                    f"Deletion capacity is 1 and exhausted. Next delete requires retraining."
+                )
+            else:
+                raise RuntimeError(
+                    f"Deletion capacity {self.deletion_capacity} exceeded. Retraining required."
+                )
         self.eps_spent += self.eps_step
         self.deletions_count += 1
 

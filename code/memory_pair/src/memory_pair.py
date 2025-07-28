@@ -67,7 +67,7 @@ class MemoryPair:
         
         # State machine attributes
         self.phase = Phase.CALIBRATION
-        self.calibrator = calibrator or Calibrator()
+        self.calibrator = calibrator or Calibrator()  # Use provided calibrator
         
         # Tracking attributes
         self.cumulative_regret = 0.0
@@ -132,12 +132,12 @@ class MemoryPair:
         """
         Finalize the calibration phase and transition to LEARNING.
         
-        Computes the sample complexity N* from collected statistics and
-        configures the odometer with the calibration results. Transitions
-        the state machine from CALIBRATION to LEARNING phase.
+        Computes the sample complexity N* from collected statistics but
+        does NOT finalize the odometer. The odometer should be finalized
+        separately after the warmup phase completes.
         
         Args:
-            gamma: Target average regret per step for theoretical bounds
+            gamma: Target average regret per step for theoretical bounds (gamma_learn)
             
         Raises:
             RuntimeError: If called outside CALIBRATION phase
@@ -152,14 +152,13 @@ class MemoryPair:
         # Store stats for later access
         self.calibration_stats = stats
         
-        # Configure odometer with statistics
-        if hasattr(self.odometer, 'finalize_with'):
-            self.odometer.finalize_with(stats, T_estimate=self.N_star)
+        # DO NOT finalize odometer here - it should be done after warmup
         
         # Transition to LEARNING phase
         self.phase = Phase.LEARNING
         
         print(f"[MemoryPair] Calibration complete. N* = {self.N_star}, transitioning to LEARNING phase.")
+        print(f"[MemoryPair] Odometer will be finalized after warmup completes.")
 
     @property
     def can_predict(self) -> bool:

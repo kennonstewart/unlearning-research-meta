@@ -1,6 +1,7 @@
 README.md
 pyproject.toml
 src/__init__.py
+src/calibrator.py
 src/lbfgs.py
 src/memory_pair.py
 src/metrics.py

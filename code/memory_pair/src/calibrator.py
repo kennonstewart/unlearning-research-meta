@@ -24,21 +24,24 @@ class Calibrator:
     Attributes:
         grad_norms (List[float]): Collected gradient norms during calibration
         thetas (List[np.ndarray]): Parameter snapshots during calibration  
-        quantile (float): Quantile for robust G estimation (default 1.0 = max)
+        quantile (float): Quantile for robust G estimation (default 0.95)
+        D_cap (float): Upper bound for hypothesis diameter (default 10.0)
         c_hat (Optional[float]): Estimated lower curvature bound
         C_hat (Optional[float]): Estimated upper curvature bound
     """
     
-    def __init__(self, quantile: float = 1.0):
+    def __init__(self, quantile: float = 0.95, D_cap: float = 10.0):
         """
         Initialize the Calibrator.
         
         Args:
             quantile: Quantile for gradient norm estimation (e.g., 0.95 to clip outliers)
+            D_cap: Upper bound for hypothesis diameter to prevent extreme values
         """
         self.grad_norms = []
         self.thetas = []
         self.quantile = quantile
+        self.D_cap = D_cap
         self.c_hat: Optional[float] = None
         self.C_hat: Optional[float] = None
 
@@ -98,7 +101,7 @@ class Calibrator:
         
         Estimates:
         - G_hat: Robust gradient norm upper bound (quantile of observed norms)
-        - D_hat: Hypothesis diameter (max distance from initial parameters)
+        - D_hat: Hypothesis diameter (max distance from initial parameters, clamped by D_cap)
         - c_hat, C_hat: L-BFGS curvature bounds
         - N_star: Sample complexity = ⌈(G·D·√(cC)/γ)²⌉
         
@@ -112,15 +115,16 @@ class Calibrator:
         if not self.grad_norms or not self.thetas:
             raise ValueError("No observations collected. Call observe() during calibration.")
         
-        # Estimate gradient norm upper bound
+        # Estimate gradient norm upper bound using quantile for robustness
         G_hat = float(np.quantile(self.grad_norms, self.quantile))
         
-        # Estimate hypothesis diameter
+        # Estimate hypothesis diameter with upper bound clamping
         theta_0 = self.thetas[0]
         distances = [np.linalg.norm(th - theta_0) for th in self.thetas]
-        D_hat = float(max(distances)) if distances else 1.0
+        D_raw = float(max(distances)) if distances else 1.0
+        D_hat = min(D_raw, self.D_cap)  # Clamp to prevent extreme values
         
-        # Estimate curvature bounds
+        # Estimate curvature bounds with fallback to conservative defaults
         self.c_hat, self.C_hat = self.estimate_bounds(model)
         
         # Compute sample complexity
@@ -129,6 +133,10 @@ class Calibrator:
         
         # Add reasonable bounds to prevent overflow
         N_star = int(np.ceil(min(N_star_raw, 1e6)))  # Cap at 1M
+        
+        print(f"[Calibrator] G_hat = {G_hat:.4f} (quantile {self.quantile})")
+        print(f"[Calibrator] D_hat = {D_hat:.4f} (clamped by D_cap = {self.D_cap})")
+        print(f"[Calibrator] c_hat = {self.c_hat:.4f}, C_hat = {self.C_hat:.4f}")
         
         return {
             "G": G_hat,
