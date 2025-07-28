@@ -2,7 +2,7 @@ import numpy as np
 from enum import Enum
 from typing import Optional, Union, Tuple
 from .lbfgs import LimitedMemoryBFGS
-from .odometer import PrivacyOdometer
+from .odometer import PrivacyOdometer, RDPOdometer
 from .metrics import regret
 from .calibrator import Calibrator
 
@@ -52,7 +52,7 @@ class MemoryPair:
         last_grad (Optional[np.ndarray]): Last computed gradient (for external access)
     """
     
-    def __init__(self, dim: int, odometer: PrivacyOdometer = None, calibrator: Optional[Calibrator] = None):
+    def __init__(self, dim: int, odometer: Union[PrivacyOdometer, RDPOdometer] = None, calibrator: Optional[Calibrator] = None):
         """
         Initialize MemoryPair algorithm.
         
@@ -63,7 +63,7 @@ class MemoryPair:
         """
         self.theta = np.zeros(dim)
         self.lbfgs = LimitedMemoryBFGS(dim)
-        self.odometer = odometer or PrivacyOdometer()
+        self.odometer = odometer or RDPOdometer()
         
         # State machine attributes
         self.phase = Phase.CALIBRATION
@@ -262,17 +262,22 @@ class MemoryPair:
         if not self.odometer.ready_to_delete:
             raise RuntimeError("Odometer not finalized or capacity depleted.")
         
-        # Spend privacy budget first
-        self.odometer.spend()
-        
-        # Compute influence and apply noisy deletion
+        # Compute influence and sensitivity
         g = (float(self.theta @ x) - y) * x
         influence = self.lbfgs.direction(g)
-
         sensitivity = np.linalg.norm(influence)
         sigma = self.odometer.noise_scale(sensitivity)
+        
+        # Handle different odometer types
+        if isinstance(self.odometer, RDPOdometer):
+            # For RDP: spend budget with actual sensitivity and sigma
+            self.odometer.spend(sensitivity, sigma)
+        else:
+            # For legacy PrivacyOdometer: spend without parameters
+            self.odometer.spend()
+        
+        # Apply noisy deletion
         noise = np.random.normal(0, sigma, self.theta.shape)
-
         self.theta = self.theta - influence + noise
         
         # Update counters

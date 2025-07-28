@@ -32,7 +32,7 @@ from data_loader import (
     get_synthetic_linear_stream,
 )
 from memory_pair.src.memory_pair import MemoryPair
-from memory_pair.src.odometer import PrivacyOdometer
+from memory_pair.src.odometer import PrivacyOdometer, RDPOdometer
 from baselines import SekhariBatchUnlearning, QiaoHessianFree
 
 from metrics import regret, abs_error
@@ -162,6 +162,12 @@ DATASET_MAP = {
 @click.option(
     "--D-cap", type=float, default=10.0, help="Upper bound for hypothesis diameter."
 )
+@click.option(
+    "--accountant", type=click.Choice(["rdp", "legacy"]), default="rdp", help="Privacy accountant type."
+)
+@click.option(
+    "--alphas", type=str, default="1.5,2,3,4,8,16,32,64", help="Comma-separated RDP orders for RDP accountant."
+)
 def main(
     dataset: str,
     gamma_learn: float,
@@ -178,6 +184,8 @@ def main(
     delta_b: float,
     quantile: float,
     d_cap: float,
+    accountant: str,
+    alphas: str,
 ) -> None:
     # Setup output directories
     os.makedirs(out_dir, exist_ok=True)
@@ -188,21 +196,39 @@ def main(
 
     print(f"[Config] gamma_learn = {gamma_learn}, gamma_priv = {gamma_priv}")
     print(f"[Config] quantile = {quantile}, D_cap = {d_cap}")
+    print(f"[Config] accountant = {accountant}")
 
     for seed in range(seeds):
         print(f"\n=== Seed {seed} ===")
         gen = DATASET_MAP[dataset](seed=seed)
         first_x, first_y = next(gen)
 
-        # Instantiate odometer with privacy gamma
-        odometer = PrivacyOdometer(
-            eps_total=eps_total,
-            delta_total=delta_total,
-            T=max_events,
-            gamma=gamma_priv,  # Use privacy gamma for capacity computation
-            lambda_=lambda_,
-            delta_b=delta_b,
-        )
+        # Parse alphas for RDP accountant
+        if accountant == "rdp":
+            alpha_list = [float(a.strip()) for a in alphas.split(",")]
+            alpha_list.append(float("inf"))  # Always include infinity
+            print(f"[Config] RDP alphas = {alpha_list}")
+        
+        # Instantiate odometer based on accountant type
+        if accountant == "rdp":
+            odometer = RDPOdometer(
+                eps_total=eps_total,
+                delta_total=delta_total,
+                T=max_events,
+                gamma=gamma_priv,  # Use privacy gamma for capacity computation
+                lambda_=lambda_,
+                delta_b=delta_b,
+                alphas=alpha_list,
+            )
+        else:  # legacy
+            odometer = PrivacyOdometer(
+                eps_total=eps_total,
+                delta_total=delta_total,
+                T=max_events,
+                gamma=gamma_priv,  # Use privacy gamma for capacity computation
+                lambda_=lambda_,
+                delta_b=delta_b,
+            )
 
         # Create calibrator with robust parameters
         from memory_pair.src.calibrator import Calibrator
@@ -234,18 +260,30 @@ def main(
             gnorm = np.linalg.norm(grad)
             
             acc_val = abs_error(pred, y)
-            logs.append(
-                {
-                    "event": event,
-                    "op": "calibrate",
-                    "regret": model.cumulative_regret
-                    if hasattr(model, "cumulative_regret")
-                    else np.nan,
-                    "acc": acc_val,
-                    "eps_spent": odometer.eps_spent,
+            # During calibration, odometer isn't finalized yet
+            log_entry = {
+                "event": event,
+                "op": "calibrate",
+                "regret": model.cumulative_regret
+                if hasattr(model, "cumulative_regret")
+                else np.nan,
+                "acc": acc_val,
+            }
+            
+            # Add default privacy metrics for calibration phase
+            if accountant == "rdp":
+                log_entry.update({
+                    "eps_converted": 0.0,
+                    "delta_total": odometer.delta_total,
+                    "eps_remaining": odometer.eps_total,
+                })
+            else:
+                log_entry.update({
+                    "eps_spent": 0.0,
                     "capacity_remaining": float("inf"),
-                }
-            )
+                })
+                
+            logs.append(log_entry)
             inserts += 1
             event += 1
             if event >= max_events:
@@ -265,16 +303,32 @@ def main(
             
             cum_regret += regret(pred, y)
             acc_val = abs_error(pred, y)
-            logs.append(
-                {
-                    "event": event,
-                    "op": "insert",
-                    "regret": cum_regret,
-                    "acc": acc_val,
-                    "eps_spent": odometer.eps_spent,
-                    "capacity_remaining": odometer.remaining() if odometer.ready_to_delete else float("inf"),
-                }
-            )
+            
+            # During warmup, odometer may not be finalized yet
+            log_entry = {
+                "event": event,
+                "op": "insert",
+                "regret": cum_regret,
+                "acc": acc_val,
+            }
+            
+            if odometer.ready_to_delete:
+                log_entry.update(get_privacy_metrics(model.odometer))
+            else:
+                # Odometer not finalized yet
+                if accountant == "rdp":
+                    log_entry.update({
+                        "eps_converted": 0.0,
+                        "delta_total": odometer.delta_total,
+                        "eps_remaining": odometer.eps_total,
+                    })
+                else:
+                    log_entry.update({
+                        "eps_spent": 0.0,
+                        "capacity_remaining": float("inf"),
+                    })
+            
+            logs.append(log_entry)
             inserts += 1
             event += 1
             if event >= max_events:
@@ -299,12 +353,39 @@ def main(
         theoretical_metrics = {
             "N_star_theory": N_star,
             "m_theory": odometer.deletion_capacity,
-            "eps_step_theory": odometer.eps_step,
-            "delta_step_theory": odometer.delta_step,
             "sigma_step_theory": odometer.sigma_step,
             "avg_regret_empirical": avg_regret_empirical,
+            "accountant_type": accountant,
         }
+        
+        # Add accountant-specific metrics
+        if accountant == "rdp":
+            theoretical_metrics.update({
+                "eps_total": odometer.eps_total,
+                "delta_total": odometer.delta_total,
+            })
+        else:
+            theoretical_metrics.update({
+                "eps_step_theory": odometer.eps_step,
+                "delta_step_theory": odometer.delta_step,
+            })
+        
         print(f"[Theory vs Practice] {theoretical_metrics}")
+
+        # Helper function to get privacy metrics for logging
+        def get_privacy_metrics(odometer_obj):
+            if isinstance(odometer_obj, RDPOdometer):
+                eps_converted, delta_converted = odometer_obj.remaining_eps_delta()
+                return {
+                    "eps_converted": odometer_obj.eps_total - eps_converted,
+                    "delta_total": delta_converted,
+                    "eps_remaining": eps_converted,
+                }
+            else:
+                return {
+                    "eps_spent": getattr(odometer_obj, "eps_spent", 0.0),
+                    "capacity_remaining": getattr(odometer_obj, "remaining", lambda: float("inf"))(),
+                }
 
         # -------- Workload phase: interleave inserts/deletes -------- #
         while event < max_events:
@@ -314,20 +395,16 @@ def main(
                 model.insert(x, y)  # no need for grad now
                 cum_regret += regret(pred, y)
                 acc_val = abs_error(pred, y)
-                eps_spent = getattr(getattr(model, "odometer", None), "eps_spent", 0.0)
-                remaining = getattr(
-                    getattr(model, "odometer", None), "remaining", lambda: float("inf")
-                )()
-                logs.append(
-                    {
-                        "event": event,
-                        "op": "insert",
-                        "regret": cum_regret,
-                        "acc": acc_val,
-                        "eps_spent": eps_spent,
-                        "capacity_remaining": remaining,
-                    }
-                )
+                privacy_metrics = get_privacy_metrics(model.odometer)
+                
+                log_entry = {
+                    "event": event,
+                    "op": "insert",
+                    "regret": cum_regret,
+                    "acc": acc_val,
+                }
+                log_entry.update(privacy_metrics)
+                logs.append(log_entry)
                 inserts += 1
                 event += 1
                 if event >= max_events:
@@ -347,21 +424,18 @@ def main(
                 deletes += 1
                 cum_regret += regret(pred, y)
                 acc_val = abs_error(pred, y)
-                eps_spent = getattr(model.odometer, "eps_spent", 0.0)
-                remaining = getattr(model.odometer, "remaining", lambda: 0.0)()
+                privacy_metrics = get_privacy_metrics(model.odometer)
                 
                 if odometer.deletion_capacity == 1:
                     print("[Delete] Capacity exhausted after single delete. Stopping.")
-                    logs.append(
-                        {
-                            "event": event,
-                            "op": "delete",
-                            "regret": cum_regret,
-                            "acc": acc_val,
-                            "eps_spent": eps_spent,
-                            "capacity_remaining": remaining,
-                        }
-                    )
+                    log_entry = {
+                        "event": event,
+                        "op": "delete",
+                        "regret": cum_regret,
+                        "acc": acc_val,
+                    }
+                    log_entry.update(privacy_metrics)
+                    logs.append(log_entry)
                     event += 1
                     break
                     
@@ -369,16 +443,14 @@ def main(
                 print(f"[Delete] {e}")
                 break
 
-            logs.append(
-                {
-                    "event": event,
-                    "op": "delete",
-                    "regret": cum_regret,
-                    "acc": acc_val,
-                    "eps_spent": eps_spent,
-                    "capacity_remaining": remaining,
-                }
-            )
+            log_entry = {
+                "event": event,
+                "op": "delete",
+                "regret": cum_regret,
+                "acc": acc_val,
+            }
+            log_entry.update(privacy_metrics)
+            logs.append(log_entry)
             event += 1
             if event >= max_events:
                 break
@@ -392,30 +464,43 @@ def main(
             writer.writeheader()
             writer.writerows(logs)
 
-        summaries.append(
-            {
-                "inserts": inserts,
-                "deletes": deletes,
-                "eps_spent": getattr(
-                    getattr(model, "odometer", None), "eps_spent", 0.0
-                ),
-                "final_regret": cum_regret,
-                "avg_regret_empirical": cum_regret / max(inserts, 1),
-                "N_star_theory": N_star,
-                "m_theory": getattr(model.odometer, "deletion_capacity", None),
+        # Build summary with base metrics
+        summary_entry = {
+            "inserts": inserts,
+            "deletes": deletes,
+            "final_regret": cum_regret,
+            "avg_regret_empirical": cum_regret / max(inserts, 1),
+            "N_star_theory": N_star,
+            "m_theory": getattr(model.odometer, "deletion_capacity", None),
+            "sigma_step_theory": getattr(model.odometer, "sigma_step", None),
+            "G_hat": model.calibration_stats.get("G") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
+            "D_hat": model.calibration_stats.get("D") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
+            "c_hat": model.calibration_stats.get("c") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
+            "C_hat": model.calibration_stats.get("C") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
+            "gamma_learn": gamma_learn,
+            "gamma_priv": gamma_priv,
+            "quantile": quantile,
+            "D_cap": d_cap,
+            "accountant_type": accountant,
+        }
+        
+        # Add accountant-specific metrics
+        if accountant == "rdp":
+            eps_converted, delta_remaining = model.odometer.remaining_eps_delta()
+            summary_entry.update({
+                "eps_total": model.odometer.eps_total,
+                "delta_total": model.odometer.delta_total,
+                "eps_converted": model.odometer.eps_total - eps_converted,
+                "eps_remaining": eps_converted,
+            })
+        else:
+            summary_entry.update({
+                "eps_spent": getattr(model.odometer, "eps_spent", 0.0),
                 "eps_step_theory": getattr(model.odometer, "eps_step", None),
                 "delta_step_theory": getattr(model.odometer, "delta_step", None),
-                "sigma_step_theory": getattr(model.odometer, "sigma_step", None),
-                "G_hat": model.calibration_stats.get("G") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
-                "D_hat": model.calibration_stats.get("D") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
-                "c_hat": model.calibration_stats.get("c") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
-                "C_hat": model.calibration_stats.get("C") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
-                "gamma_learn": gamma_learn,
-                "gamma_priv": gamma_priv,
-                "quantile": quantile,
-                "D_cap": d_cap,
-            }
-        )
+            })
+            
+        summaries.append(summary_entry)
 
     # -------- Aggregate summary across seeds -------- #
     def mean_ci(values: List[float]):
@@ -425,16 +510,14 @@ def main(
         return mean, ci
 
     summary = {}
-    keys = [
+    # Base keys that exist for both accountant types
+    base_keys = [
         "inserts",
         "deletes", 
-        "eps_spent",
         "final_regret",
         "avg_regret_empirical",
         "N_star_theory",
         "m_theory",
-        "eps_step_theory",
-        "delta_step_theory", 
         "sigma_step_theory",
         "G_hat",
         "D_hat",
@@ -445,10 +528,21 @@ def main(
         "quantile", 
         "D_cap",
     ]
-    for key in keys:
-        mean, ci = mean_ci([s[key] for s in summaries if s[key] is not None])
-        summary[f"{key}_mean"] = mean
-        summary[f"{key}_ci95"] = ci
+    
+    # Get all unique keys from summaries (handles both accountant types)
+    all_keys = set()
+    for s in summaries:
+        all_keys.update(s.keys())
+    
+    # Add all numeric keys
+    for key in sorted(all_keys):
+        if key in ["accountant_type"]:  # Skip non-numeric keys
+            continue
+        values = [s.get(key) for s in summaries if s.get(key) is not None and isinstance(s.get(key), (int, float))]
+        if values:
+            mean, ci = mean_ci(values)
+            summary[f"{key}_mean"] = mean
+            summary[f"{key}_ci95"] = ci
 
     summary_path = os.path.join(out_dir, f"summary_{dataset}_{algo}.json")
     with open(summary_path, "w") as f:
