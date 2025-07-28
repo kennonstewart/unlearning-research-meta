@@ -1,17 +1,177 @@
 import numpy as np
+from enum import Enum
+from typing import Optional, Union, Tuple
 from .lbfgs import LimitedMemoryBFGS
 from .odometer import PrivacyOdometer
 from .metrics import regret
+from .calibrator import Calibrator
+
+
+class Phase(Enum):
+    """
+    Enumeration of the three phases in the MemoryPair state machine.
+    
+    CALIBRATION: Bootstrap phase to estimate constants G, D, c, C
+    LEARNING: Insert-only phase until ready_to_predict (inserts >= N*)
+    INTERLEAVING: Normal operation with both inserts and deletes allowed
+    """
+    CALIBRATION = 1
+    LEARNING = 2
+    INTERLEAVING = 3
 
 
 class MemoryPair:
-    def __init__(self, dim: int, odometer: PrivacyOdometer = PrivacyOdometer()):
+    """
+    Online learning algorithm with unlearning capabilities and privacy accounting.
+    
+    MemoryPair implements a three-phase state machine for calibrated online learning:
+    
+    1. CALIBRATION: Bootstrap phase to estimate theoretical constants (G, D, c, C)
+       and compute sample complexity N*
+    2. LEARNING: Insert-only phase until the model is ready to make predictions  
+       (when inserts_seen >= N*)
+    3. INTERLEAVING: Normal operation allowing both insertions and deletions
+       with privacy accounting
+    
+    The algorithm uses L-BFGS for second-order optimization and maintains cumulative
+    regret tracking. Deletions are performed with differential privacy guarantees
+    managed by the PrivacyOdometer.
+    
+    Attributes:
+        theta (np.ndarray): Current parameter vector
+        lbfgs (LimitedMemoryBFGS): L-BFGS optimizer instance
+        odometer (PrivacyOdometer): Privacy budget tracking for deletions
+        phase (Phase): Current phase of the state machine
+        calibrator (Calibrator): Helper for collecting calibration statistics
+        cumulative_regret (float): Total regret accumulated over all events
+        events_seen (int): Total number of events (inserts + deletes) processed
+        inserts_seen (int): Number of insertions processed
+        deletes_seen (int): Number of deletions processed  
+        N_star (Optional[int]): Sample complexity threshold for ready_to_predict
+        ready_to_predict (bool): Whether model is ready for predictions
+        last_grad (Optional[np.ndarray]): Last computed gradient (for external access)
+    """
+    
+    def __init__(self, dim: int, odometer: PrivacyOdometer = None, calibrator: Optional[Calibrator] = None):
+        """
+        Initialize MemoryPair algorithm.
+        
+        Args:
+            dim: Dimensionality of the parameter space
+            odometer: Privacy odometer for deletion tracking (creates default if None)
+            calibrator: Calibrator for bootstrap phase (creates default if None)
+        """
         self.theta = np.zeros(dim)
         self.lbfgs = LimitedMemoryBFGS(dim)
-        self.odometer = odometer
-        # --- NEW ATTRIBUTES ---
+        self.odometer = odometer or PrivacyOdometer()
+        
+        # State machine attributes
+        self.phase = Phase.CALIBRATION
+        self.calibrator = calibrator or Calibrator()  # Use provided calibrator
+        
+        # Tracking attributes
         self.cumulative_regret = 0.0
         self.events_seen = 0
+        self.inserts_seen = 0
+        self.deletes_seen = 0
+        self.N_star: Optional[int] = None
+        self.ready_to_predict = False
+        self.calibration_stats: Optional[dict] = None
+        
+        # For external gradient access
+        self.last_grad: Optional[np.ndarray] = None
+
+    def calibrate_step(self, x: np.ndarray, y: float) -> float:
+        """
+        Perform one calibration step during the bootstrap phase.
+        
+        This method runs a standard insert-like update but logs the gradient
+        and parameter values to the Calibrator instead of updating regret gates.
+        Should only be called during the CALIBRATION phase.
+        
+        Args:
+            x: Input feature vector
+            y: Target value
+            
+        Returns:
+            Prediction made before the parameter update
+            
+        Raises:
+            RuntimeError: If called outside CALIBRATION phase
+        """
+        if self.phase != Phase.CALIBRATION:
+            raise RuntimeError(f"calibrate_step() can only be called during CALIBRATION phase, current phase: {self.phase}")
+        
+        # 1. Prediction before update
+        pred = float(self.theta @ x)
+        
+        # 2. Compute gradient and L-BFGS direction
+        g_old = (pred - y) * x
+        direction = self.lbfgs.direction(g_old)
+        alpha = 1.0
+        s = alpha * direction
+        theta_new = self.theta + s
+        
+        # 3. Update L-BFGS with new information
+        g_new = (float(theta_new @ x) - y) * x
+        y_vec = g_new - g_old
+        self.lbfgs.add_pair(s, y_vec)
+        self.theta = theta_new
+        
+        # 4. Log to calibrator (key difference from insert)
+        self.calibrator.observe(g_old, self.theta)
+        
+        # 5. Update counters
+        self.events_seen += 1
+        self.inserts_seen += 1
+        self.last_grad = g_old
+        
+        return pred
+
+    def finalize_calibration(self, gamma: float) -> None:
+        """
+        Finalize the calibration phase and transition to LEARNING.
+        
+        Computes the sample complexity N* from collected statistics but
+        does NOT finalize the odometer. The odometer should be finalized
+        separately after the warmup phase completes.
+        
+        Args:
+            gamma: Target average regret per step for theoretical bounds (gamma_learn)
+            
+        Raises:
+            RuntimeError: If called outside CALIBRATION phase
+        """
+        if self.phase != Phase.CALIBRATION:
+            raise RuntimeError(f"finalize_calibration() can only be called during CALIBRATION phase, current phase: {self.phase}")
+        
+        # Get calibration statistics
+        stats = self.calibrator.finalize(gamma, self)
+        self.N_star = stats["N_star"]
+        
+        # Store stats for later access
+        self.calibration_stats = stats
+        
+        # DO NOT finalize odometer here - it should be done after warmup
+        
+        # Transition to LEARNING phase
+        self.phase = Phase.LEARNING
+        
+        print(f"[MemoryPair] Calibration complete. N* = {self.N_star}, transitioning to LEARNING phase.")
+        print(f"[MemoryPair] Odometer will be finalized after warmup completes.")
+
+    @property
+    def can_predict(self) -> bool:
+        """
+        Check if the model is ready to make reliable predictions.
+        
+        Returns True when the model has seen enough data (inserts_seen >= N*)
+        and is past the calibration phase.
+        
+        Returns:
+            True if ready to predict, False otherwise
+        """
+        return self.ready_to_predict
 
     def insert(
         self,
@@ -20,12 +180,28 @@ class MemoryPair:
         *,
         return_grad: bool = False,
         log_to_odometer: bool = False,
-    ) -> float | tuple[float, np.ndarray]:
+    ) -> Union[float, Tuple[float, np.ndarray]]:
         """
-        Inserts a point, updates internal regret and L-BFGS state.
-        Returns the prediction made *before* the update.
-        If return_grad=True, also returns the pre-update gradient g_old.
+        Insert a data point and update the model.
+        
+        Performs a standard online learning update during LEARNING or INTERLEAVING
+        phases. Updates cumulative regret, parameter vector via L-BFGS, and handles
+        state transitions. Returns the prediction made before the update.
+        
+        Args:
+            x: Input feature vector
+            y: Target value  
+            return_grad: If True, return (prediction, gradient) tuple
+            log_to_odometer: If True, log gradient/theta to odometer (legacy parameter)
+            
+        Returns:
+            Prediction before update, or (prediction, gradient) if return_grad=True
+            
+        Raises:
+            RuntimeError: If called during CALIBRATION phase
         """
+        if self.phase == Phase.CALIBRATION:
+            raise RuntimeError("Use calibrate_step() during CALIBRATION phase, not insert()")
 
         # 1. Prediction before update
         pred = float(self.theta @ x)
@@ -33,9 +209,10 @@ class MemoryPair:
         # 2. Update regret counters
         self.cumulative_regret += regret(pred, y)
         self.events_seen += 1
+        self.inserts_seen += 1
 
         # 3. Compute gradients and L-BFGS direction
-        g_old = (pred - y) * x  # <-- gradient you want
+        g_old = (pred - y) * x
         direction = self.lbfgs.direction(g_old)
         alpha = 1.0
         s = alpha * direction
@@ -47,21 +224,48 @@ class MemoryPair:
         self.lbfgs.add_pair(s, y_vec)
         self.theta = theta_new
 
-        # Expose for outside consumers
+        # Store gradient for external access
         self.last_grad = g_old
 
-        # Optional: push stats to odometer during bootstrap/warmup
-        if log_to_odometer and hasattr(self, "odometer"):
+        # Optional: push stats to odometer during bootstrap/warmup (legacy)
+        if log_to_odometer and hasattr(self.odometer, "observe"):
             self.odometer.observe(g_old, self.theta)
+
+        # 4. Handle state transitions
+        if self.phase == Phase.LEARNING and self.N_star is not None and self.inserts_seen >= self.N_star:
+            self.ready_to_predict = True
+            self.phase = Phase.INTERLEAVING
+            print(f"[MemoryPair] Reached N* = {self.N_star} inserts. Ready to predict, transitioning to INTERLEAVING phase.")
 
         if return_grad:
             return pred, g_old
         return pred
 
     def delete(self, x: np.ndarray, y: float) -> None:
-        if self.odometer:
-            self.odometer.spend()
-
+        """
+        Delete a data point using differentially private unlearning.
+        
+        Computes the influence of the data point, checks privacy budget capacity,
+        and applies the deletion update with appropriate noise injection for
+        differential privacy guarantees.
+        
+        Args:
+            x: Input feature vector of point to delete
+            y: Target value of point to delete
+            
+        Raises:
+            RuntimeError: If odometer is not ready or capacity is exceeded
+        """
+        if self.phase != Phase.INTERLEAVING:
+            raise RuntimeError("Deletions are only allowed during INTERLEAVING phase")
+        
+        if not self.odometer.ready_to_delete:
+            raise RuntimeError("Odometer not finalized or capacity depleted.")
+        
+        # Spend privacy budget first
+        self.odometer.spend()
+        
+        # Compute influence and apply noisy deletion
         g = (float(self.theta @ x) - y) * x
         influence = self.lbfgs.direction(g)
 
@@ -70,6 +274,10 @@ class MemoryPair:
         noise = np.random.normal(0, sigma, self.theta.shape)
 
         self.theta = self.theta - influence + noise
+        
+        # Update counters
+        self.events_seen += 1
+        self.deletes_seen += 1
 
     def get_average_regret(self) -> float:
         """Calculates the average regret over all seen events."""

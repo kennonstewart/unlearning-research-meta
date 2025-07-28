@@ -75,25 +75,32 @@ def compute_sample_complexity(G, D, gamma, c=1.0, C=1.0, max_cap=None, q=None):
     return max(N_star, 1)
 
 
-def get_pred_and_grad(model, x, y):
+def get_pred_and_grad(model, x, y, is_calibration=False):
     """Helper to obtain (pred, grad). Adjust for your API.
-    Expected: model.insert(x, y, return_grad=True) -> (pred, grad)
-    Otherwise, compute pred and grad manually if model exposes methods.
+    For calibration phase, uses calibrate_step(). For other phases, uses insert().
     """
-    if hasattr(model, "insert"):
+    if is_calibration and hasattr(model, "calibrate_step"):
+        # During calibration, use calibrate_step and get gradient from last_grad
+        pred = model.calibrate_step(x, y)
+        if hasattr(model, "last_grad") and model.last_grad is not None:
+            grad = model.last_grad
+            return pred, grad
+        else:
+            raise RuntimeError("Model must expose last_grad after calibrate_step.")
+    elif hasattr(model, "insert"):
         try:
             return model.insert(x, y, return_grad=True)
-        except TypeError:
-            # Fallback if insert doesn't return grad
+        except (TypeError, RuntimeError):
+            # Fallback if insert doesn't return grad or is in wrong phase
             pred = model.insert(x, y)
-            if hasattr(model, "last_grad"):
+            if hasattr(model, "last_grad") and model.last_grad is not None:
                 grad = model.last_grad
             elif hasattr(model, "gradient"):
                 grad = model.gradient(x, y)
             else:
                 raise RuntimeError("Model must expose gradient to estimate G.")
             return pred, grad
-    raise RuntimeError("Model has no insert method.")
+    raise RuntimeError("Model has no insert or calibrate_step method.")
 
 
 # ---------------------- CLI Config ---------------------- #
@@ -115,10 +122,16 @@ DATASET_MAP = {
     "--dataset", type=click.Choice(["rot-mnist", "synthetic"]), default="rot-mnist"
 )
 @click.option(
-    "--gamma",
+    "--gamma-learn",
+    type=float,
+    default=1.0,
+    help="Target avg regret for learning (sample complexity N*).",
+)
+@click.option(
+    "--gamma-priv",
     type=float,
     default=0.5,
-    help="Target avg regret (per-step) for theory bounds.",
+    help="Target avg regret for privacy (odometer capacity m).",
 )
 @click.option(
     "--bootstrap-iters",
@@ -143,9 +156,16 @@ DATASET_MAP = {
 @click.option(
     "--delta-b", type=float, default=0.05, help="Failure prob for regret noise term."
 )
+@click.option(
+    "--quantile", type=float, default=0.95, help="Quantile for robust G estimation."
+)
+@click.option(
+    "--D-cap", type=float, default=10.0, help="Upper bound for hypothesis diameter."
+)
 def main(
     dataset: str,
-    gamma: float,
+    gamma_learn: float,
+    gamma_priv: float,
     bootstrap_iters: int,
     delete_ratio: float,
     max_events: int,
@@ -156,6 +176,8 @@ def main(
     delta_total: float,
     lambda_: float,
     delta_b: float,
+    quantile: float,
+    d_cap: float,
 ) -> None:
     # Setup output directories
     os.makedirs(out_dir, exist_ok=True)
@@ -164,24 +186,34 @@ def main(
     os.makedirs(figs_dir, exist_ok=True)
     os.makedirs(runs_dir, exist_ok=True)
 
+    print(f"[Config] gamma_learn = {gamma_learn}, gamma_priv = {gamma_priv}")
+    print(f"[Config] quantile = {quantile}, D_cap = {d_cap}")
+
     for seed in range(seeds):
         print(f"\n=== Seed {seed} ===")
         gen = DATASET_MAP[dataset](seed=seed)
         first_x, first_y = next(gen)
 
-        # Instantiate odometer in adaptive mode; T is unknown yet but set to max_events for upper-bound
+        # Instantiate odometer with privacy gamma
         odometer = PrivacyOdometer(
             eps_total=eps_total,
             delta_total=delta_total,
             T=max_events,
-            gamma=gamma,
+            gamma=gamma_priv,  # Use privacy gamma for capacity computation
             lambda_=lambda_,
             delta_b=delta_b,
         )
 
+        # Create calibrator with robust parameters
+        from memory_pair.src.calibrator import Calibrator
+        calibrator = Calibrator(quantile=quantile, D_cap=d_cap)
+
         # Initialize model
         model_class = ALGO_MAP[algo]
-        model = model_class(dim=first_x.shape[0], odometer=odometer)
+        if algo == "memorypair":
+            model = model_class(dim=first_x.shape[0], odometer=odometer, calibrator=calibrator)
+        else:
+            model = model_class(dim=first_x.shape[0], odometer=odometer)
 
         # Regret tracking
         cum_regret = 0.0
@@ -193,26 +225,19 @@ def main(
         event = 0
         x, y = first_x, first_y
 
-        # -------- Bootstrap to estimate G, D, c, C -------- #
-        grads = []
-        thetas = [model.theta.copy()]
-        print(
-            f"[Bootstrap] Collecting {bootstrap_iters} steps to estimate G, D, c, C..."
-        )
+        # -------- Bootstrap/Calibration Phase -------- #
+        print(f"[Bootstrap] Collecting {bootstrap_iters} steps to estimate G, D, c, C...")
+        
+        # Use the new calibration API
         for _ in range(bootstrap_iters):
-            pred, grad = get_pred_and_grad(model, x, y)
+            pred, grad = get_pred_and_grad(model, x, y, is_calibration=True)
             gnorm = np.linalg.norm(grad)
-            grads.append(gnorm)
-            thetas.append(model.theta.copy())
-
-            # Feed odometer for later L, D
-            odometer.observe(grad, model.theta)
-
+            
             acc_val = abs_error(pred, y)
             logs.append(
                 {
                     "event": event,
-                    "op": "insert",
+                    "op": "calibrate",
                     "regret": model.cumulative_regret
                     if hasattr(model, "cumulative_regret")
                     else np.nan,
@@ -227,27 +252,17 @@ def main(
                 break
             x, y = next(gen)
 
-        G_hat = float(max(grads)) if grads else 1.0
-        D_hat = (
-            float(max(np.linalg.norm(th - thetas[0]) for th in thetas))
-            if len(thetas) > 1
-            else 1.0
-        )
-        c_hat, C_hat = estimate_lbfgs_bounds(model)
-        print(f"[Bootstrap] G={G_hat:.4f}, D={D_hat:.4f}, c={c_hat:.4e}, C={C_hat:.4e}")
+        # Finalize calibration using learning gamma
+        print(f"[Bootstrap] Finalizing calibration...")
+        model.finalize_calibration(gamma=gamma_learn)  # Use learning gamma for N*
+        N_star = model.N_star
 
-        # -------- Compute sample complexity N* & finish warmup -------- #
-        N_star = compute_sample_complexity(
-            G_hat, D_hat, gamma, c_hat, C_hat, max_cap=max_events, q=0.95
-        )
-        print(
-            f"[Warmup] Target sample complexity N* = {N_star} (current inserts={inserts})"
-        )
+        print(f"[Warmup] Target sample complexity N* = {N_star} (current inserts={inserts})")
 
+        # Continue learning phase until N_star (if needed)
         while inserts < N_star and event < max_events:
-            pred, grad = get_pred_and_grad(model, x, y)
-            odometer.observe(grad, model.theta)
-
+            pred, grad = get_pred_and_grad(model, x, y, is_calibration=False)
+            
             cum_regret += regret(pred, y)
             acc_val = abs_error(pred, y)
             logs.append(
@@ -257,7 +272,7 @@ def main(
                     "regret": cum_regret,
                     "acc": acc_val,
                     "eps_spent": odometer.eps_spent,
-                    "capacity_remaining": float("inf"),
+                    "capacity_remaining": odometer.remaining() if odometer.ready_to_delete else float("inf"),
                 }
             )
             inserts += 1
@@ -266,11 +281,30 @@ def main(
                 break
             x, y = next(gen)
 
-        print(f"[Warmup] Complete after {inserts} inserts.")
+        print(f"[Warmup] Complete after {inserts} inserts. Ready to predict: {model.can_predict}")
 
-        # -------- Finalize odometer (compute m, eps_step, etc.) -------- #
-        # We already observed grads/thetas through odometer.observe
-        odometer.finalize()
+        # NOW finalize odometer after warmup using total expected events
+        print(f"[Warmup] Finalizing odometer with privacy gamma = {gamma_priv}")
+        if hasattr(model, 'calibration_stats') and model.calibration_stats:
+            odometer.finalize_with(model.calibration_stats, T_estimate=max_events)
+        else:
+            print("[Warning] No calibration stats available, using legacy finalize")
+            odometer.finalize()
+
+        # Track empirical regret
+        avg_regret_empirical = cum_regret / max(inserts, 1)
+        print(f"[Empirical] Average regret after warmup: {avg_regret_empirical:.6f}")
+        
+        # Log theoretical vs empirical metrics
+        theoretical_metrics = {
+            "N_star_theory": N_star,
+            "m_theory": odometer.deletion_capacity,
+            "eps_step_theory": odometer.eps_step,
+            "delta_step_theory": odometer.delta_step,
+            "sigma_step_theory": odometer.sigma_step,
+            "avg_regret_empirical": avg_regret_empirical,
+        }
+        print(f"[Theory vs Practice] {theoretical_metrics}")
 
         # -------- Workload phase: interleave inserts/deletes -------- #
         while event < max_events:
@@ -303,6 +337,10 @@ def main(
                 break
 
             # delete
+            if odometer.deletion_capacity == 1 and odometer.deletions_count >= 1:
+                print("[Delete] Capacity is 1; stopping deletes to avoid retrain.")
+                break
+                
             try:
                 pred = float(model.theta @ x)
                 model.delete(x, y)
@@ -311,8 +349,24 @@ def main(
                 acc_val = abs_error(pred, y)
                 eps_spent = getattr(model.odometer, "eps_spent", 0.0)
                 remaining = getattr(model.odometer, "remaining", lambda: 0.0)()
-            except RuntimeError:
-                print("[Delete] Capacity exceeded. Stopping deletes.")
+                
+                if odometer.deletion_capacity == 1:
+                    print("[Delete] Capacity exhausted after single delete. Stopping.")
+                    logs.append(
+                        {
+                            "event": event,
+                            "op": "delete",
+                            "regret": cum_regret,
+                            "acc": acc_val,
+                            "eps_spent": eps_spent,
+                            "capacity_remaining": remaining,
+                        }
+                    )
+                    event += 1
+                    break
+                    
+            except RuntimeError as e:
+                print(f"[Delete] {e}")
                 break
 
             logs.append(
@@ -346,12 +400,20 @@ def main(
                     getattr(model, "odometer", None), "eps_spent", 0.0
                 ),
                 "final_regret": cum_regret,
-                "N_star": N_star,
-                "G_hat": G_hat,
-                "D_hat": D_hat,
-                "c_hat": c_hat,
-                "C_hat": C_hat,
-                "m_capacity": getattr(model.odometer, "deletion_capacity", None),
+                "avg_regret_empirical": cum_regret / max(inserts, 1),
+                "N_star_theory": N_star,
+                "m_theory": getattr(model.odometer, "deletion_capacity", None),
+                "eps_step_theory": getattr(model.odometer, "eps_step", None),
+                "delta_step_theory": getattr(model.odometer, "delta_step", None),
+                "sigma_step_theory": getattr(model.odometer, "sigma_step", None),
+                "G_hat": model.calibration_stats.get("G") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
+                "D_hat": model.calibration_stats.get("D") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
+                "c_hat": model.calibration_stats.get("c") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
+                "C_hat": model.calibration_stats.get("C") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
+                "gamma_learn": gamma_learn,
+                "gamma_priv": gamma_priv,
+                "quantile": quantile,
+                "D_cap": d_cap,
             }
         )
 
@@ -365,15 +427,23 @@ def main(
     summary = {}
     keys = [
         "inserts",
-        "deletes",
+        "deletes", 
         "eps_spent",
         "final_regret",
-        "N_star",
+        "avg_regret_empirical",
+        "N_star_theory",
+        "m_theory",
+        "eps_step_theory",
+        "delta_step_theory", 
+        "sigma_step_theory",
         "G_hat",
         "D_hat",
         "c_hat",
         "C_hat",
-        "m_capacity",
+        "gamma_learn",
+        "gamma_priv",
+        "quantile", 
+        "D_cap",
     ]
     for key in keys:
         mean, ci = mean_ci([s[key] for s in summaries if s[key] is not None])

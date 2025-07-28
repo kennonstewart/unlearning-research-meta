@@ -1,17 +1,244 @@
 # Deletion Capacity Experiment
 
-This experiment measures how many deletion requests a learner can honour before retraining becomes necessary.  We compare the online Memory‑Pair implementation against two baselines.
+This experiment measures how many deletion requests a privacy-preserving learner can process while maintaining differential privacy guarantees and staying within regret bounds. It implements a three-phase calibrated state machine for the Memory-Pair algorithm with automatic capacity optimization.
 
-The script `run_capacity.py` supports burst and trickle delete schedules over a Rotating‑MNIST stream provided by `data_loader`.
+## Overview
 
-## Example
+The deletion capacity experiment investigates the fundamental trade-off between privacy, utility, and deletion capacity in online machine unlearning. Using a regret-constrained optimization framework, the experiment determines the maximum number of deletions that can be processed while maintaining:
+
+- **Differential Privacy**: (ε, δ)-DP guarantees across all deletion operations
+- **Regret Bounds**: Total regret/T ≤ γ constraint for competitive performance
+- **Theoretical Soundness**: Calibrated constants based on actual algorithm behavior
+
+## Key Features
+
+### Three-Phase State Machine
+
+1. **Calibration Phase**: Bootstrap run to estimate theoretical constants
+   - **G**: Gradient norm upper bound (quantile-based with outlier handling)
+   - **D**: Hypothesis diameter from parameter trajectory
+   - **c, C**: L-BFGS curvature bounds with fallback defaults
+   - **N\***: Sample complexity computed as ⌈(G·D·√(cC)/γ)²⌉
+
+2. **Learning Phase**: Insert-only operations until ready to predict
+   - Accumulates N\* samples before allowing predictions
+   - Automatic transition to interleaving phase
+
+3. **Interleaving Phase**: Full insert/delete operations with privacy accounting
+   - Privacy odometer enforces capacity limits
+   - Gaussian noise scaled per deletion operation
+
+### Privacy Odometer with Regret-Constrained Optimization
+
+The privacy odometer solves the optimization problem:
+
+```
+maximize m
+subject to: (R_ins + R_del(m))/T ≤ γ
+```
+
+Where:
+- **R_ins = G·D·√(c·C·T)**: Insertion regret bound
+- **R_del(m) = (m·L/λ)·√((2ln(1.25m/δ)/ε)·(2ln(1/δ_B)))**: Deletion regret bound
+- **m**: Deletion capacity (number of deletions allowed)
+
+The solution provides:
+- **ε_step = ε_total/m**: Per-deletion privacy budget
+- **δ_step = δ_total/m**: Per-deletion failure probability  
+- **σ = (L/λ)·√(2ln(1.25/δ_step))/ε_step**: Gaussian noise scale
+
+## Usage
+
+### Basic Execution
 
 ```bash
-PYTHONPATH=.:data python run_capacity.py --algo memorypair --schedule burst --seed 42
+cd experiments/deletion_capacity
+python run.py --algo memorypair --schedule burst --seed 42
 ```
 
-After finishing the run a JSON file is written to `results/` and automatically committed with a message like:
+### Command Line Options
 
+- `--algo`: Algorithm choice (`memorypair`, `baseline1`, `baseline2`)
+- `--schedule`: Deletion pattern (`burst`, `trickle`, `uniform`)
+- `--dataset`: Data stream (`rotmnist`, `mnist`, `cifar10`)
+- `--T`: Total time horizon (default: 10000)
+- `--gamma`: Regret constraint (default: 0.1)
+- `--eps_total`: Total DP epsilon budget (default: 1.0)
+- `--delta_total`: Total DP delta budget (default: 1e-5)
+- `--bootstrap_steps`: Calibration phase length (default: 500)
+- `--seed`: Random seed for reproducibility
+
+### Advanced Configuration
+
+```bash
+# High-privacy, low-regret setting
+python run.py --algo memorypair --eps_total 0.1 --gamma 0.05 --T 20000
+
+# Burst deletion schedule with extended calibration
+python run.py --algo memorypair --schedule burst --bootstrap_steps 1000
+
+# Comparison across algorithms
+python run.py --algo baseline1 --schedule trickle --seed 42
+python run.py --algo memorypair --schedule trickle --seed 42
 ```
-EXP:del_capacity memorypair-burst <hash>
+
+## Implementation Details
+
+### Calibrator Helper
+
+The `Calibrator` class tracks algorithm behavior during bootstrap:
+
+```python
+from code.memory_pair.src.calibrator import Calibrator
+
+calibrator = Calibrator(quantile=0.95)  # Clip top 5% of gradients
+
+# During calibration phase
+for x, y in bootstrap_data:
+    model.calibrate_step(x, y)  # Logs to calibrator automatically
+
+# Finalize and get statistics
+stats = calibrator.finalize(gamma=0.1, model=model)
+# Returns: {"G": ..., "D": ..., "c": ..., "C": ..., "N_star": ...}
 ```
+
+### Enhanced MemoryPair API
+
+```python
+from code.memory_pair.src.memory_pair import MemoryPair, Phase
+from code.memory_pair.src.odometer import PrivacyOdometer
+
+# Initialize with privacy parameters
+odometer = PrivacyOdometer(eps_total=1.0, delta_total=1e-5)
+model = MemoryPair(dim=10, odometer=odometer)
+
+# Phase 1: Calibration
+assert model.phase == Phase.CALIBRATION
+for x, y in bootstrap_data:
+    model.calibrate_step(x, y)
+
+# Phase 2: Finalize and transition to learning
+model.finalize_calibration(gamma=0.1)
+assert model.phase == Phase.LEARNING
+
+# Phase 3: Learning until ready for deletions
+while not model.can_predict:
+    model.insert(x, y)  # Auto-transitions to INTERLEAVING at N*
+    
+# Phase 4: Interleaving with deletions
+assert model.phase == Phase.INTERLEAVING
+if model.odometer.ready_to_delete:
+    model.delete(x, y)  # Privacy-preserving deletion
+```
+
+### Results and Metrics
+
+Each experiment run generates comprehensive output:
+
+```json
+{
+  "experiment": "deletion_capacity",
+  "algorithm": "memorypair",
+  "schedule": "burst", 
+  "calibration": {
+    "G": 2.34,
+    "D": 1.87,
+    "c": 0.8,
+    "C": 1.2,
+    "N_star": 156
+  },
+  "privacy": {
+    "eps_total": 1.0,
+    "delta_total": 1e-5,
+    "deletion_capacity": 47,
+    "eps_step": 0.0213,
+    "delta_step": 2.13e-7,
+    "noise_scale": 0.156
+  },
+  "performance": {
+    "total_regret": 892.4,
+    "regret_bound": 1000.0,
+    "regret_ratio": 0.8924,
+    "deletions_completed": 47,
+    "accuracy_final": 0.923
+  },
+  "runtime": {
+    "calibration_time": 12.3,
+    "learning_time": 45.6,
+    "interleaving_time": 78.9,
+    "total_time": 136.8
+  }
+}
+```
+
+## Experimental Schedules
+
+### Burst Schedule
+- Front-loads deletions early in the stream
+- Tests capacity under high deletion pressure
+- Evaluates recovery after deletion burst
+
+### Trickle Schedule  
+- Evenly distributes deletions throughout stream
+- Tests steady-state deletion performance
+- Measures sustained accuracy under continuous unlearning
+
+### Uniform Schedule
+- Random deletion timing with fixed rate
+- Tests robustness to deletion timing uncertainty
+- Evaluates average-case performance
+
+## Baseline Comparisons
+
+The experiment compares Memory-Pair against:
+
+1. **Baseline 1**: Naive deletion without privacy (upper bound)
+2. **Baseline 2**: Fixed privacy budget allocation (non-adaptive)
+
+Comparison metrics:
+- **Deletion Capacity**: Maximum deletions before regret violation
+- **Privacy Cost**: ε/δ expenditure per deletion
+- **Accuracy Degradation**: Performance loss from deletions
+- **Runtime Efficiency**: Computational overhead
+
+## Theoretical Validation
+
+The experiment validates theoretical predictions:
+
+1. **Capacity Formula**: Compare computed m with empirical deletion limits
+2. **Regret Bounds**: Verify actual regret ≤ theoretical bounds  
+3. **Privacy Guarantees**: Validate DP parameters through composition
+4. **Sample Complexity**: Confirm N* provides sufficient learning
+
+## Output and Commit Protocol
+
+Results are automatically committed with structured messages:
+
+```bash
+# Successful run
+EXP:deletion_capacity memorypair-burst a1b2c3d
+
+# Failed run (for debugging)
+FAIL:deletion_capacity memorypair-burst error-details
+```
+
+Files generated:
+- `results/<timestamp>_<algo>_<schedule>.json`: Detailed results
+- `figs/<timestamp>_<algo>_<schedule>.png`: Performance plots  
+- `runs/<timestamp>_<algo>_<schedule>.log`: Execution logs
+
+## Error Handling
+
+The experiment includes robust error handling:
+
+- **Insufficient Calibration**: Falls back to conservative defaults
+- **Capacity Overflow**: Gracefully degrades to m=1 minimum
+- **Numerical Instability**: Clips extreme values and warns
+- **Privacy Violation**: Fails fast with clear error messages
+
+## See Also
+
+- `AGENTS.md`: Complete API specification and developer guide
+- `test_odometer.py`: Unit tests for privacy odometer
+- `plots.py`: Visualization utilities for results analysis
+- `metrics.py`: Performance metric computation

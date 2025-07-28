@@ -188,6 +188,22 @@ class MemoryPair:
 
 ## 5. PrivacyOdometer Optimization
 
+### Dual Gamma Parameters
+
+The system now supports separate regret targets for learning and privacy:
+
+- **`gamma_learn`**: Target average regret for sample complexity computation (N*)
+  - Used in `Calibrator.finalize(gamma_learn, model)` to compute N* = ⌈(G·D·√(cC)/γ_learn)²⌉
+  - Controls when the model transitions from LEARNING to INTERLEAVING phase
+  - Typically smaller (e.g., 0.1-1.0) for tighter learning bounds
+
+- **`gamma_priv`**: Target average regret for privacy capacity optimization (m)
+  - Used in `PrivacyOdometer._solve_capacity()` to find maximum deletion capacity
+  - Controls the regret constraint: (R_ins + R_del(m))/T ≤ γ_priv
+  - Typically larger (e.g., 2.0-10.0) to allow reasonable deletion capacity
+
+This decoupling prevents scenarios where a tiny learning gamma makes deletions impossible due to overly restrictive privacy budgets.
+
 ### Inputs (from `stats`)
 
 - `G, D, c, C` (optional but useful)
@@ -256,24 +272,77 @@ class PrivacyOdometer:
 
 ---
 
-## 6. Developer Workflow
+## 6. Robustness & Finalization Improvements
 
-1. **Create model & odometer**
+### Robust Constant Estimation
+
+The `Calibrator` now includes robustness features:
+
+- **Quantile-based gradient bounds**: Use `quantile` parameter (default 0.95) for G_hat estimation instead of max to handle outliers
+- **Hypothesis diameter clamping**: Apply `D_cap` upper bound to prevent extreme parameter divergence
+- **Conservative curvature fallbacks**: Default to (c=1.0, C=1.0) when L-BFGS bounds are unavailable
+
+### Proper Finalization Order
+
+The finalization sequence has been corrected:
+
+1. **Bootstrap phase**: Use `calibrate_step()` to collect statistics without regret updates
+2. **Estimate constants**: Call `finalize_calibration(gamma_learn)` to compute N* and transition to LEARNING
+3. **Warmup until N\***: Continue inserting until `inserts_seen >= N*` 
+4. **Finalize odometer**: Call `odometer.finalize_with(stats, T_estimate=max_events)` with `gamma_priv`
+5. **Transition to interleaving**: Model automatically transitions when ready
+
+This prevents premature odometer finalization and ensures proper capacity estimation.
+
+### Graceful m=1 Handling
+
+When deletion capacity is minimal (m=1):
+
+- Clear warning messages indicate regret budget constraints
+- Deletion loop stops cleanly after capacity exhaustion  
+- Status tracking (`_status = 'degenerate'`) for diagnostics
+- User-facing messages: "Capacity is 1; next delete forces retrain"
+
+## 7. Developer Workflow
+
+1. **Create model & odometer with calibrator**
+   ```python
+   from memory_pair.src.calibrator import Calibrator
+   calibrator = Calibrator(quantile=0.95, D_cap=10.0)
+   model = MemoryPair(dim=d, odometer=odometer, calibrator=calibrator)
+   ```
 2. **Phase: CALIBRATION**
    - Loop `calibrate_step` for \~500–1000 inserts
-   - Call `finalize_calibration(gamma)` → transitions to LEARNING
-3. **Phase: LEARNING**
+   - Call `finalize_calibration(gamma_learn)` → transitions to LEARNING, computes N*
+3. **Phase: LEARNING** 
    - Insert until `ready_to_predict` is True (\(inserts \ge N_*\))
+   - **After warmup**: Call `odometer.finalize_with(stats, T_estimate=max_events)` with `gamma_priv`
 4. **Phase: INTERLEAVING**
    - Run workload stream (e.g., 10 inserts : 1 delete)
    - Odometer enforces capacity & noise
 
 ---
 
-## 7. Logging & Testing
+## 8. Logging & Testing
 
-- Log: `phase`, `G`, `D`, `c`, `C`, `N_star`, `m`, `eps_step`, `delta_step`, `sigma_step`, `eps_spent`, `capacity_remaining`.
-- Unit tests:
+### Empirical vs Theoretical Metrics
+
+The pipeline now tracks both theoretical predictions and empirical observations:
+
+**Theoretical metrics:**
+- `N_star_theory`: Computed sample complexity
+- `m_theory`: Deletion capacity from optimization
+- `eps_step_theory`, `delta_step_theory`, `sigma_step_theory`: Privacy parameters
+- `G_hat`, `D_hat`, `c_hat`, `C_hat`: Estimated constants
+
+**Empirical metrics:**
+- `avg_regret_empirical`: Actual average regret = cumulative_regret / events_seen
+- Comparison with theoretical bounds for validation
+
+**Standard logging:**
+- `phase`, `eps_spent`, `capacity_remaining`, `gamma_learn`, `gamma_priv`, `quantile`, `D_cap`
+
+### Unit Tests
   - Calibrator returns positive N\*; monotone in γ
   - Odometer returns `m >= 1`; blocks at m+1 deletions
   - State transitions occur correctly
