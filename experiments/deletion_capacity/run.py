@@ -497,8 +497,15 @@ def main(
         # -------- Write CSV for this seed -------- #
         csv_path = os.path.join(runs_dir, f"{seed}_{algo}.csv")
         csv_paths.append(csv_path)
+        
+        # Collect all possible fieldnames from all log entries
+        all_fieldnames = set()
+        for log_entry in logs:
+            all_fieldnames.update(log_entry.keys())
+        fieldnames = sorted(list(all_fieldnames))
+        
         with open(csv_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=list(logs[0].keys()))
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(logs)
 
