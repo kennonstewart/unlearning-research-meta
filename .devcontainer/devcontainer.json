@@ -8,7 +8,6 @@
   },
 
   "features": {
-    // ❌ The texlive feature has been REMOVED from this block.
     "ghcr.io/devcontainers/features/common-utils": {
       "installZsh": "false",
       "username": "vscode",

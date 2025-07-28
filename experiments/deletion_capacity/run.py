@@ -163,22 +163,40 @@ DATASET_MAP = {
     "--D-cap", type=float, default=10.0, help="Upper bound for hypothesis diameter."
 )
 @click.option(
-    "--accountant", type=click.Choice(["rdp", "legacy"]), default="rdp", help="Privacy accountant type."
+    "--accountant",
+    type=click.Choice(["rdp", "legacy"]),
+    default="rdp",
+    help="Privacy accountant type.",
 )
 @click.option(
-    "--alphas", type=str, default="1.5,2,3,4,8,16,32,64", help="Comma-separated RDP orders for RDP accountant."
+    "--alphas",
+    type=str,
+    default="1.5,2,3,4,8,16,32,64",
+    help="Comma-separated RDP orders for RDP accountant.",
 )
 @click.option(
-    "--ema-beta", type=float, default=0.9, help="EMA decay parameter for drift detection."
+    "--ema-beta",
+    type=float,
+    default=0.9,
+    help="EMA decay parameter for drift detection.",
 )
 @click.option(
-    "--recal-window", type=int, default=None, help="Events between recalibration checks (None = disabled)."
+    "--recal-window",
+    type=int,
+    default=None,
+    help="Events between recalibration checks (None = disabled).",
 )
 @click.option(
-    "--recal-threshold", type=float, default=0.3, help="Relative threshold for drift detection."
+    "--recal-threshold",
+    type=float,
+    default=0.3,
+    help="Relative threshold for drift detection.",
 )
 @click.option(
-    "--m-max", type=int, default=None, help="Upper bound for deletion capacity binary search."
+    "--m-max",
+    type=int,
+    default=None,
+    help="Upper bound for deletion capacity binary search.",
 )
 def main(
     dataset: str,
@@ -213,7 +231,9 @@ def main(
     print(f"[Config] gamma_learn = {gamma_learn}, gamma_priv = {gamma_priv}")
     print(f"[Config] quantile = {quantile}, D_cap = {d_cap}")
     print(f"[Config] accountant = {accountant}")
-    print(f"[Config] EMA beta = {ema_beta}, recal_window = {recal_window}, recal_threshold = {recal_threshold}")
+    print(
+        f"[Config] EMA beta = {ema_beta}, recal_window = {recal_window}, recal_threshold = {recal_threshold}"
+    )
     if m_max is not None:
         print(f"[Config] m_max = {m_max}")
 
@@ -227,7 +247,7 @@ def main(
             alpha_list = [float(a.strip()) for a in alphas.split(",")]
             alpha_list.append(float("inf"))  # Always include infinity
             print(f"[Config] RDP alphas = {alpha_list}")
-        
+
         # Instantiate odometer based on accountant type
         if accountant == "rdp":
             odometer = RDPOdometer(
@@ -252,13 +272,19 @@ def main(
 
         # Create calibrator with robust parameters and EMA tracking
         from memory_pair.src.calibrator import Calibrator
+
         calibrator = Calibrator(quantile=quantile, D_cap=d_cap, ema_beta=ema_beta)
 
         # Initialize model
         model_class = ALGO_MAP[algo]
         if algo == "memorypair":
-            model = model_class(dim=first_x.shape[0], odometer=odometer, calibrator=calibrator,
-                              recal_window=recal_window, recal_threshold=recal_threshold)
+            model = model_class(
+                dim=first_x.shape[0],
+                odometer=odometer,
+                calibrator=calibrator,
+                recal_window=recal_window,
+                recal_threshold=recal_threshold,
+            )
         else:
             model = model_class(dim=first_x.shape[0], odometer=odometer)
 
@@ -273,13 +299,15 @@ def main(
         x, y = first_x, first_y
 
         # -------- Bootstrap/Calibration Phase -------- #
-        print(f"[Bootstrap] Collecting {bootstrap_iters} steps to estimate G, D, c, C...")
-        
+        print(
+            f"[Bootstrap] Collecting {bootstrap_iters} steps to estimate G, D, c, C..."
+        )
+
         # Use the new calibration API
         for _ in range(bootstrap_iters):
             pred, grad = get_pred_and_grad(model, x, y, is_calibration=True)
             gnorm = np.linalg.norm(grad)
-            
+
             acc_val = abs_error(pred, y)
             # During calibration, odometer isn't finalized yet
             log_entry = {
@@ -290,20 +318,24 @@ def main(
                 else np.nan,
                 "acc": acc_val,
             }
-            
+
             # Add default privacy metrics for calibration phase
             if accountant == "rdp":
-                log_entry.update({
-                    "eps_converted": 0.0,
-                    "delta_total": odometer.delta_total,
-                    "eps_remaining": odometer.eps_total,
-                })
+                log_entry.update(
+                    {
+                        "eps_converted": 0.0,
+                        "delta_total": odometer.delta_total,
+                        "eps_remaining": odometer.eps_total,
+                    }
+                )
             else:
-                log_entry.update({
-                    "eps_spent": 0.0,
-                    "capacity_remaining": float("inf"),
-                })
-                
+                log_entry.update(
+                    {
+                        "eps_spent": 0.0,
+                        "capacity_remaining": float("inf"),
+                    }
+                )
+
             logs.append(log_entry)
             inserts += 1
             event += 1
@@ -312,19 +344,21 @@ def main(
             x, y = next(gen)
 
         # Finalize calibration using learning gamma
-        print(f"[Bootstrap] Finalizing calibration...")
+        print("[Bootstrap] Finalizing calibration...")
         model.finalize_calibration(gamma=gamma_learn)  # Use learning gamma for N*
         N_star = model.N_star
 
-        print(f"[Warmup] Target sample complexity N* = {N_star} (current inserts={inserts})")
+        print(
+            f"[Warmup] Target sample complexity N* = {N_star} (current inserts={inserts})"
+        )
 
         # Continue learning phase until N_star (if needed)
         while inserts < N_star and event < max_events:
             pred, grad = get_pred_and_grad(model, x, y, is_calibration=False)
-            
+
             cum_regret += regret(pred, y)
             acc_val = abs_error(pred, y)
-            
+
             # During warmup, odometer may not be finalized yet
             log_entry = {
                 "event": event,
@@ -332,23 +366,27 @@ def main(
                 "regret": cum_regret,
                 "acc": acc_val,
             }
-            
+
             if odometer.ready_to_delete:
                 log_entry.update(get_privacy_metrics(model.odometer))
             else:
                 # Odometer not finalized yet
                 if accountant == "rdp":
-                    log_entry.update({
-                        "eps_converted": 0.0,
-                        "delta_total": odometer.delta_total,
-                        "eps_remaining": odometer.eps_total,
-                    })
+                    log_entry.update(
+                        {
+                            "eps_converted": 0.0,
+                            "delta_total": odometer.delta_total,
+                            "eps_remaining": odometer.eps_total,
+                        }
+                    )
                 else:
-                    log_entry.update({
-                        "eps_spent": 0.0,
-                        "capacity_remaining": float("inf"),
-                    })
-            
+                    log_entry.update(
+                        {
+                            "eps_spent": 0.0,
+                            "capacity_remaining": float("inf"),
+                        }
+                    )
+
             logs.append(log_entry)
             inserts += 1
             event += 1
@@ -356,11 +394,13 @@ def main(
                 break
             x, y = next(gen)
 
-        print(f"[Warmup] Complete after {inserts} inserts. Ready to predict: {model.can_predict}")
+        print(
+            f"[Warmup] Complete after {inserts} inserts. Ready to predict: {model.can_predict}"
+        )
 
         # NOW finalize odometer after warmup using total expected events
         print(f"[Warmup] Finalizing odometer with privacy gamma = {gamma_priv}")
-        if hasattr(model, 'calibration_stats') and model.calibration_stats:
+        if hasattr(model, "calibration_stats") and model.calibration_stats:
             odometer.finalize_with(model.calibration_stats, T_estimate=max_events)
         else:
             print("[Warning] No calibration stats available, using legacy finalize")
@@ -369,7 +409,7 @@ def main(
         # Track empirical regret
         avg_regret_empirical = cum_regret / max(inserts, 1)
         print(f"[Empirical] Average regret after warmup: {avg_regret_empirical:.6f}")
-        
+
         # Log theoretical vs empirical metrics
         theoretical_metrics = {
             "N_star_theory": N_star,
@@ -378,29 +418,35 @@ def main(
             "avg_regret_empirical": avg_regret_empirical,
             "accountant_type": accountant,
         }
-        
+
         # Add recalibration information
         recal_stats = model.get_recalibration_stats()
-        theoretical_metrics.update({
-            "recalibrations_count": recal_stats["recalibrations_count"],
-            "current_G_ema": recal_stats.get("current_G_ema"),
-            "finalized_G": recal_stats.get("finalized_G"),
-        })
-        
+        theoretical_metrics.update(
+            {
+                "recalibrations_count": recal_stats["recalibrations_count"],
+                "current_G_ema": recal_stats.get("current_G_ema"),
+                "finalized_G": recal_stats.get("finalized_G"),
+            }
+        )
+
         # Add accountant-specific metrics
         if accountant == "rdp":
-            theoretical_metrics.update({
-                "eps_total": odometer.eps_total,
-                "delta_total": odometer.delta_total,
-                "m_max_param": m_max,
-                "sens_bound": getattr(odometer, "sens_bound", None),
-            })
+            theoretical_metrics.update(
+                {
+                    "eps_total": odometer.eps_total,
+                    "delta_total": odometer.delta_total,
+                    "m_max_param": m_max,
+                    "sens_bound": getattr(odometer, "sens_bound", None),
+                }
+            )
         else:
-            theoretical_metrics.update({
-                "eps_step_theory": odometer.eps_step,
-                "delta_step_theory": odometer.delta_step,
-            })
-        
+            theoretical_metrics.update(
+                {
+                    "eps_step_theory": odometer.eps_step,
+                    "delta_step_theory": odometer.delta_step,
+                }
+            )
+
         print(f"[Theory vs Practice] {theoretical_metrics}")
 
         # Helper function to get privacy metrics for logging
@@ -422,7 +468,9 @@ def main(
             else:
                 return {
                     "eps_spent": getattr(odometer_obj, "eps_spent", 0.0),
-                    "capacity_remaining": getattr(odometer_obj, "remaining", lambda: float("inf"))(),
+                    "capacity_remaining": getattr(
+                        odometer_obj, "remaining", lambda: float("inf")
+                    )(),
                 }
 
         # -------- Workload phase: interleave inserts/deletes -------- #
@@ -434,7 +482,7 @@ def main(
                 cum_regret += regret(pred, y)
                 acc_val = abs_error(pred, y)
                 privacy_metrics = get_privacy_metrics(model.odometer)
-                
+
                 log_entry = {
                     "event": event,
                     "op": "insert",
@@ -455,7 +503,7 @@ def main(
             if odometer.deletion_capacity == 1 and odometer.deletions_count >= 1:
                 print("[Delete] Capacity is 1; stopping deletes to avoid retrain.")
                 break
-                
+
             try:
                 pred = float(model.theta @ x)
                 model.delete(x, y)
@@ -463,7 +511,7 @@ def main(
                 cum_regret += regret(pred, y)
                 acc_val = abs_error(pred, y)
                 privacy_metrics = get_privacy_metrics(model.odometer)
-                
+
                 if odometer.deletion_capacity == 1:
                     print("[Delete] Capacity exhausted after single delete. Stopping.")
                     log_entry = {
@@ -476,7 +524,7 @@ def main(
                     logs.append(log_entry)
                     event += 1
                     break
-                    
+
             except RuntimeError as e:
                 print(f"[Delete] {e}")
                 break
@@ -497,13 +545,13 @@ def main(
         # -------- Write CSV for this seed -------- #
         csv_path = os.path.join(runs_dir, f"{seed}_{algo}.csv")
         csv_paths.append(csv_path)
-        
+
         # Collect all possible fieldnames from all log entries
         all_fieldnames = set()
         for log_entry in logs:
             all_fieldnames.update(log_entry.keys())
         fieldnames = sorted(list(all_fieldnames))
-        
+
         with open(csv_path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
@@ -518,33 +566,45 @@ def main(
             "N_star_theory": N_star,
             "m_theory": getattr(model.odometer, "deletion_capacity", None),
             "sigma_step_theory": getattr(model.odometer, "sigma_step", None),
-            "G_hat": model.calibration_stats.get("G") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
-            "D_hat": model.calibration_stats.get("D") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
-            "c_hat": model.calibration_stats.get("c") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
-            "C_hat": model.calibration_stats.get("C") if hasattr(model, "calibration_stats") and model.calibration_stats else None,
+            "G_hat": model.calibration_stats.get("G")
+            if hasattr(model, "calibration_stats") and model.calibration_stats
+            else None,
+            "D_hat": model.calibration_stats.get("D")
+            if hasattr(model, "calibration_stats") and model.calibration_stats
+            else None,
+            "c_hat": model.calibration_stats.get("c")
+            if hasattr(model, "calibration_stats") and model.calibration_stats
+            else None,
+            "C_hat": model.calibration_stats.get("C")
+            if hasattr(model, "calibration_stats") and model.calibration_stats
+            else None,
             "gamma_learn": gamma_learn,
             "gamma_priv": gamma_priv,
             "quantile": quantile,
             "D_cap": d_cap,
             "accountant_type": accountant,
         }
-        
+
         # Add accountant-specific metrics
         if accountant == "rdp":
             eps_converted, delta_remaining = model.odometer.remaining_eps_delta()
-            summary_entry.update({
-                "eps_total": model.odometer.eps_total,
-                "delta_total": model.odometer.delta_total,
-                "eps_converted": model.odometer.eps_total - eps_converted,
-                "eps_remaining": eps_converted,
-            })
+            summary_entry.update(
+                {
+                    "eps_total": model.odometer.eps_total,
+                    "delta_total": model.odometer.delta_total,
+                    "eps_converted": model.odometer.eps_total - eps_converted,
+                    "eps_remaining": eps_converted,
+                }
+            )
         else:
-            summary_entry.update({
-                "eps_spent": getattr(model.odometer, "eps_spent", 0.0),
-                "eps_step_theory": getattr(model.odometer, "eps_step", None),
-                "delta_step_theory": getattr(model.odometer, "delta_step", None),
-            })
-            
+            summary_entry.update(
+                {
+                    "eps_spent": getattr(model.odometer, "eps_spent", 0.0),
+                    "eps_step_theory": getattr(model.odometer, "eps_step", None),
+                    "delta_step_theory": getattr(model.odometer, "delta_step", None),
+                }
+            )
+
         summaries.append(summary_entry)
 
     # -------- Aggregate summary across seeds -------- #
@@ -558,7 +618,7 @@ def main(
     # Base keys that exist for both accountant types
     base_keys = [
         "inserts",
-        "deletes", 
+        "deletes",
         "final_regret",
         "avg_regret_empirical",
         "N_star_theory",
@@ -570,20 +630,24 @@ def main(
         "C_hat",
         "gamma_learn",
         "gamma_priv",
-        "quantile", 
+        "quantile",
         "D_cap",
     ]
-    
+
     # Get all unique keys from summaries (handles both accountant types)
     all_keys = set()
     for s in summaries:
         all_keys.update(s.keys())
-    
+
     # Add all numeric keys
     for key in sorted(all_keys):
         if key in ["accountant_type"]:  # Skip non-numeric keys
             continue
-        values = [s.get(key) for s in summaries if s.get(key) is not None and isinstance(s.get(key), (int, float))]
+        values = [
+            s.get(key)
+            for s in summaries
+            if s.get(key) is not None and isinstance(s.get(key), (int, float))
+        ]
         if values:
             mean, ci = mean_ci(values)
             summary[f"{key}_mean"] = mean
