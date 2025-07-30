@@ -1,0 +1,7 @@
+# Test grid with minimal combinations for validation
+gamma_learn: [0.9]
+gamma_priv: [0.1]
+quantile: [0.95]
+delete_ratio: [10]
+accountant: ["legacy"]
+eps_total: [1.0]

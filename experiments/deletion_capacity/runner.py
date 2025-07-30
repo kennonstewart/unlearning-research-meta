@@ -90,6 +90,11 @@ class ExperimentRunner:
         
         self.aggregate_and_save(summaries, csv_paths)
     
+    def run_single_seed(self, seed: int) -> str:
+        """Run experiment for a single seed and return CSV path."""
+        result = self.run_one_seed(seed)
+        return result.csv_path
+    
     def run_one_seed(self, seed: int) -> SeedResult:
         """Run experiment for one seed."""
         # Set random seed
