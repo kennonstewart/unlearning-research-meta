@@ -13,7 +13,7 @@ class RunLogger:
 
     def __init__(self, seed: int, algo: str, out_dir: pathlib.Path):
         out_dir.mkdir(parents=True, exist_ok=True)
-        self.path = out_dir / f"{seed:03d}_{algo}.csv"
+        self.path = out_dir / f"{seed}_{algo}.csv"
         self._records: List[Dict] = []
         self._fieldnames: set[str] = set()  # grows dynamically
 

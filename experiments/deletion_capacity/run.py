@@ -159,7 +159,7 @@ def main():
     )
     if config.m_max is not None:
         print(f"[Config] m_max = {config.m_max}")
-    runs_dir  = Path(config.out_dir, "runs")
+    runs_dir = Path(config.out_dir, "runs")
     for seed in range(config.seeds):
         logger = RunLogger(seed, config.algo, runs_dir)
         print(f"\n=== Seed {seed} ===")
@@ -211,7 +211,7 @@ def main():
 
         cum_regret = 0.0
         summaries = []
-        csv_paths: List[str] = []
+        csv_paths = []
         logs = []
         inserts = deletes = 0
         event = 0
@@ -464,9 +464,9 @@ def main():
             x, y = next(gen)
 
         # -------- Write CSV for this seed -------- #
-        csv_path = os.path.join(runs_dir, f"{seed}_{algo}.csv")
+        csv_path = os.path.join(runs_dir, f"{seed:03d}_{algo}.csv")
         csv_paths.append(csv_path)
-
+        
         # Collect all possible fieldnames from all log entries
         all_fieldnames = set()
         for log_entry in logs:
@@ -578,6 +578,8 @@ def main():
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
 
+    # flush the logger
+    logger.flush()
     # Plots
     plot_capacity_curve(csv_paths, os.path.join(figs_dir, "capacity_curve.pdf"))
     plot_regret(csv_paths, os.path.join(figs_dir, "regret.pdf"))
