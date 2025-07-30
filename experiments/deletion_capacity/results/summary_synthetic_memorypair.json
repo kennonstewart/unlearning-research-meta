@@ -1,23 +1,23 @@
 [
   {
-    "inserts": 100000,
-    "deletes": 0,
-    "final_regret": 1897.7321849765322,
-    "avg_regret_empirical": 0.018977321849765322,
-    "N_star_theory": 132548,
-    "m_theory": 1,
-    "sigma_step_theory": 1763.8548673405512,
-    "G_hat": 36.407136545917716,
-    "D_hat": 10.0,
+    "delta_step_theory": 1e-05,
     "c_hat": 1.0,
-    "C_hat": 1.0,
+    "D_hat": 10.0,
     "gamma_learn": 1.0,
-    "gamma_priv": 0.5,
+    "G_hat": 36.407136545917716,
+    "inserts": 100000,
     "quantile": 0.95,
-    "D_cap": 10.0,
-    "accountant_type": "default",
-    "eps_spent": 0.0,
+    "m_theory": 1,
+    "avg_regret_empirical": 0.018977321849765322,
+    "deletes": 0,
     "eps_step_theory": 1.0,
-    "delta_step_theory": 1e-05
+    "accountant_type": "default",
+    "N_star_theory": 132548,
+    "sigma_step_theory": 1763.8548673405512,
+    "C_hat": 1.0,
+    "eps_spent": 0.0,
+    "gamma_priv": 0.5,
+    "D_cap": 10.0,
+    "final_regret": 1897.7321849765322
   }
 ]
