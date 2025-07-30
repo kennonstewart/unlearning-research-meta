@@ -20,10 +20,12 @@ import csv
 import json
 import os
 import sys
-from typing import List, Tuple, Optional
+from typing import List, Tuple
+from config import Config
 
-import click
 import numpy as np
+from pathlib import Path
+from logger import RunLogger
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
 
@@ -117,180 +119,97 @@ DATASET_MAP = {
 }
 
 
-@click.command()
-@click.option(
-    "--dataset", type=click.Choice(["rot-mnist", "synthetic"]), default="rot-mnist"
-)
-@click.option(
-    "--gamma-learn",
-    type=float,
-    default=1.0,
-    help="Target avg regret for learning (sample complexity N*).",
-)
-@click.option(
-    "--gamma-priv",
-    type=float,
-    default=0.5,
-    help="Target avg regret for privacy (odometer capacity m).",
-)
-@click.option(
-    "--bootstrap-iters",
-    type=int,
-    default=500,
-    help="Initial inserts to estimate G, D, c, C.",
-)
-@click.option("--delete-ratio", type=float, default=10.0, help="k inserts per delete.")
-@click.option("--max-events", type=int, default=10_000_000)
-@click.option("--seeds", type=int, default=10)
-@click.option("--out-dir", type=click.Path(), default="results/")
-@click.option("--algo", type=click.Choice(list(ALGO_MAP.keys())), default="memorypair")
-@click.option("--eps-total", type=float, default=1.0)
-@click.option("--delta-total", type=float, default=1e-5)
-@click.option(
-    "--lambda-strong",
-    "lambda_",
-    type=float,
-    default=0.1,
-    help="Strong convexity lower-bound.",
-)
-@click.option(
-    "--delta-b", type=float, default=0.05, help="Failure prob for regret noise term."
-)
-@click.option(
-    "--quantile", type=float, default=0.95, help="Quantile for robust G estimation."
-)
-@click.option(
-    "--D-cap", type=float, default=10.0, help="Upper bound for hypothesis diameter."
-)
-@click.option(
-    "--accountant",
-    type=click.Choice(["rdp", "legacy"]),
-    default="rdp",
-    help="Privacy accountant type.",
-)
-@click.option(
-    "--alphas",
-    type=str,
-    default="1.5,2,3,4,8,16,32,64",
-    help="Comma-separated RDP orders for RDP accountant.",
-)
-@click.option(
-    "--ema-beta",
-    type=float,
-    default=0.9,
-    help="EMA decay parameter for drift detection.",
-)
-@click.option(
-    "--recal-window",
-    type=int,
-    default=None,
-    help="Events between recalibration checks (None = disabled).",
-)
-@click.option(
-    "--recal-threshold",
-    type=float,
-    default=0.3,
-    help="Relative threshold for drift detection.",
-)
-@click.option(
-    "--m-max",
-    type=int,
-    default=None,
-    help="Upper bound for deletion capacity binary search.",
-)
-def main(
-    dataset: str,
-    gamma_learn: float,
-    gamma_priv: float,
-    bootstrap_iters: int,
-    delete_ratio: float,
-    max_events: int,
-    seeds: int,
-    out_dir: str,
-    algo: str,
-    eps_total: float,
-    delta_total: float,
-    lambda_: float,
-    delta_b: float,
-    quantile: float,
-    d_cap: float,
-    accountant: str,
-    alphas: str,
-    ema_beta: float,
-    recal_window: Optional[int],
-    recal_threshold: float,
-    m_max: Optional[int],
-) -> None:
+def main():
+    # Load experiment config
+    config = Config()
+    # alias config attributes to locals for backward-compatible references
+    dataset = config.dataset
+    algo = config.algo
+    bootstrap_iters = config.bootstrap_iters
+    delete_ratio = config.delete_ratio
+    max_events = config.max_events
+    seeds = config.seeds
+    out_dir = config.out_dir
+    eps_total = config.eps_total
+    delta_total = config.delta_total
+    lambda_ = config.lambda_
+    delta_b = config.delta_b
+    quantile = config.quantile
+    d_cap = config.D_cap
+    accountant = config.accountant
+    alphas = config.alphas
+    ema_beta = config.ema_beta
+    recal_window = config.recal_window
+    recal_threshold = config.recal_threshold
+    m_max = config.m_max
     # Setup output directories
-    os.makedirs(out_dir, exist_ok=True)
-    figs_dir = os.path.join(out_dir, "figs")
-    runs_dir = os.path.join(out_dir, "runs")
+    os.makedirs(config.out_dir, exist_ok=True)
+    figs_dir = os.path.join(config.out_dir, "figs")
+    runs_dir = os.path.join(config.out_dir, "runs")
     os.makedirs(figs_dir, exist_ok=True)
     os.makedirs(runs_dir, exist_ok=True)
 
-    print(f"[Config] gamma_learn = {gamma_learn}, gamma_priv = {gamma_priv}")
-    print(f"[Config] quantile = {quantile}, D_cap = {d_cap}")
-    print(f"[Config] accountant = {accountant}")
     print(
-        f"[Config] EMA beta = {ema_beta}, recal_window = {recal_window}, recal_threshold = {recal_threshold}"
+        f"[Config] gamma_learn = {config.gamma_learn}, gamma_priv = {config.gamma_priv}"
     )
-    if m_max is not None:
-        print(f"[Config] m_max = {m_max}")
-
-    for seed in range(seeds):
+    print(f"[Config] quantile = {config.quantile}, D_cap = {config.D_cap}")
+    print(f"[Config] accountant = {config.accountant}")
+    print(
+        f"[Config] EMA beta = {config.ema_beta}, recal_window = {config.recal_window}, recal_threshold = {config.recal_threshold}"
+    )
+    if config.m_max is not None:
+        print(f"[Config] m_max = {config.m_max}")
+    runs_dir  = Path(config.out_dir, "runs")
+    for seed in range(config.seeds):
+        logger = RunLogger(seed, config.algo, runs_dir)
         print(f"\n=== Seed {seed} ===")
-        gen = DATASET_MAP[dataset](seed=seed)
+        gen = DATASET_MAP[config.dataset](seed=seed)
         first_x, first_y = next(gen)
 
-        # Parse alphas for RDP accountant
-        if accountant == "rdp":
-            alpha_list = [float(a.strip()) for a in alphas.split(",")]
-            alpha_list.append(float("inf"))  # Always include infinity
+        if config.accountant == "rdp":
+            alpha_list = config.alphas
             print(f"[Config] RDP alphas = {alpha_list}")
 
-        # Instantiate odometer based on accountant type
-        if accountant == "rdp":
+        if config.accountant == "rdp":
             odometer = RDPOdometer(
-                eps_total=eps_total,
-                delta_total=delta_total,
-                T=max_events,
-                gamma=gamma_priv,  # Use privacy gamma for capacity computation
-                lambda_=lambda_,
-                delta_b=delta_b,
+                eps_total=config.eps_total,
+                delta_total=config.delta_total,
+                T=config.max_events,
+                gamma=config.gamma_priv,
+                lambda_=config.lambda_,
+                delta_b=config.delta_b,
                 alphas=alpha_list,
-                m_max=m_max,
+                m_max=config.m_max,
             )
-        else:  # legacy
+        else:
             odometer = PrivacyOdometer(
-                eps_total=eps_total,
-                delta_total=delta_total,
-                T=max_events,
-                gamma=gamma_priv,  # Use privacy gamma for capacity computation
-                lambda_=lambda_,
-                delta_b=delta_b,
+                eps_total=config.eps_total,
+                delta_total=config.delta_total,
+                T=config.max_events,
+                gamma=config.gamma_priv,
+                lambda_=config.lambda_,
+                delta_b=config.delta_b,
             )
 
-        # Create calibrator with robust parameters and EMA tracking
         from memory_pair.src.calibrator import Calibrator
 
-        calibrator = Calibrator(quantile=quantile, D_cap=d_cap, ema_beta=ema_beta)
+        calibrator = Calibrator(
+            quantile=config.quantile, D_cap=config.D_cap, ema_beta=config.ema_beta
+        )
 
-        # Initialize model
-        model_class = ALGO_MAP[algo]
-        if algo == "memorypair":
+        model_class = ALGO_MAP[config.algo]
+        if config.algo == "memorypair":
             model = model_class(
                 dim=first_x.shape[0],
                 odometer=odometer,
                 calibrator=calibrator,
-                recal_window=recal_window,
-                recal_threshold=recal_threshold,
+                recal_window=config.recal_window,
+                recal_threshold=config.recal_threshold,
             )
         else:
             model = model_class(dim=first_x.shape[0], odometer=odometer)
 
-        # Regret tracking
         cum_regret = 0.0
-
         summaries = []
         csv_paths: List[str] = []
         logs = []
@@ -336,7 +255,7 @@ def main(
                     }
                 )
 
-            logs.append(log_entry)
+            logger.log(log_entry)
             inserts += 1
             event += 1
             if event >= max_events:
@@ -345,7 +264,9 @@ def main(
 
         # Finalize calibration using learning gamma
         print("[Bootstrap] Finalizing calibration...")
-        model.finalize_calibration(gamma=gamma_learn)  # Use learning gamma for N*
+        model.finalize_calibration(
+            gamma=config.gamma_learn
+        )  # Use learning gamma for N*
         N_star = model.N_star
 
         print(
@@ -387,7 +308,7 @@ def main(
                         }
                     )
 
-            logs.append(log_entry)
+            logger.log(log_entry)
             inserts += 1
             event += 1
             if event >= max_events:
@@ -399,7 +320,7 @@ def main(
         )
 
         # NOW finalize odometer after warmup using total expected events
-        print(f"[Warmup] Finalizing odometer with privacy gamma = {gamma_priv}")
+        print(f"[Warmup] Finalizing odometer with privacy gamma = {config.gamma_priv}")
         if hasattr(model, "calibration_stats") and model.calibration_stats:
             odometer.finalize_with(model.calibration_stats, T_estimate=max_events)
         else:
@@ -490,7 +411,7 @@ def main(
                     "acc": acc_val,
                 }
                 log_entry.update(privacy_metrics)
-                logs.append(log_entry)
+                logger.log(log_entry)
                 inserts += 1
                 event += 1
                 if event >= max_events:
@@ -521,7 +442,7 @@ def main(
                         "acc": acc_val,
                     }
                     log_entry.update(privacy_metrics)
-                    logs.append(log_entry)
+                    logger.log(log_entry)
                     event += 1
                     break
 
@@ -536,7 +457,7 @@ def main(
                 "acc": acc_val,
             }
             log_entry.update(privacy_metrics)
-            logs.append(log_entry)
+            logger.log(log_entry)
             event += 1
             if event >= max_events:
                 break
@@ -578,8 +499,8 @@ def main(
             "C_hat": model.calibration_stats.get("C")
             if hasattr(model, "calibration_stats") and model.calibration_stats
             else None,
-            "gamma_learn": gamma_learn,
-            "gamma_priv": gamma_priv,
+            "gamma_learn": config.gamma_learn,
+            "gamma_priv": config.gamma_priv,
             "quantile": quantile,
             "D_cap": d_cap,
             "accountant_type": accountant,
