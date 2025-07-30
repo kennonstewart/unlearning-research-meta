@@ -18,7 +18,7 @@ class Config:
     bootstrap_iters: int = 500
     delete_ratio: float = 10.0
     max_events: int = 100_000
-    seeds: int = 5
+    seeds: int = 200
     out_dir: str = "results/"
     algo: str = "memorypair"
 

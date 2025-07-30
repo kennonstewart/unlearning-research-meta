@@ -16,13 +16,11 @@ Assumptions:
 Edit where marked if your APIs differ.
 """
 
-import csv
 import json
 import os
 import sys
 from typing import List, Tuple
 from config import Config
-
 import numpy as np
 from pathlib import Path
 from logger import RunLogger
@@ -159,9 +157,11 @@ def main():
     )
     if config.m_max is not None:
         print(f"[Config] m_max = {config.m_max}")
-    runs_dir = Path(config.out_dir, "runs")
+
+    summaries = []
+
     for seed in range(config.seeds):
-        logger = RunLogger(seed, config.algo, runs_dir)
+        logger = RunLogger(seed, config.algo, Path(runs_dir))
         print(f"\n=== Seed {seed} ===")
         gen = DATASET_MAP[config.dataset](seed=seed)
         first_x, first_y = next(gen)
@@ -210,8 +210,7 @@ def main():
             model = model_class(dim=first_x.shape[0], odometer=odometer)
 
         cum_regret = 0.0
-        summaries = []
-        csv_paths = []
+        csv_paths: List[str] = []
         logs = []
         inserts = deletes = 0
         event = 0
@@ -225,7 +224,6 @@ def main():
         # Use the new calibration API
         for _ in range(bootstrap_iters):
             pred, grad = get_pred_and_grad(model, x, y, is_calibration=True)
-            gnorm = np.linalg.norm(grad)
 
             acc_val = abs_error(pred, y)
             # During calibration, odometer isn't finalized yet
@@ -255,7 +253,7 @@ def main():
                     }
                 )
 
-            logger.log(log_entry)
+            logs.append(log_entry)
             inserts += 1
             event += 1
             if event >= max_events:
@@ -308,7 +306,7 @@ def main():
                         }
                     )
 
-            logger.log(log_entry)
+            logs.append(log_entry)
             inserts += 1
             event += 1
             if event >= max_events:
@@ -399,11 +397,10 @@ def main():
             # k inserts
             for _ in range(int(delete_ratio)):
                 pred = float(model.theta @ x)
-                model.insert(x, y)  # no need for grad now
+                model.insert(x, y)
                 cum_regret += regret(pred, y)
                 acc_val = abs_error(pred, y)
                 privacy_metrics = get_privacy_metrics(model.odometer)
-
                 log_entry = {
                     "event": event,
                     "op": "insert",
@@ -432,7 +429,6 @@ def main():
                 cum_regret += regret(pred, y)
                 acc_val = abs_error(pred, y)
                 privacy_metrics = get_privacy_metrics(model.odometer)
-
                 if odometer.deletion_capacity == 1:
                     print("[Delete] Capacity exhausted after single delete. Stopping.")
                     log_entry = {
@@ -445,7 +441,6 @@ def main():
                     logger.log(log_entry)
                     event += 1
                     break
-
             except RuntimeError as e:
                 print(f"[Delete] {e}")
                 break
@@ -464,19 +459,8 @@ def main():
             x, y = next(gen)
 
         # -------- Write CSV for this seed -------- #
-        csv_path = os.path.join(runs_dir, f"{seed:03d}_{algo}.csv")
-        csv_paths.append(csv_path)
-        
-        # Collect all possible fieldnames from all log entries
-        all_fieldnames = set()
-        for log_entry in logs:
-            all_fieldnames.update(log_entry.keys())
-        fieldnames = sorted(list(all_fieldnames))
-
-        with open(csv_path, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(logs)
+        csv_path = logger.flush()
+        csv_paths.append(str(csv_path))
 
         # Build summary with base metrics
         summary_entry = {
@@ -501,13 +485,13 @@ def main():
             else None,
             "gamma_learn": config.gamma_learn,
             "gamma_priv": config.gamma_priv,
-            "quantile": quantile,
-            "D_cap": d_cap,
-            "accountant_type": accountant,
+            "quantile": config.quantile,
+            "D_cap": config.D_cap,
+            "accountant_type": config.accountant,
         }
 
         # Add accountant-specific metrics
-        if accountant == "rdp":
+        if config.accountant == "rdp":
             eps_converted, delta_remaining = model.odometer.remaining_eps_delta()
             summary_entry.update(
                 {
@@ -528,58 +512,10 @@ def main():
 
         summaries.append(summary_entry)
 
-    # -------- Aggregate summary across seeds -------- #
-    def mean_ci(values: List[float]):
-        arr = np.array(values, dtype=float)
-        mean = float(arr.mean())
-        ci = float(1.96 * arr.std(ddof=1) / np.sqrt(len(arr))) if len(arr) > 1 else 0.0
-        return mean, ci
-
-    summary = {}
-    # Base keys that exist for both accountant types
-    base_keys = [
-        "inserts",
-        "deletes",
-        "final_regret",
-        "avg_regret_empirical",
-        "N_star_theory",
-        "m_theory",
-        "sigma_step_theory",
-        "G_hat",
-        "D_hat",
-        "c_hat",
-        "C_hat",
-        "gamma_learn",
-        "gamma_priv",
-        "quantile",
-        "D_cap",
-    ]
-
-    # Get all unique keys from summaries (handles both accountant types)
-    all_keys = set()
-    for s in summaries:
-        all_keys.update(s.keys())
-
-    # Add all numeric keys
-    for key in sorted(all_keys):
-        if key in ["accountant_type"]:  # Skip non-numeric keys
-            continue
-        values = [
-            s.get(key)
-            for s in summaries
-            if s.get(key) is not None and isinstance(s.get(key), (int, float))
-        ]
-        if values:
-            mean, ci = mean_ci(values)
-            summary[f"{key}_mean"] = mean
-            summary[f"{key}_ci95"] = ci
-
     summary_path = os.path.join(out_dir, f"summary_{dataset}_{algo}.json")
     with open(summary_path, "w") as f:
-        json.dump(summary, f, indent=2)
+        json.dump(summaries, f, indent=2)
 
-    # flush the logger
-    logger.flush()
     # Plots
     plot_capacity_curve(csv_paths, os.path.join(figs_dir, "capacity_curve.pdf"))
     plot_regret(csv_paths, os.path.join(figs_dir, "regret.pdf"))

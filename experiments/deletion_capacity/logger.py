@@ -1,8 +1,8 @@
 # logger.py
 from __future__ import annotations
 import csv
-import pathlib
 from typing import Dict, List
+import pathlib
 
 
 class RunLogger:
