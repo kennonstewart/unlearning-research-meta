@@ -1,0 +1,18 @@
+# Default parameter grid for deletion capacity experiments
+# Based on the grid specified in AGENTS.md
+
+# Learning ↔ Privacy split
+gamma_learn: [0.9, 0.7, 0.5, 0.3]
+gamma_priv: [0.1, 0.3, 0.5, 0.7]
+
+# Calibrator conservativeness  
+quantile: [0.90, 0.95, 0.99]
+
+# Delete workload
+delete_ratio: [1, 5, 10]
+
+# Accountant type
+accountant: ["legacy", "rdp"]
+
+# Privacy budget (optional)
+eps_total: [1.0, 0.5]
