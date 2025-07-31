@@ -22,7 +22,7 @@ from baselines import SekhariBatchUnlearning, QiaoHessianFree
 from config import Config
 from protocols import AccountantAdapter, ModelAdapter
 from phases import PhaseState, bootstrap_phase, sensitivity_calibration_phase, warmup_phase, finalize_accountant_phase, workload_phase
-from io_utils import EventLogger, write_summary_json, create_plots, git_commit_results
+from io_utils import EventLogger, write_summary_json, create_plots, git_commit_results, write_seed_summary_json
 from metrics_utils import aggregate_summaries, get_privacy_metrics
 from metrics import regret
 
@@ -253,6 +253,11 @@ class ExperimentRunner:
         os.makedirs(self.cfg.out_dir, exist_ok=True)
         summary_path = os.path.join(self.cfg.out_dir, f"summary_{self.cfg.dataset}_{self.cfg.algo}.json")
         write_summary_json(aggregated, summary_path)
+
+        # Save aggregated summary
+        os.makedirs(self.cfg.out_dir, exist_ok=True)
+        summary_path = os.path.join(self.cfg.out_dir, f"seed_summary_{self.cfg.dataset}_{self.cfg.algo}.json")
+        write_seed_summary_json(summaries, summary_path)
         
         # Create plots
         figs_dir = os.path.join(self.cfg.out_dir, "figs")
