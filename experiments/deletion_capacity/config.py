@@ -45,6 +45,9 @@ class Config:
     # Sensitivity calibration
     sens_calib: int = 50
 
+    # Output granularity for grid search
+    output_granularity: str = "seed"
+
     @classmethod
     def from_cli_args(cls, **kwargs) -> "Config":
         """Create Config from CLI arguments, handling alphas parsing."""
