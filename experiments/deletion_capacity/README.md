@@ -56,6 +56,46 @@ cd experiments/deletion_capacity
 python run.py --algo memorypair --schedule burst --seed 42
 ```
 
+### Grid Search with Output Granularity
+
+For systematic parameter sweeps, use the grid runner with configurable output granularity:
+
+```bash
+# Default seed-level output (one row per seed)
+python agents/grid_runner.py \
+    --grid-file grids.yaml \
+    --seeds 10 \
+    --parallel 8 \
+    --base-out results/grid_$(date +%Y_%m_%d) \
+    --output-granularity seed
+
+# Event-level output (one row per insert/delete operation)  
+python agents/grid_runner.py \
+    --grid-file grids.yaml \
+    --seeds 10 \
+    --parallel 8 \
+    --base-out results/grid_$(date +%Y_%m_%d) \
+    --output-granularity event
+
+# Aggregate output (one row per parameter combination)
+python agents/grid_runner.py \
+    --grid-file grids.yaml \
+    --seeds 10 \
+    --parallel 8 \
+    --base-out results/grid_$(date +%Y_%m_%d) \
+    --output-granularity aggregate
+```
+
+#### Output Granularity Modes
+
+| Mode | Output Files | Schema | Use Case |
+|------|-------------|---------|----------|
+| `seed` | `runs/<grid_id>/seed_<seed>.csv` | One row per seed: avg_regret_empirical, N_star_emp, m_emp + mandatory fields | Statistical analysis, plotting trends |
+| `event` | `runs/<grid_id>/seed_<seed>_events.csv` | One row per event: event, event_type, op, regret, acc + mandatory fields | Detailed debugging, trajectory analysis |
+| `aggregate` | `runs/<grid_id>/aggregate.csv` | One row per grid-id: mean/median statistics across seeds + mandatory fields | High-level comparisons, LaTeX tables |
+
+**Mandatory fields in all modes:** `G_hat`, `D_hat`, `sigma_step_theory` - enables recomputation of N★ and m for theoretical validation.
+
 ### Command Line Options
 
 - `--algo`: Algorithm choice (`memorypair`, `baseline1`, `baseline2`)
