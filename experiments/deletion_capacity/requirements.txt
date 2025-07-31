@@ -3,3 +3,8 @@ numpy
 pandas
 matplotlib
 click
+pyyaml
+scikit-learn
+scipy
+tqdm
+seaborn
