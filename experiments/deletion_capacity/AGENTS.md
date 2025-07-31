@@ -126,6 +126,37 @@ python agents/grid_runner.py \
       --grid-file grids.yaml \
       --parallel 8 \
       --base-out results/grid_2025_07_30
+
+# with different output granularities
+python agents/grid_runner.py \
+      --grid-file grids.yaml \
+      --parallel 8 \
+      --base-out results/grid_$(date +%Y_%m_%d) \
+      --output-granularity seed      # default: one row per seed
+
+python agents/grid_runner.py \
+      --grid-file grids.yaml \
+      --parallel 8 \
+      --base-out results/grid_$(date +%Y_%m_%d) \
+      --output-granularity event     # one row per event
+
+python agents/grid_runner.py \
+      --grid-file grids.yaml \
+      --parallel 8 \
+      --base-out results/grid_$(date +%Y_%m_%d) \
+      --output-granularity aggregate # one row per grid-id
 ```
+
+## Output Granularity Options
+
+The `--output-granularity` flag controls the level of detail in output files:
+
+| Mode | File Pattern | Description |
+|------|-------------|-------------|
+| `seed` (default) | `runs/<grid_id>/seed_<seed>.csv` | One row per seed with aggregated metrics: avg_regret_empirical, N_star_emp, m_emp |
+| `event` | `runs/<grid_id>/seed_<seed>_events.csv` | One row per event with detailed logs: event, event_type, op, regret, acc |
+| `aggregate` | `runs/<grid_id>/aggregate.csv` | One row per grid-id with summary statistics across all seeds |
+
+**Mandatory fields in all modes:** `G_hat`, `D_hat`, `sigma_step_theory` - required for downstream N★ and m computation.
 
 The script leaves `all_runs.csv` ready for import into your LaTeX tables or plotting notebooks.
