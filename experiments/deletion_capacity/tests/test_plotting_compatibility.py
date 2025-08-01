@@ -43,7 +43,7 @@ def test_plotting_compatibility():
         # Test that plotting functions can handle these files
         try:
             # Add the deletion_capacity directory to path to import plots
-            sys.path.insert(0, os.path.dirname(__file__))
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
             from plots import plot_capacity_curve, plot_regret
             
             # Test capacity curve plot
