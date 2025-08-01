@@ -156,12 +156,26 @@ def warmup_phase(
 ) -> Tuple[PhaseState, int]:
     """Warmup phase for N* inserts."""
     N_star = getattr(model, "N_star", 0)
-    print(f"[Warmup] Running {N_star} warmup inserts...")
+    
+    # Ensure N_star is an integer
+    try:
+        N_star = int(N_star)
+    except (ValueError, TypeError):
+        print(f"Warning: Invalid N_star value '{N_star}'. Skipping warmup.")
+        return state, 0
+
+    warmup_needed = N_star - state.inserts
+    if warmup_needed <= 0:
+        print(f"[Warmup] No warmup needed (N*={N_star}, inserts={state.inserts}).")
+        return state, 0
+
+    print(f"[Warmup] Running {warmup_needed} warmup inserts to reach N*={N_star}...")
     
     events_used = 0
     
-    for _ in range(N_star):
+    for _ in range(warmup_needed):
         if events_used >= max_events_left:
+            print("[Warmup] Stopping warmup early due to max_events limit.")
             break
             
         pred, grad = get_pred_and_grad(model, state.current_x, state.current_y)
@@ -185,7 +199,11 @@ def warmup_phase(
         events_used += 1
         
         if events_used < max_events_left:
-            state.current_x, state.current_y = next(gen)
+            try:
+                state.current_x, state.current_y = next(gen)
+            except StopIteration:
+                print("[Warmup] Data stream exhausted during warmup.")
+                break
     
     return state, events_used
 

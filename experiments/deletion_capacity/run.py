@@ -118,6 +118,30 @@ DATASET_MAP = {
 
 
 def main():
+    # Helper function to get privacy metrics for logging
+    def get_privacy_metrics(odometer_obj):
+        if isinstance(odometer_obj, RDPOdometer):
+            eps_converted, delta_converted = odometer_obj.remaining_eps_delta()
+            sens_stats = odometer_obj.get_sensitivity_stats()
+            return {
+                "eps_converted": odometer_obj.eps_total - eps_converted,
+                "delta_total": delta_converted,
+                "eps_remaining": eps_converted,
+                "m_current": odometer_obj.deletion_capacity,
+                "sigma_current": odometer_obj.sigma_step,
+                "sens_count": sens_stats.get("count", 0),
+                "sens_mean": sens_stats.get("mean", 0.0),
+                "sens_max": sens_stats.get("max", 0.0),
+                "sens_q95": sens_stats.get("q95", 0.0),
+            }
+        else:
+            return {
+                "eps_spent": getattr(odometer_obj, "eps_spent", 0.0),
+                "capacity_remaining": getattr(
+                    odometer_obj, "remaining", lambda: float("inf")
+                )(),
+            }
+
     # Load experiment config
     config = Config()
     # alias config attributes to locals for backward-compatible references
@@ -320,10 +344,10 @@ def main():
         # NOW finalize odometer after warmup using total expected events
         print(f"[Warmup] Finalizing odometer with privacy gamma = {config.gamma_priv}")
         if hasattr(model, "calibration_stats") and model.calibration_stats:
-            odometer.finalize_with(model.calibration_stats, T_estimate=max_events)
+            model.odometer.finalize_with(model.calibration_stats, T_estimate=max_events)
         else:
             print("[Warning] No calibration stats available, using legacy finalize")
-            odometer.finalize()
+            model.odometer.finalize()
 
         # Track empirical regret
         avg_regret_empirical = cum_regret / max(inserts, 1)
@@ -367,30 +391,6 @@ def main():
             )
 
         print(f"[Theory vs Practice] {theoretical_metrics}")
-
-        # Helper function to get privacy metrics for logging
-        def get_privacy_metrics(odometer_obj):
-            if isinstance(odometer_obj, RDPOdometer):
-                eps_converted, delta_converted = odometer_obj.remaining_eps_delta()
-                sens_stats = odometer_obj.get_sensitivity_stats()
-                return {
-                    "eps_converted": odometer_obj.eps_total - eps_converted,
-                    "delta_total": delta_converted,
-                    "eps_remaining": eps_converted,
-                    "m_current": odometer_obj.deletion_capacity,
-                    "sigma_current": odometer_obj.sigma_step,
-                    "sens_count": sens_stats.get("count", 0),
-                    "sens_mean": sens_stats.get("mean", 0.0),
-                    "sens_max": sens_stats.get("max", 0.0),
-                    "sens_q95": sens_stats.get("q95", 0.0),
-                }
-            else:
-                return {
-                    "eps_spent": getattr(odometer_obj, "eps_spent", 0.0),
-                    "capacity_remaining": getattr(
-                        odometer_obj, "remaining", lambda: float("inf")
-                    )(),
-                }
 
         # -------- Workload phase: interleave inserts/deletes -------- #
         while event < max_events:
