@@ -8,7 +8,9 @@ import os
 import tempfile
 import pandas as pd
 import sys
-sys.path.append(os.path.dirname(__file__))
+
+# Add parent directory to path to find agents module
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from agents.grid_runner import process_seed_output, process_event_output, process_aggregate_output
 

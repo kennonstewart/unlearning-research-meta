@@ -60,7 +60,7 @@ def main():
     for granularity in ["seed", "event", "aggregate"]:
         total_tests += 1
         if run_command([sys.executable, "agents/grid_runner.py", 
-                       "--grid-file", "test_grid_simple.yaml", 
+                       "--grid-file", "tests/test_grid_simple.yaml", 
                        "--dry-run", 
                        "--output-granularity", granularity], 
                       f"Dry run with {granularity} granularity"):
@@ -69,32 +69,32 @@ def main():
     # Test default behavior (no --output-granularity flag)
     total_tests += 1
     if run_command([sys.executable, "agents/grid_runner.py", 
-                   "--grid-file", "test_grid_simple.yaml", 
+                   "--grid-file", "tests/test_grid_simple.yaml", 
                    "--dry-run"], 
                   "Default behavior (seed granularity)"):
         tests_passed += 1
     
     # Test processing functions
     total_tests += 1
-    if run_command([sys.executable, "test_granularity.py"], 
+    if run_command([sys.executable, "tests/test_granularity.py"], 
                   "Output processing functions"):
         tests_passed += 1
     
     # Test integration
     total_tests += 1
-    if run_command([sys.executable, "test_integration.py"], 
+    if run_command([sys.executable, "tests/test_integration.py"], 
                   "Integration test"):
         tests_passed += 1
     
     # Test mandatory fields validation
     total_tests += 1
-    if run_command([sys.executable, "test_mandatory_fields.py"], 
+    if run_command([sys.executable, "tests/test_mandatory_fields.py"], 
                   "Mandatory fields validation"):
         tests_passed += 1
     
     # Test plotting compatibility
     total_tests += 1
-    if run_command([sys.executable, "test_plotting_compatibility.py"], 
+    if run_command([sys.executable, "tests/test_plotting_compatibility.py"], 
                   "Plotting compatibility"):
         tests_passed += 1
     

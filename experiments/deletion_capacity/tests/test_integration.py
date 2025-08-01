@@ -79,7 +79,7 @@ eps_total: [1.0]
             print(f"\nTesting {granularity} granularity...")
             
             # Import processing functions
-            sys.path.append(os.path.join(os.path.dirname(__file__), "."))
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
             from agents.grid_runner import process_seed_output, process_event_output, process_aggregate_output
             
             mandatory_fields = {
@@ -109,7 +109,7 @@ eps_total: [1.0]
                 for file_path in result_files:
                     if os.path.exists(file_path):
                         # Run validation
-                        validation_script = os.path.join(os.path.dirname(__file__), "validate_output.py")
+                        validation_script = os.path.join(os.path.dirname(__file__), "..", "validate_output.py")
                         cmd = [sys.executable, validation_script, file_path, "--granularity", granularity]
                         proc = subprocess.run(cmd, capture_output=True, text=True)
                         
