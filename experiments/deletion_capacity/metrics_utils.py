@@ -15,12 +15,30 @@ def mean_ci(values: List[float]) -> Tuple[float, float]:
 
 
 def get_privacy_metrics(model) -> Dict[str, Any]:
-    """Extract privacy metrics from model's odometer."""
+    """Extract privacy metrics from model's odometer and calibration statistics."""
     odometer = getattr(model, "odometer", None)
-    if odometer is None:
-        return {}
-    
     metrics = {}
+    
+    # Add calibration statistics if available
+    if hasattr(model, "calibration_stats") and model.calibration_stats:
+        stats = model.calibration_stats
+        metrics.update({
+            "G_hat": stats.get("G"),
+            "D_hat": stats.get("D"),
+            "c_hat": stats.get("c"),
+            "C_hat": stats.get("C"),
+            "N_star_theory": stats.get("N_star"),
+        })
+    
+    # Add theoretical metrics from odometer if available
+    if odometer:
+        if hasattr(odometer, "deletion_capacity"):
+            metrics["m_theory"] = odometer.deletion_capacity
+        if hasattr(odometer, "sigma_step"):
+            metrics["sigma_step_theory"] = odometer.sigma_step
+    
+    if odometer is None:
+        return metrics
     
     # Common metrics for both accountant types
     if hasattr(odometer, "eps_spent"):

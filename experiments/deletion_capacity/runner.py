@@ -212,14 +212,31 @@ class ExperimentRunner:
         }
         
         # Add calibration results
-        if hasattr(model, "calibrator"):
-            cal = model.calibrator
+        if hasattr(model, "calibration_stats") and model.calibration_stats:
+            stats = model.calibration_stats
             summary.update({
-                "G_hat": getattr(cal, "G_hat", np.nan),
-                "D_hat": getattr(cal, "D_hat", np.nan),
-                "c_hat": getattr(cal, "c_hat", np.nan),
-                "C_hat": getattr(cal, "C_hat", np.nan),
+                "G_hat": stats.get("G"),
+                "D_hat": stats.get("D"), 
+                "c_hat": stats.get("c"),
+                "C_hat": stats.get("C"),
             })
+        else:
+            # Fallback: try to get from calibrator attributes if calibration_stats not available
+            if hasattr(model, "calibrator"):
+                cal = model.calibrator
+                summary.update({
+                    "G_hat": getattr(cal, "finalized_G", None),
+                    "D_hat": getattr(cal, "D", None), 
+                    "c_hat": getattr(cal, "c_hat", None),
+                    "C_hat": getattr(cal, "C_hat", None),
+                })
+            else:
+                summary.update({
+                    "G_hat": None,
+                    "D_hat": None,
+                    "c_hat": None,
+                    "C_hat": None,
+                })
         
         # Add theoretical values
         if hasattr(model, "N_star"):
