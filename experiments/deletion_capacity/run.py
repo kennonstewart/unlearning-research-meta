@@ -287,7 +287,7 @@ def main():
         # Finalize calibration using learning gamma
         print("[Bootstrap] Finalizing calibration...")
         model.finalize_calibration(
-            gamma=config.gamma_learn, max_N=config.max_warmup_N
+            gamma=config.gamma_learn
         )  # Use learning gamma for N*
         N_star = model.N_star
 

@@ -45,9 +45,6 @@ class Config:
     # Sensitivity calibration
     sens_calib: int = 50
 
-    # Maximum warmup sample complexity to prevent excessively long warmup phases
-    max_warmup_N: Optional[int] = 50_000
-
     # Output granularity for grid search
     output_granularity: str = "seed"
 

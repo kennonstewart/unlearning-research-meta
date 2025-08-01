@@ -146,7 +146,7 @@ class MemoryPair:
 
         return pred
 
-    def finalize_calibration(self, gamma: float, max_N: Optional[int] = None) -> None:
+    def finalize_calibration(self, gamma: float) -> None:
         """
         Finalize the calibration phase and transition to LEARNING.
 
@@ -156,7 +156,6 @@ class MemoryPair:
 
         Args:
             gamma: Target average regret per step for theoretical bounds (gamma_learn)
-            max_N: Optional maximum value for N* to prevent excessively long warmup
 
         Raises:
             RuntimeError: If called outside CALIBRATION phase
@@ -167,7 +166,7 @@ class MemoryPair:
             )
 
         # Get calibration statistics
-        stats = self.calibrator.finalize(gamma, self, max_N)
+        stats = self.calibrator.finalize(gamma, self)
         self.N_star = stats["N_star"]
 
         # Store stats for later access
