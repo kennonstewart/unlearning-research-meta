@@ -6,8 +6,7 @@ USER root
 
 # Install a basic version of TeX Live using the system package manager
 # This avoids the ghcr.io feature mechanism entirely
-RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
-    && apt-get -y install --no-install-recommends texlive-latex-base
+RUN apt-get update && export DEBIAN_FRONTEND=noninteractive 
 
 # Switch back to the non-root vscode user
 USER vscode

@@ -1,12 +1,10 @@
 {
   "name": "Online Unlearning Research",
-
   // ✅ Use the Dockerfile to build the container.
   // The "image" property should be removed.
   "build": {
     "dockerfile": "Dockerfile"
   },
-
   "features": {
     "ghcr.io/devcontainers/features/common-utils": {
       "installZsh": "false",
@@ -15,7 +13,6 @@
       "userGid": "1000"
     }
   },
-
   // The rest of the file is unchanged
   "customizations": {
     "vscode": {
@@ -35,11 +32,9 @@
         "ms-python.debugpy",
         "charliermarsh.ruff",
         "ms-toolsai.jupyter",
-        "james-yu.latex-workshop",
         "mutantdino.resourcemonitor"
       ]
     }
   },
-
   "postCreateCommand": "bash .devcontainer/post-create.sh"
 }
