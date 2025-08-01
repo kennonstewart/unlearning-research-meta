@@ -110,9 +110,6 @@ class PrivacyOdometer:
                   'c': Lower curvature bound, 'C': Upper curvature bound
             T_estimate: Estimated total number of events (typically N*)
         """
-        print(f"[PrivacyOdometer] finalize_with called with stats: {stats}")
-        print(f"[PrivacyOdometer] T_estimate: {T_estimate}")
-        
         self.L = stats["G"]  # Use gradient bound as Lipschitz constant
         self.D = stats["D"]
         self.c = stats.get("c", 1.0)
@@ -136,11 +133,11 @@ class PrivacyOdometer:
         self.ready_to_delete = True
 
         print(
-            f"[PrivacyOdometer] Finalized with deletion capacity m = {self.deletion_capacity}"
+            f"[Odometer] Finalized with deletion capacity m = {self.deletion_capacity}"
         )
-        print(f"[PrivacyOdometer] L = {self.L:.4f}, D = {self.D:.4f}")
+        print(f"[Odometer] L = {self.L:.4f}, D = {self.D:.4f}")
         print(
-            f"[PrivacyOdometer] ε_step = {self.eps_step:.6f}, δ_step = {self.delta_step:.2e}, σ = {self.sigma_step:.4f}"
+            f"[Odometer] ε_step = {self.eps_step:.6f}, δ_step = {self.delta_step:.2e}, σ = {self.sigma_step:.4f}"
         )
 
     def finalize(self) -> None:
@@ -465,9 +462,6 @@ class RDPOdometer:
                   'c': Lower curvature bound, 'C': Upper curvature bound
             T_estimate: Estimated total number of events (typically max_events)
         """
-        print(f"[RDPOdometer] finalize_with called with stats: {stats}")
-        print(f"[RDPOdometer] T_estimate: {T_estimate}")
-        
         self.L = stats["G"]  # Use gradient bound as Lipschitz constant
         self.D = stats["D"]
         self.c = stats.get("c", 1.0)

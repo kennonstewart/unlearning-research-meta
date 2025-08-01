@@ -197,23 +197,19 @@ def finalize_accountant_phase(model, cfg: Config):
     # Use the proper finalization approach based on model type
     if hasattr(model, "calibration_stats") and model.calibration_stats:
         # MemoryPair model with calibration stats
-        print(f"[Finalize] Using model calibration_stats: {list(model.calibration_stats.keys())}")
         model.odometer.finalize_with(model.calibration_stats, T_estimate=cfg.max_events)
     elif hasattr(model.odometer, "finalize_with"):
         # Direct finalization for non-MemoryPair models or fallback when calibration_stats is missing
-        print("[Finalize] Using calibrator attributes as fallback")
         stats = {
             "G": getattr(model.calibrator, "finalized_G", 1.0) if hasattr(model, "calibrator") else 1.0,
             "D": getattr(model.calibrator, "D", 1.0) if hasattr(model, "calibrator") else 1.0,
             "c": getattr(model.calibrator, "c_hat", 1.0) if hasattr(model, "calibrator") else 1.0,
             "C": getattr(model.calibrator, "C_hat", 1.0) if hasattr(model, "calibrator") else 1.0,
         }
-        print(f"[Finalize] Constructed stats from calibrator: G={stats['G']:.4f}, D={stats['D']:.4f}, c={stats['c']:.4f}, C={stats['C']:.4f}")
         T_estimate = cfg.max_events
         model.odometer.finalize_with(stats, T_estimate)
     else:
         # Fallback to simple finalize
-        print("[Finalize] Using simple finalize (no finalize_with method)")
         model.odometer.finalize()
 
 
