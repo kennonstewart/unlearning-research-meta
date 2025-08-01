@@ -165,8 +165,8 @@ def run_parameter_combination(params: Dict[str, Any], seeds: List[int], base_out
             first_df = pd.read_csv(csv_paths[0])
             if len(first_df) > 0:
                 last_row = first_df.iloc[-1]
-                # Extract G_hat, D_hat, sigma_step_theory if they exist
-                for field in ['G_hat', 'D_hat', 'sigma_step_theory']:
+                # Extract G_hat, D_hat, sigma_step_theory if they exist (but these should come from individual CSVs)
+                for field in ['sigma_step_theory']:
                     if field in last_row:
                         mandatory_fields[field] = last_row[field]
                 
@@ -354,10 +354,11 @@ def process_seed_output(csv_files: List[str], grid_id: str, output_dir: str, man
             # Add mandatory fields
             summary_row.update(mandatory_fields)
             
-            # Add any additional fields from the last row (e.g., privacy metrics)
+            # Add any additional fields from the last row (e.g., privacy metrics, calibration stats)
             if len(df) > 0:
                 last_row = df.iloc[-1]
-                for col in ['eps_spent', 'capacity_remaining', 'eps_converted', 'eps_remaining', 'delta_total']:
+                for col in ['eps_spent', 'capacity_remaining', 'eps_converted', 'eps_remaining', 'delta_total', 
+                           'G_hat', 'D_hat', 'c_hat', 'C_hat', 'N_star_theory', 'm_theory']:
                     if col in last_row:
                         summary_row[col] = last_row[col]
             
