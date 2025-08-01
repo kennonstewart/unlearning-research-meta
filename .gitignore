@@ -20,3 +20,5 @@ wheels/
 .installed.cfg
 *.egg
 results/grid*
+experiments/*/results/
+experiments/*/figs/
