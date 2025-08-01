@@ -133,7 +133,7 @@ class Calibrator:
         # Fallback to conservative constants
         return 1.0, 1.0
 
-    def finalize(self, gamma: float, model) -> Dict[str, Any]:
+    def finalize(self, gamma: float, model, max_N: Optional[int] = None) -> Dict[str, Any]:
         """
         Compute final statistics and sample complexity after calibration.
         
@@ -146,6 +146,7 @@ class Calibrator:
         Args:
             gamma: Target average regret per step
             model: Model with L-BFGS optimizer for curvature estimation
+            max_N: Optional maximum value for N_star to prevent excessively long warmup
             
         Returns:
             Dictionary containing estimated constants and sample complexity
@@ -173,7 +174,14 @@ class Calibrator:
         N_star_raw = (numerator / gamma) ** 2
         
         # Add reasonable bounds to prevent overflow
-        N_star = int(np.ceil(min(N_star_raw, 1e6)))  # Cap at 1M
+        upper_bound = 1e6  # Global cap at 1M
+        if max_N is not None:
+            upper_bound = min(upper_bound, max_N)
+        
+        N_star = int(np.ceil(min(N_star_raw, upper_bound)))
+        
+        if N_star == upper_bound and N_star_raw > upper_bound:
+            print(f"[Calibrator] WARNING: N* capped at {upper_bound} (theoretical: {N_star_raw:.0f})")
         
         # Store finalized G for drift detection
         self.finalized_G = G_hat
