@@ -199,10 +199,10 @@ def finalize_accountant_phase(model, cfg: Config):
         # MemoryPair model with calibration stats
         model.odometer.finalize_with(model.calibration_stats, T_estimate=cfg.max_events)
     elif hasattr(model.odometer, "finalize_with"):
-        # Direct finalization for non-MemoryPair models
+        # Direct finalization for non-MemoryPair models or fallback when calibration_stats is missing
         stats = {
-            "G": getattr(model.calibrator, "G_hat", 1.0) if hasattr(model, "calibrator") else 1.0,
-            "D": getattr(model.calibrator, "D_hat", 1.0) if hasattr(model, "calibrator") else 1.0,
+            "G": getattr(model.calibrator, "finalized_G", 1.0) if hasattr(model, "calibrator") else 1.0,
+            "D": getattr(model.calibrator, "D", 1.0) if hasattr(model, "calibrator") else 1.0,
             "c": getattr(model.calibrator, "c_hat", 1.0) if hasattr(model, "calibrator") else 1.0,
             "C": getattr(model.calibrator, "C_hat", 1.0) if hasattr(model, "calibrator") else 1.0,
         }
