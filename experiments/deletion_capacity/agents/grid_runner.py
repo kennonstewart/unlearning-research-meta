@@ -103,8 +103,8 @@ def run_single_experiment(params: Dict[str, Any], seed: int, base_out_dir: str, 
     config_kwargs['out_dir'] = run_out_dir
     
     # Set some defaults for faster testing
-    config_kwargs.setdefault('max_events', 1000)  # Reduced for testing
-    config_kwargs.setdefault('bootstrap_iters', 50)  # Reduced for testing
+    config_kwargs.setdefault('max_events', 1000000)  # Reduced for testing
+    config_kwargs.setdefault('bootstrap_iters', 500)  # Reduced for testing
     
     try:
         # Create config and runner
@@ -227,6 +227,9 @@ def aggregate_results(sweep_dir: str) -> str:
             df['grid_id'] = grid_id
             df['seed'] = seed
             
+            # TO DO 
+            # take the grid ID parsing logic and turn this into its own module
+        
             # Parse grid_id to extract parameters
             # Format: split_0.7-0.3_q0.95_k10_default
             parts = grid_id.split('_')

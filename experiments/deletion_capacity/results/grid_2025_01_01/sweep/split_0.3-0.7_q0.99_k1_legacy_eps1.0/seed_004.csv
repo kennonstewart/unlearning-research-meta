@@ -1,2 +1,0 @@
-seed,grid_id,avg_regret_empirical,N_star_emp,m_emp,final_acc,total_events,gamma_learn,gamma_priv,quantile,delete_ratio,accountant,eps_total,eps_spent,capacity_remaining,delta_total
-4,split_0.3-0.7_q0.99_k1_legacy_eps1.0,1420.3819058166125,0,0,0.0898906562407209,950,0.3,0.7,0.99,1,legacy,1.0,0.0,,1e-05

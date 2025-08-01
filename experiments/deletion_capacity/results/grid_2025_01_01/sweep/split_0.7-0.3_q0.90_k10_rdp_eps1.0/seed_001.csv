@@ -1,2 +1,2 @@
-seed,grid_id,avg_regret_empirical,N_star_emp,m_emp,final_acc,total_events,gamma_learn,gamma_priv,quantile,delete_ratio,accountant,eps_total,eps_converted,eps_remaining,delta_total
-1,split_0.7-0.3_q0.90_k10_rdp_eps1.0,4437.662815818177,0,0,0.0499962152150157,950,0.7,0.3,0.9,10,rdp,1.0,,,1e-05
+seed,grid_id,avg_regret_empirical,N_star_emp,m_emp,final_acc,total_events,sigma_step_theory,gamma_learn,gamma_priv,quantile,delete_ratio,accountant,eps_total,eps_converted,eps_remaining,delta_total,G_hat,D_hat,c_hat,C_hat,N_star_theory,m_theory
+1,split_0.7-0.3_q0.90_k10_rdp_eps1.0,1969.1026614183322,0,0,0.0848806693846846,99950,295.65753491603044,0.7,0.3,0.9,10,rdp,1.0,,,1e-05,40.70626980333917,10.0,1.0,1.0,338164.0,

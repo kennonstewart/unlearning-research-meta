@@ -6,13 +6,13 @@ gamma_learn: [0.9, 0.7, 0.5, 0.3]
 gamma_priv: [0.1, 0.3, 0.5, 0.7]
 
 # Calibrator conservativeness  
-quantile: [0.90, 0.95, 0.99]
+quantile: [0.90]
 
 # Delete workload
-delete_ratio: [1, 5, 10]
+delete_ratio: [1, 5]
 
 # Accountant type
-accountant: ["legacy", "rdp"]
+accountant: ["legacy"]
 
 # Privacy budget (optional)
-eps_total: [1.0, 0.5]
+eps_total: [1.0]
