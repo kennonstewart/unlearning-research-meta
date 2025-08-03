@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
 
 from config import Config
 from memory_pair.src.memory_pair import MemoryPair
-from memory_pair.src.odometer import PrivacyOdometer, RDPOdometer
+from memory_pair.src.odometer import PrivacyOdometer, ZCDPOdometer
 from memory_pair.src.calibrator import Calibrator
 
 

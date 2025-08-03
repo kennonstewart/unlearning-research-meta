@@ -17,6 +17,7 @@ Edit where marked if your APIs differ.
 """
 
 import json
+import math
 import os
 import sys
 from typing import List, Tuple
@@ -32,7 +33,7 @@ from data_loader import (
     get_synthetic_linear_stream,
 )
 from memory_pair.src.memory_pair import MemoryPair
-from memory_pair.src.odometer import PrivacyOdometer, RDPOdometer
+from memory_pair.src.odometer import PrivacyOdometer, ZCDPOdometer, rho_to_epsilon
 from baselines import SekhariBatchUnlearning, QiaoHessianFree
 
 from metrics import regret, abs_error
@@ -120,13 +121,15 @@ DATASET_MAP = {
 def main():
     # Helper function to get privacy metrics for logging
     def get_privacy_metrics(odometer_obj):
-        if isinstance(odometer_obj, RDPOdometer):
-            eps_converted, delta_converted = odometer_obj.remaining_eps_delta()
+        if isinstance(odometer_obj, ZCDPOdometer):
+            rho_remaining, delta_total = odometer_obj.remaining_rho_delta()
             sens_stats = odometer_obj.get_sensitivity_stats()
+            eps_converted = rho_to_epsilon(odometer_obj.rho_total - rho_remaining, delta_total)
             return {
-                "eps_converted": odometer_obj.eps_total - eps_converted,
-                "delta_total": delta_converted,
-                "eps_remaining": eps_converted,
+                "eps_converted": eps_converted,
+                "delta_total": delta_total,
+                "rho_spent": odometer_obj.rho_spent,
+                "rho_remaining": rho_remaining,
                 "m_current": odometer_obj.deletion_capacity,
                 "sigma_current": odometer_obj.sigma_step,
                 "sens_count": sens_stats.get("count", 0),
@@ -192,17 +195,19 @@ def main():
 
         if config.accountant == "rdp":
             alpha_list = config.alphas
-            print(f"[Config] RDP alphas = {alpha_list}")
+            print(f"[Config] zCDP conversion from RDP alphas = {alpha_list}")
+            # Convert eps_total to rho_total for zCDP
+            rho_total = config.eps_total**2 / (2 * math.log(1 / config.delta_total))
+            print(f"[Config] Converted eps_total={config.eps_total} to rho_total={rho_total:.6f}")
 
         if config.accountant == "rdp":
-            odometer = RDPOdometer(
-                eps_total=config.eps_total,
+            odometer = ZCDPOdometer(
+                rho_total=rho_total,
                 delta_total=config.delta_total,
                 T=config.max_events,
                 gamma=config.gamma_priv,
                 lambda_=config.lambda_,
                 delta_b=config.delta_b,
-                alphas=alpha_list,
                 m_max=config.m_max,
             )
         else:
@@ -261,12 +266,12 @@ def main():
             }
 
             # Add default privacy metrics for calibration phase
-            if accountant == "rdp":
+            if config.accountant == "rdp":
                 log_entry.update(
                     {
                         "eps_converted": 0.0,
                         "delta_total": odometer.delta_total,
-                        "eps_remaining": odometer.eps_total,
+                        "rho_remaining": odometer.rho_total,
                     }
                 )
             else:
@@ -314,12 +319,12 @@ def main():
                 log_entry.update(get_privacy_metrics(model.odometer))
             else:
                 # Odometer not finalized yet
-                if accountant == "rdp":
+                if config.accountant == "rdp":
                     log_entry.update(
                         {
                             "eps_converted": 0.0,
                             "delta_total": odometer.delta_total,
-                            "eps_remaining": odometer.eps_total,
+                            "rho_remaining": odometer.rho_total,
                         }
                     )
                 else:
@@ -373,12 +378,12 @@ def main():
         )
 
         # Add accountant-specific metrics
-        if accountant == "rdp":
+        if config.accountant == "rdp":
             theoretical_metrics.update(
                 {
-                    "eps_total": odometer.eps_total,
+                    "rho_total": odometer.rho_total,
                     "delta_total": odometer.delta_total,
-                    "m_max_param": m_max,
+                    "m_max_param": config.m_max,
                     "sens_bound": getattr(odometer, "sens_bound", None),
                 }
             )
@@ -492,13 +497,15 @@ def main():
 
         # Add accountant-specific metrics
         if config.accountant == "rdp":
-            eps_converted, delta_remaining = model.odometer.remaining_eps_delta()
+            rho_remaining, delta_remaining = model.odometer.remaining_rho_delta()
+            eps_converted = rho_to_epsilon(model.odometer.rho_total - rho_remaining, delta_remaining)
             summary_entry.update(
                 {
-                    "eps_total": model.odometer.eps_total,
+                    "rho_total": model.odometer.rho_total,
                     "delta_total": model.odometer.delta_total,
-                    "eps_converted": model.odometer.eps_total - eps_converted,
-                    "eps_remaining": eps_converted,
+                    "eps_converted": eps_converted,
+                    "rho_spent": model.odometer.rho_spent,
+                    "rho_remaining": rho_remaining,
                 }
             )
         else:

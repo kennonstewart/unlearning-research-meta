@@ -8,12 +8,13 @@ incorrect calibrator attribute access in the fallback path of finalize_accountan
 
 import sys
 import os
+import math
 sys.path.insert(0, os.path.join('..', '..', 'code'))
 
 from phases import finalize_accountant_phase
 from config import Config
 from memory_pair.src.memory_pair import MemoryPair
-from memory_pair.src.odometer import RDPOdometer, PrivacyOdometer
+from memory_pair.src.odometer import ZCDPOdometer, PrivacyOdometer, rho_to_epsilon
 from memory_pair.src.calibrator import Calibrator
 from metrics_utils import get_privacy_metrics
 
@@ -33,8 +34,10 @@ def test_original_issue_scenario():
     cfg.accountant = "rdp"
     
     # Scenario: Model where calibration_stats is None (the problematic case)
-    print("\n1. Testing RDP odometer with None calibration_stats...")
-    model = MemoryPair(dim=10, odometer=RDPOdometer())
+    print("\n1. Testing zCDP odometer with None calibration_stats...")
+    # Convert default eps_total=1.0 to rho_total for zCDP
+    rho_total = 1.0**2 / (2 * math.log(1 / 1e-5))
+    model = MemoryPair(dim=10, odometer=ZCDPOdometer(rho_total=rho_total))
     model.calibration_stats = None  # This was causing the issue
     
     # Set calibrator attributes as they would be after a real calibration
@@ -51,7 +54,7 @@ def test_original_issue_scenario():
     metrics = get_privacy_metrics(model)
     m_theory = metrics.get('m_theory')
     
-    print(f"   RDP m_theory: {m_theory}")
+    print(f"   zCDP m_theory: {m_theory}")
     assert m_theory is not None, "m_theory should not be None"
     assert m_theory >= 1, "m_theory should be at least 1"
     
@@ -87,7 +90,8 @@ def test_calibration_stats_path():
     cfg.max_events = 10000
     
     # Test with proper calibration_stats (this should have always worked)
-    model = MemoryPair(dim=10, odometer=RDPOdometer())
+    rho_total = 1.0**2 / (2 * math.log(1 / 1e-5))
+    model = MemoryPair(dim=10, odometer=ZCDPOdometer(rho_total=rho_total))
     model.calibration_stats = {
         'G': 4.72,
         'D': 4.78, 
