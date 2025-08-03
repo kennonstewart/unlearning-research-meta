@@ -3,6 +3,7 @@ Main experiment runner class.
 Orchestrates the entire deletion capacity experiment workflow.
 """
 
+import math
 import os
 import sys
 from typing import List, Dict, Any, Tuple
@@ -15,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
 
 from data_loader import get_rotating_mnist_stream, get_synthetic_linear_stream
 from memory_pair.src.memory_pair import MemoryPair
-from memory_pair.src.odometer import PrivacyOdometer, RDPOdometer
+from memory_pair.src.odometer import PrivacyOdometer, ZCDPOdometer, rho_to_epsilon
 from memory_pair.src.calibrator import Calibrator
 from baselines import SekhariBatchUnlearning, QiaoHessianFree
 
@@ -148,14 +149,15 @@ class ExperimentRunner:
         
         # Create accountant
         if self.cfg.accountant == "rdp":
-            odometer = RDPOdometer(
-                eps_total=self.cfg.eps_total,
+            # Convert eps_total to rho_total for zCDP
+            rho_total = self.cfg.eps_total**2 / (2 * math.log(1 / self.cfg.delta_total))
+            odometer = ZCDPOdometer(
+                rho_total=rho_total,
                 delta_total=self.cfg.delta_total,
                 T=self.cfg.max_events,
                 gamma=self.cfg.gamma_priv,
                 lambda_=self.cfg.lambda_,
                 delta_b=self.cfg.delta_b,
-                alphas=alpha_list,
                 m_max=self.cfg.m_max,
             )
         else:  # legacy
