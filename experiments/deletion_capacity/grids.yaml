@@ -12,7 +12,7 @@ quantile: [0.90]
 delete_ratio: [1, 5]
 
 # Accountant type
-accountant: ["legacy"]
+accountant: ["legacy", "rdp"]
 
 # Privacy budget (optional)
 eps_total: [1.0]
