@@ -60,6 +60,7 @@ class MemoryPair:
         calibrator: Optional[Calibrator] = None,
         recal_window: Optional[int] = None,
         recal_threshold: float = 0.3,
+        cfg: Optional[Any] = None,
     ):
         """
         Initialize MemoryPair algorithm.
@@ -70,11 +71,15 @@ class MemoryPair:
             calibrator: Calibrator for bootstrap phase (creates default if None)
             recal_window: Events between recalibration checks (None = disabled)
             recal_threshold: Relative threshold for drift detection
+            cfg: Configuration object with feature flags (for future use)
         """
         self.theta = np.zeros(dim)
         self.lbfgs = LimitedMemoryBFGS(dim)
         self.odometer = odometer or RDPOdometer()
 
+        # Store config for feature flags (no behavior change yet)
+        self.cfg = cfg
+        
         # State machine attributes
         self.phase = Phase.CALIBRATION
         self.calibrator = calibrator or Calibrator()  # Use provided calibrator

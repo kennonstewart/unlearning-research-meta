@@ -48,6 +48,15 @@ class Config:
     # Output granularity for grid search
     output_granularity: str = "seed"
 
+    # Feature flags (all default False for no-op behavior)
+    adaptive_geometry: bool = False
+    dynamic_comparator: bool = False
+    strong_convexity: bool = False
+    adaptive_privacy: bool = False
+    drift_mode: bool = False
+    window_erm: bool = False
+    online_standardize: bool = False
+
     @classmethod
     def from_cli_args(cls, **kwargs) -> "Config":
         """Create Config from CLI arguments, handling alphas parsing."""
