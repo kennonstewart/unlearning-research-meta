@@ -1,10 +1,11 @@
 import numpy as np
 from enum import Enum
 from typing import Optional, Union, Tuple, Dict, Any
-from .lbfgs import LimitedMemoryBFGS
-from .odometer import PrivacyOdometer, RDPOdometer
-from .metrics import regret
-from .calibrator import Calibrator
+from lbfgs import LimitedMemoryBFGS
+from odometer import PrivacyOdometer, RDPOdometer
+from metrics import regret
+from calibrator import Calibrator
+from comparators import RollingOracle
 
 
 class Phase(Enum):
@@ -128,6 +129,29 @@ class MemoryPair:
             floor=getattr(cfg, "lambda_floor", 1e-6) if cfg is not None else 1e-6,
             cap=getattr(cfg, "lambda_cap", 1e3) if cfg is not None else 1e3,
         )
+
+        # Oracle for dynamic regret tracking (optional)
+        self.oracle: Optional[RollingOracle] = None
+        if cfg and getattr(cfg, 'enable_oracle', False):
+            oracle_window_W = getattr(cfg, 'oracle_window_W', 512)
+            oracle_steps = getattr(cfg, 'oracle_steps', 15)
+            oracle_stride = getattr(cfg, 'oracle_stride', None)
+            oracle_tol = getattr(cfg, 'oracle_tol', 1e-6)
+            oracle_warmstart = getattr(cfg, 'oracle_warmstart', True)
+            path_length_norm = getattr(cfg, 'path_length_norm', 'L2')
+            lambda_reg = getattr(cfg, 'lambda_reg', 0.0)
+            
+            self.oracle = RollingOracle(
+                dim=dim,
+                window_W=oracle_window_W,
+                oracle_steps=oracle_steps,
+                oracle_stride=oracle_stride,
+                oracle_tol=oracle_tol,
+                oracle_warmstart=oracle_warmstart,
+                path_length_norm=path_length_norm,
+                lambda_reg=lambda_reg,
+                cfg=cfg,
+            )
 
     def _compute_regularized_loss(self, pred: float, y: float) -> float:
         """Compute regularized loss: l(pred, y) + (lambda_reg/2) * ||theta||^2"""
@@ -409,6 +433,13 @@ class MemoryPair:
         if log_to_odometer and hasattr(self.odometer, "observe"):
             self.odometer.observe(g_old, self.theta)
 
+        # Update oracle if enabled (only for insert events)
+        if self.oracle is not None and self.phase in [Phase.LEARNING, Phase.INTERLEAVING]:
+            oracle_refreshed = self.oracle.maybe_update(x, y, self.theta)
+            self.oracle.update_regret_accounting(x, y, self.theta)
+            if oracle_refreshed:
+                print(f"[Oracle] Refreshed at event {self.events_seen}, P_T_est = {self.oracle.P_T_est:.4f}")
+
         # 4. Handle state transitions
         if (
             self.phase == Phase.LEARNING
@@ -523,7 +554,7 @@ class MemoryPair:
 
     def get_metrics_dict(self) -> dict:
         """Get dictionary of current metrics for logging."""
-        return {
+        metrics = {
             'lambda_est': self.lambda_est,
             'lambda_raw': self.lambda_raw,
             'sc_stable': self.sc_stable,
@@ -533,6 +564,13 @@ class MemoryPair:
             'eta_t': self.eta_t,
             'sc_active': self.sc_active,
         }
+        
+        # Add oracle metrics if oracle is enabled
+        if self.oracle is not None:
+            oracle_metrics = self.oracle.get_oracle_metrics()
+            metrics.update(oracle_metrics)
+            
+        return metrics
 
     def _check_recalibration_trigger(self) -> None:
         """Check if recalibration should be triggered based on drift detection."""
