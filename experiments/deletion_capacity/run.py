@@ -83,6 +83,11 @@ def compute_sample_complexity(G, D, gamma, c=1.0, C=1.0, max_cap=None, q=None):
     return max(N_star, 1)
 
 
+def compute_grad(pred: float, x: np.ndarray, y: float) -> np.ndarray:
+    """Compute gradient of squared loss for convenience."""
+    return (pred - y) * x
+
+
 def get_pred_and_grad(model, x, y, is_calibration=False):
     """Helper to obtain (pred, grad). Adjust for your API.
     For calibration phase, uses calibrate_step(). For other phases, uses insert().
@@ -106,7 +111,7 @@ def get_pred_and_grad(model, x, y, is_calibration=False):
             elif hasattr(model, "gradient"):
                 grad = model.gradient(x, y)
             else:
-                raise RuntimeError("Model must expose gradient to estimate G.")
+                grad = compute_grad(pred, x, y)
             return pred, grad
     raise RuntimeError("Model has no insert or calibrate_step method.")
 
@@ -476,7 +481,7 @@ def main():
 
             try:
                 pred = float(model.theta @ x)
-                grad = (pred - y) * x
+                grad = compute_grad(pred, x, y)
                 model.delete(x, y)
                 deletes += 1
                 cum_regret += regret(pred, y)

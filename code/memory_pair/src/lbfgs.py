@@ -3,6 +3,10 @@
 import numpy as np
 
 
+ABS_CURV_EPS = 1e-10
+REL_CURV_EPS = 1e-8
+
+
 class LimitedMemoryBFGS:
     """Simple L-BFGS helper storing curvature pairs."""
 
@@ -15,7 +19,7 @@ class LimitedMemoryBFGS:
         # Ensure yᵀs > 0 to keep B⁻¹ positive‑definite (oLBFGS requirement)
         ys = float(y @ s)
         ss = float(s @ s)
-        if ys <= max(1e-10, 1e-8 * ss):
+        if ys <= max(ABS_CURV_EPS, REL_CURV_EPS * ss):
             return  # discard pair if curvature condition fails
         self.S.append(s.astype(float))
         self.Y.append(y.astype(float))

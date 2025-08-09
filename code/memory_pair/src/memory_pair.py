@@ -153,25 +153,7 @@ class MemoryPair:
         self.t += 1
 
         # 3. Step-size policy
-        tiny = 1e-12
-        sc_ok = (
-            self.cfg
-            and getattr(self.cfg, "strong_convexity", False)
-            and lambda_is_stable(self.lambda_est, self.lambda_stability_counter, self.cfg)
-        )
-        eps = getattr(self.cfg, "adagrad_eps", 1e-12) if self.cfg else 1e-12
-        D_bound = getattr(self.calibrator, "D_hat_t", None)
-        if D_bound is None:
-            D_bound = getattr(self.cfg, "D_bound", 1.0) if self.cfg else 1.0
-        eta_max = getattr(self.cfg, "eta_max", 1.0) if self.cfg else 1.0
-
-        if sc_ok:
-            self.eta_t = 1.0 / max(self.lambda_est * self.t, tiny)
-        else:
-            self.eta_t = D_bound / np.sqrt(self.S_scalar + eps)
-
-        self.eta_t = min(self.eta_t, eta_max)
-        self.sc_active = bool(sc_ok)
+        self._update_step_size()
 
         # 4. Compute L-BFGS direction with step-size
         direction = self.lbfgs.direction(g_old)
@@ -297,25 +279,7 @@ class MemoryPair:
         self.t += 1
 
         # 4. Step-size policy
-        tiny = 1e-12
-        sc_ok = (
-            self.cfg
-            and getattr(self.cfg, "strong_convexity", False)
-            and lambda_is_stable(self.lambda_est, self.lambda_stability_counter, self.cfg)
-        )
-        eps = getattr(self.cfg, "adagrad_eps", 1e-12) if self.cfg else 1e-12
-        D_bound = getattr(self.calibrator, "D_hat_t", None)
-        if D_bound is None:
-            D_bound = getattr(self.cfg, "D_bound", 1.0) if self.cfg else 1.0
-        eta_max = getattr(self.cfg, "eta_max", 1.0) if self.cfg else 1.0
-
-        if sc_ok:
-            self.eta_t = 1.0 / max(self.lambda_est * self.t, tiny)
-        else:
-            self.eta_t = D_bound / np.sqrt(self.S_scalar + eps)
-
-        self.eta_t = min(self.eta_t, eta_max)
-        self.sc_active = bool(sc_ok)
+        self._update_step_size()
 
         # 5. Compute L-BFGS direction with step-size
         direction = self.lbfgs.direction(g_old)
@@ -393,24 +357,7 @@ class MemoryPair:
 
         # Step-size policy (no lambda update during deletes)
         tiny = 1e-12
-        sc_ok = (
-            self.cfg
-            and getattr(self.cfg, "strong_convexity", False)
-            and lambda_is_stable(self.lambda_est, self.lambda_stability_counter, self.cfg)
-        )
-        eps = getattr(self.cfg, "adagrad_eps", 1e-12) if self.cfg else 1e-12
-        D_bound = getattr(self.calibrator, "D_hat_t", None)
-        if D_bound is None:
-            D_bound = getattr(self.cfg, "D_bound", 1.0) if self.cfg else 1.0
-        eta_max = getattr(self.cfg, "eta_max", 1.0) if self.cfg else 1.0
-
-        if sc_ok:
-            self.eta_t = 1.0 / max(self.lambda_est * self.t, tiny)
-        else:
-            self.eta_t = D_bound / np.sqrt(self.S_scalar + eps)
-
-        self.eta_t = min(self.eta_t, eta_max)
-        self.sc_active = bool(sc_ok)
+        self._update_step_size()
 
         influence = self.lbfgs.direction(g)
         sensitivity = np.linalg.norm(influence)
@@ -431,6 +378,35 @@ class MemoryPair:
         # Update counters
         self.events_seen += 1
         self.deletes_seen += 1
+
+    def _update_step_size(self) -> None:
+        """Compute step size based on AdaGrad or strong-convexity schedule."""
+        tiny = 1e-12
+        eps = getattr(self.cfg, "adagrad_eps", 1e-12) if self.cfg else 1e-12
+        D_bound = getattr(self.calibrator, "D_hat_t", None)
+        if D_bound is None:
+            D_bound = getattr(self.cfg, "D_bound", 1.0) if self.cfg else 1.0
+        eta_max = getattr(self.cfg, "eta_max", 1.0) if self.cfg else 1.0
+
+        if self._lambda_is_stable():
+            self.eta_t = 1.0 / max(self.lambda_est * max(self.t, 1), tiny)
+            self.sc_active = True
+        else:
+            self.eta_t = D_bound / np.sqrt(self.S_scalar + eps)
+            self.sc_active = False
+
+        self.eta_t = min(self.eta_t, eta_max)
+
+    def _lambda_is_stable(self) -> bool:
+        """Check whether strong-convexity estimate is reliable."""
+        if not self.cfg or not getattr(self.cfg, "strong_convexity", False):
+            return False
+        return (
+            self.lambda_est is not None
+            and self.lambda_est > getattr(self.cfg, "lambda_floor", 1e-6)
+            and self.lambda_stability_counter
+            >= getattr(self.cfg, "lambda_stability_min_steps", 100)
+        )
 
     def get_average_regret(self) -> float:
         """Calculates the average regret over all seen events."""
@@ -515,9 +491,3 @@ class LambdaEstimator:
         return self.ema
 
 
-def lambda_is_stable(lambda_est: Optional[float], counter: int, cfg: Any) -> bool:
-    return (
-        lambda_est is not None
-        and lambda_est > getattr(cfg, "lambda_floor", 1e-6)
-        and counter >= getattr(cfg, "lambda_stability_min_steps", 100)
-    )

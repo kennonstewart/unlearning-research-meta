@@ -12,11 +12,11 @@ def N_star_live(S_T, G_hat, D_hat, c_hat, C_hat, gamma_ins) -> int:
         return 0
     coeff = D_hat * np.sqrt(c_hat * C_hat) / max(gamma_ins, tiny)
     # Estimate average gradient squared using S_T and G_hat bound
-    if G_hat is not None and G_hat > tiny:
+    if G_hat is None or abs(G_hat) <= tiny:
+        avg_sq = S_T
+    else:
         t_est = S_T / (G_hat ** 2)
         avg_sq = S_T / max(t_est, 1.0)
-    else:
-        avg_sq = S_T
     return int(np.ceil(coeff ** 2 * avg_sq))
 
 
