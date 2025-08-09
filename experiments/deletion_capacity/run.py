@@ -33,7 +33,14 @@ from data_loader import (
     get_synthetic_linear_stream,
 )
 from memory_pair.src.memory_pair import MemoryPair
-from memory_pair.src.odometer import PrivacyOdometer, ZCDPOdometer, rho_to_epsilon
+from memory_pair.src.calibrator import CalibSnapshot
+from memory_pair.src.odometer import (
+    PrivacyOdometer,
+    ZCDPOdometer,
+    rho_to_epsilon,
+    N_star_live,
+    m_theory_live,
+)
 from baselines import SekhariBatchUnlearning, QiaoHessianFree
 
 from metrics import regret, abs_error
@@ -76,6 +83,11 @@ def compute_sample_complexity(G, D, gamma, c=1.0, C=1.0, max_cap=None, q=None):
     return max(N_star, 1)
 
 
+def compute_grad(pred: float, x: np.ndarray, y: float) -> np.ndarray:
+    """Compute gradient of squared loss for convenience."""
+    return (pred - y) * x
+
+
 def get_pred_and_grad(model, x, y, is_calibration=False):
     """Helper to obtain (pred, grad). Adjust for your API.
     For calibration phase, uses calibrate_step(). For other phases, uses insert().
@@ -99,7 +111,7 @@ def get_pred_and_grad(model, x, y, is_calibration=False):
             elif hasattr(model, "gradient"):
                 grad = model.gradient(x, y)
             else:
-                raise RuntimeError("Model must expose gradient to estimate G.")
+                grad = compute_grad(pred, x, y)
             return pred, grad
     raise RuntimeError("Model has no insert or calibrate_step method.")
 
@@ -144,6 +156,46 @@ def main():
                     odometer_obj, "remaining", lambda: float("inf")
                 )(),
             }
+
+    def live_metrics(model, grad, x, update_bounds: bool = True):
+        if update_bounds:
+            snap = model.calibrator.live_bounds_update(
+                {"grad_norm": float(np.linalg.norm(grad)), "x_norm": float(np.linalg.norm(x))}
+            )
+        else:
+            snap = CalibSnapshot(
+                G_hat=model.calibrator.G_hat_t,
+                D_hat=model.calibrator.D_hat_t,
+                c_hat=model.calibrator.c_hat if model.calibrator.c_hat is not None else 1.0,
+                C_hat=model.calibrator.C_hat if model.calibrator.C_hat is not None else 1.0,
+            )
+        N_live = N_star_live(
+            model.S_scalar,
+            snap.G_hat,
+            snap.D_hat,
+            snap.c_hat,
+            snap.C_hat,
+            config.gamma_learn,
+        )
+        m_live = m_theory_live(
+            model.S_scalar,
+            model.t,
+            snap.G_hat,
+            snap.D_hat,
+            snap.c_hat,
+            snap.C_hat,
+            config.gamma_priv,
+            getattr(model.odometer, "sigma_step", 1.0),
+        )
+        return {
+            "S_scalar": model.S_scalar,
+            "eta_t": model.eta_t,
+            "lambda_est": model.lambda_est,
+            "sc_active": model.sc_active,
+            "lr_mode": "sc" if model.sc_active else "adagrad",
+            "N_star_live": N_live,
+            "m_theory_live": m_live,
+        }
 
     # Load experiment config
     config = Config()
@@ -223,7 +275,10 @@ def main():
         from memory_pair.src.calibrator import Calibrator
 
         calibrator = Calibrator(
-            quantile=config.quantile, D_cap=config.D_cap, ema_beta=config.ema_beta
+            quantile=config.quantile,
+            D_cap=config.D_cap,
+            ema_beta=config.ema_beta,
+            trim_quantile=config.trim_quantile,
         )
 
         model_class = ALGO_MAP[config.algo]
@@ -234,13 +289,13 @@ def main():
                 calibrator=calibrator,
                 recal_window=config.recal_window,
                 recal_threshold=config.recal_threshold,
+                cfg=config,
             )
         else:
             model = model_class(dim=first_x.shape[0], odometer=odometer)
 
         cum_regret = 0.0
         csv_paths: List[str] = []
-        logs = []
         inserts = deletes = 0
         event = 0
         x, y = first_x, first_y
@@ -253,9 +308,7 @@ def main():
         # Use the new calibration API
         for _ in range(bootstrap_iters):
             pred, grad = get_pred_and_grad(model, x, y, is_calibration=True)
-
             acc_val = abs_error(pred, y)
-            # During calibration, odometer isn't finalized yet
             log_entry = {
                 "event": event,
                 "op": "calibrate",
@@ -264,8 +317,6 @@ def main():
                 else np.nan,
                 "acc": acc_val,
             }
-
-            # Add default privacy metrics for calibration phase
             if config.accountant == "rdp":
                 log_entry.update(
                     {
@@ -281,8 +332,8 @@ def main():
                         "capacity_remaining": float("inf"),
                     }
                 )
-
-            logs.append(log_entry)
+            log_entry.update(live_metrics(model, grad, x))
+            logger.log(log_entry)
             inserts += 1
             event += 1
             if event >= max_events:
@@ -335,7 +386,8 @@ def main():
                         }
                     )
 
-            logs.append(log_entry)
+            log_entry.update(live_metrics(model, grad, x))
+            logger.log(log_entry)
             inserts += 1
             event += 1
             if event >= max_events:
@@ -401,8 +453,7 @@ def main():
         while event < max_events:
             # k inserts
             for _ in range(int(delete_ratio)):
-                pred = float(model.theta @ x)
-                model.insert(x, y)
+                pred, grad = model.insert(x, y, return_grad=True)
                 cum_regret += regret(pred, y)
                 acc_val = abs_error(pred, y)
                 privacy_metrics = get_privacy_metrics(model.odometer)
@@ -413,6 +464,7 @@ def main():
                     "acc": acc_val,
                 }
                 log_entry.update(privacy_metrics)
+                log_entry.update(live_metrics(model, grad, x))
                 logger.log(log_entry)
                 inserts += 1
                 event += 1
@@ -429,6 +481,7 @@ def main():
 
             try:
                 pred = float(model.theta @ x)
+                grad = compute_grad(pred, x, y)
                 model.delete(x, y)
                 deletes += 1
                 cum_regret += regret(pred, y)
@@ -443,6 +496,7 @@ def main():
                         "acc": acc_val,
                     }
                     log_entry.update(privacy_metrics)
+                    log_entry.update(live_metrics(model, grad, x, update_bounds=False))
                     logger.log(log_entry)
                     event += 1
                     break
@@ -457,6 +511,7 @@ def main():
                 "acc": acc_val,
             }
             log_entry.update(privacy_metrics)
+            log_entry.update(live_metrics(model, grad, x, update_bounds=False))
             logger.log(log_entry)
             event += 1
             if event >= max_events:
