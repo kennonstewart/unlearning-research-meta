@@ -48,6 +48,15 @@ class Config:
     # Output granularity for grid search
     output_granularity: str = "seed"
 
+    # Adaptive geometry defaults
+    adagrad_eps: float = 1e-12
+    D_bound: float = 1.0
+    trim_quantile: float = 0.95
+    lambda_floor: float = 1e-6
+    lambda_cap: float = 1e3
+    lambda_stability_min_steps: int = 100
+    eta_max: float = 1.0
+
     # Feature flags (all default False for no-op behavior)
     adaptive_geometry: bool = False
     dynamic_comparator: bool = False

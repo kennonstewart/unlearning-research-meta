@@ -3,6 +3,10 @@
 import numpy as np
 
 
+ABS_CURV_EPS = 1e-10
+REL_CURV_EPS = 1e-8
+
+
 class LimitedMemoryBFGS:
     """Simple L-BFGS helper storing curvature pairs."""
 
@@ -14,8 +18,9 @@ class LimitedMemoryBFGS:
     def add_pair(self, s: np.ndarray, y: np.ndarray) -> None:
         # Ensure yᵀs > 0 to keep B⁻¹ positive‑definite (oLBFGS requirement)
         ys = float(y @ s)
-        if ys <= 1e-10:
-            return  # discard pair
+        ss = float(s @ s)
+        if ys <= max(ABS_CURV_EPS, REL_CURV_EPS * ss):
+            return  # discard pair if curvature condition fails
         self.S.append(s.astype(float))
         self.Y.append(y.astype(float))
         if len(self.S) > self.m_max:
@@ -44,8 +49,14 @@ class LimitedMemoryBFGS:
         y_last = self.Y[-1]
         s_last = self.S[-1]
         gamma = float(s_last @ y_last) / float(y_last @ y_last)
+        gamma = float(np.clip(gamma, 1e-6, 1e6))
         r = gamma * q
         for s, y, a, r_i in zip(self.S, self.Y, reversed(alpha), reversed(rho)):
             b = r_i * (y @ r)
             r = r + s * (a - b)
         return -r
+
+    def last_direction_norm(self, grad: np.ndarray) -> float:
+        """Convenience accessor for ||direction(grad)||."""
+        d = self.direction(grad)
+        return float(np.linalg.norm(d))

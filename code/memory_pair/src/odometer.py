@@ -5,6 +5,43 @@ import numpy as np
 from typing import Dict, Any, Optional, Tuple
 
 
+def N_star_live(S_T, G_hat, D_hat, c_hat, C_hat, gamma_ins) -> int:
+    """Live sample complexity using cumulative squared gradients."""
+    tiny = 1e-12
+    if D_hat is None or c_hat is None or C_hat is None or gamma_ins is None:
+        return 0
+    coeff = D_hat * np.sqrt(c_hat * C_hat) / max(gamma_ins, tiny)
+    # Estimate average gradient squared using S_T and G_hat bound
+    if G_hat is None or abs(G_hat) <= tiny:
+        avg_sq = S_T
+    else:
+        t_est = S_T / (G_hat ** 2)
+        avg_sq = S_T / max(t_est, 1.0)
+    return int(np.ceil(coeff ** 2 * avg_sq))
+
+
+def m_theory_live(
+    S_T,
+    N,
+    G_hat,
+    D_hat,
+    c_hat,
+    C_hat,
+    gamma_del,
+    sigma_step,
+    delta_B: float = 0.05,
+) -> int:
+    """Theoretical deletion capacity with live gradient statistics."""
+    tiny = 1e-12
+    insertion_regret = D_hat * np.sqrt(c_hat * C_hat * S_T)
+    coeff = (G_hat * D_hat / max(sigma_step, tiny)) * np.sqrt(2 * np.log(1 / max(delta_B, tiny)))
+    remaining = gamma_del * N - insertion_regret
+    if remaining <= 0:
+        return 0
+    m = int(np.floor(remaining / max(coeff, tiny)))
+    return max(m, 0)
+
+
 class PrivacyOdometer:
     """
     Adaptive Privacy Odometer for differentially private machine unlearning.
@@ -70,7 +107,7 @@ class PrivacyOdometer:
         self._theta_traj = []
 
         # Computed after finalization
-        self.deletion_capacity: Optional[int] = None
+        self.deletion_capacity: int = 0
         self.L: Optional[float] = None
         self.D: Optional[float] = None
         self.eps_step: Optional[float] = None
@@ -375,7 +412,7 @@ class ZCDPOdometer:
         self.m_max = m_max
 
         # Computed after finalization
-        self.deletion_capacity: Optional[int] = None
+        self.deletion_capacity: int = 0
         self.L: Optional[float] = None
         self.D: Optional[float] = None
         self.sigma_step: Optional[float] = None
