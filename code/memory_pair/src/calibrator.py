@@ -57,6 +57,14 @@ class Calibrator:
         self.G_ema_window = []  # Store recent EMA values
         self.finalized_G: Optional[float] = None
 
+        # Live bounds estimation 
+        self.G_hat_live: Optional[float] = None
+        self.D_hat_live: Optional[float] = None
+        self.theta_0_live: Optional[np.ndarray] = None
+        self.grad_norm_buffer = []  # Small window for trimmed quantile
+        self.theta_norm_buffer = []  # Small window for parameter norms
+        self.buffer_size = 100  # Size of rolling window
+
     def observe(self, grad: np.ndarray, theta: np.ndarray) -> None:
         """
         Record gradient and parameter snapshot during calibration.
@@ -236,4 +244,72 @@ class Calibrator:
             "D": D_updated,
             "c": c_updated,
             "C": C_updated,
+        }
+
+    def live_bounds_update(self, obs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update live bounds estimation with new observation.
+        
+        Uses EMA for G_hat and trimmed quantiles for robustness.
+        Maintains rolling estimate of D_hat using parameter trajectory.
+        
+        Args:
+            obs: Dictionary with observation data, may include:
+                - 'grad_norm': float, current gradient norm
+                - 'x_norm': float, current parameter norm  
+                - 'loss': float, current loss value
+                - 'theta': np.ndarray, current parameters
+                
+        Returns:
+            Dictionary with current live bounds: {G_hat, D_hat, c_hat, C_hat}
+        """
+        # Update G_hat using EMA and trimmed quantiles
+        if 'grad_norm' in obs:
+            grad_norm = obs['grad_norm']
+            
+            # Update EMA
+            if self.G_hat_live is None:
+                self.G_hat_live = grad_norm
+            else:
+                self.G_hat_live = self.ema_beta * self.G_hat_live + (1 - self.ema_beta) * grad_norm
+            
+            # Maintain buffer for trimmed quantile
+            self.grad_norm_buffer.append(grad_norm)
+            if len(self.grad_norm_buffer) > self.buffer_size:
+                self.grad_norm_buffer.pop(0)
+                
+            # Use trimmed quantile for robustness if we have enough samples
+            if len(self.grad_norm_buffer) >= 10:
+                trim_quantile = getattr(self, 'trim_quantile', 0.95)
+                G_trimmed = float(np.quantile(self.grad_norm_buffer, trim_quantile))
+                # Blend EMA and trimmed quantile
+                self.G_hat_live = 0.7 * self.G_hat_live + 0.3 * G_trimmed
+        
+        # Update D_hat using parameter trajectory
+        if 'theta' in obs:
+            theta = obs['theta']
+            
+            # Initialize theta_0 on first observation
+            if self.theta_0_live is None:
+                self.theta_0_live = theta.copy()
+                self.D_hat_live = 0.0
+            else:
+                # Compute distance from initial parameters
+                current_distance = np.linalg.norm(theta - self.theta_0_live)
+                
+                # Update D_hat using EMA
+                if self.D_hat_live is None:
+                    self.D_hat_live = current_distance
+                else:
+                    self.D_hat_live = self.ema_beta * self.D_hat_live + (1 - self.ema_beta) * current_distance
+                
+                # Clamp by D_cap
+                self.D_hat_live = min(self.D_hat_live, self.D_cap)
+        
+        # Return current snapshot
+        return {
+            'G_hat': self.G_hat_live or self.finalized_G or 1.0,
+            'D_hat': self.D_hat_live or getattr(self, 'D', 1.0),
+            'c_hat': self.c_hat or 1.0,
+            'C_hat': self.C_hat or 1.0,
         }

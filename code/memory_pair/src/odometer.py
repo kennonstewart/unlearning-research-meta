@@ -701,6 +701,99 @@ class ZCDPOdometer:
         }
 
 
+def N_star_live(S_T: float, G_hat: float, D_hat: float, c_hat: float, C_hat: float, gamma_ins: float) -> int:
+    """
+    Compute live sample complexity N* using adaptive S_T instead of worst-case G²T.
+    
+    Uses the adaptive form: N* ≈ (G_hat * D_hat * √(c_hat * C_hat) / γ_ins)²
+    but replaces the worst-case bound with live S_T tracking.
+    
+    Args:
+        S_T: Cumulative squared gradient statistic ∑||g_t||²
+        G_hat: Live gradient bound estimate  
+        D_hat: Live diameter estimate
+        c_hat: Lower curvature bound
+        C_hat: Upper curvature bound
+        gamma_ins: Target insertion regret per step
+        
+    Returns:
+        Live sample complexity estimate (integer, >= 0)
+    """
+    if S_T <= 0 or gamma_ins <= 0:
+        return 0
+        
+    try:
+        # Adaptive form using S_T instead of G²T
+        # N* ~ (effective_G * D * √(cC) / γ)² where effective_G ~ √(S_T / T_current)
+        # But we can use S_T directly in a scaled form
+        numerator = D_hat * np.sqrt(c_hat * C_hat * S_T)
+        N_raw = (numerator / gamma_ins) ** 2
+        
+        # Bound result to reasonable range
+        N_result = int(np.ceil(min(N_raw, 1e6)))
+        return max(0, N_result)
+        
+    except (ValueError, OverflowError):
+        return 0
+
+
+def m_theory_live(S_T: float, N: int, G_hat: float, D_hat: float, c_hat: float, C_hat: float, 
+                  gamma_del: float, sigma_step: float, delta_B: float = 0.05) -> int:
+    """
+    Compute live deletion capacity m using adaptive S_T tracking.
+    
+    Uses the adaptive form from Theorem 5.10/5.11 but with S_T statistics
+    instead of worst-case G²T bounds.
+    
+    Args:
+        S_T: Cumulative squared gradient statistic
+        N: Current horizon (number of events seen)
+        G_hat: Live gradient bound estimate
+        D_hat: Live diameter estimate  
+        c_hat: Lower curvature bound
+        C_hat: Upper curvature bound
+        gamma_del: Target deletion regret per step
+        sigma_step: Current noise standard deviation
+        delta_B: Failure probability for regret bound
+        
+    Returns:
+        Live deletion capacity estimate (integer, >= 0)
+    """
+    if S_T <= 0 or N <= 0 or gamma_del <= 0:
+        return 0
+        
+    try:
+        # Insertion regret using adaptive S_T
+        R_ins = D_hat * np.sqrt(c_hat * C_hat * S_T)
+        
+        # Available regret budget for deletions
+        total_regret_budget = gamma_del * N
+        if R_ins >= total_regret_budget:
+            return 0  # No budget left for deletions
+            
+        deletion_regret_budget = total_regret_budget - R_ins
+        
+        # Per-deletion regret cost with current sigma_step
+        # R_del_per ≈ (G_hat / λ) * σ * √(2 log(1/δ_B))
+        # For simplicity, use the sigma_step directly as it encodes the (G/λ) scaling
+        if sigma_step <= 0:
+            return 0
+            
+        per_delete_cost = sigma_step * np.sqrt(2 * np.log(1 / delta_B))
+        
+        if per_delete_cost <= 0:
+            return 0
+            
+        # Maximum deletions within budget
+        m_raw = deletion_regret_budget / per_delete_cost
+        m_result = int(np.floor(min(m_raw, N)))  # Can't delete more than we've seen
+        
+        return max(0, m_result)
+        
+    except (ValueError, OverflowError, ZeroDivisionError):
+        return 0
+
+
 # Backward compatibility shim
 class RDPOdometer(ZCDPOdometer):
     """

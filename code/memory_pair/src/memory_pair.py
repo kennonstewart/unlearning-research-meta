@@ -7,6 +7,91 @@ from .metrics import regret
 from .calibrator import Calibrator
 
 
+class LambdaEstimator:
+    """
+    Lightweight online estimator for strong convexity parameter λ.
+    
+    Uses a secant approximation: λ ≈ (g_curr - g_prev)·(w_curr - w_prev) / ||w_curr - w_prev||²
+    with EMA smoothing and stability tracking for policy switching.
+    """
+    
+    def __init__(self, ema_beta: float = 0.9, floor: float = 1e-6, cap: float = 1e3):
+        self.ema_beta = ema_beta
+        self.floor = floor
+        self.cap = cap
+        self.ema: Optional[float] = None
+        self.g_prev: Optional[np.ndarray] = None
+        self.w_prev: Optional[np.ndarray] = None
+        self.stability_counter = 0
+        
+    def update(self, g_curr: np.ndarray, w_curr: np.ndarray) -> Optional[float]:
+        """
+        Update λ estimate using secant approximation.
+        
+        Args:
+            g_curr: Current gradient
+            w_curr: Current parameters
+            
+        Returns:
+            Current λ estimate (None if insufficient data)
+        """
+        if self.g_prev is None or self.w_prev is None:
+            # First update, just store
+            self.g_prev = g_curr.copy()
+            self.w_prev = w_curr.copy()
+            return self.ema
+            
+        # Compute secant approximation
+        g_diff = g_curr - self.g_prev
+        w_diff = w_curr - self.w_prev
+        w_diff_norm_sq = float(np.dot(w_diff, w_diff))
+        
+        if w_diff_norm_sq > 1e-12:  # Avoid division by zero
+            lambda_raw = float(np.dot(g_diff, w_diff)) / w_diff_norm_sq
+            lambda_clipped = max(0.0, min(lambda_raw, self.cap))  # Ensure non-negative and bounded
+            
+            if lambda_clipped >= self.floor:
+                # Update EMA
+                if self.ema is None:
+                    self.ema = lambda_clipped
+                else:
+                    self.ema = self.ema_beta * self.ema + (1 - self.ema_beta) * lambda_clipped
+                
+                # Clamp final estimate
+                self.ema = max(self.floor, min(self.ema, self.cap))
+                
+                # Update stability counter
+                if self.ema >= self.floor:
+                    self.stability_counter += 1
+                else:
+                    self.stability_counter = 0
+        
+        # Store for next iteration
+        self.g_prev = g_curr.copy()
+        self.w_prev = w_curr.copy()
+        
+        return self.ema
+
+
+def lambda_is_stable(lambda_est: Optional[float], lambda_floor: float, stability_min_steps: int, 
+                    stability_counter: int) -> bool:
+    """
+    Check if λ estimate is stable enough for strongly convex step size policy.
+    
+    Args:
+        lambda_est: Current λ estimate
+        lambda_floor: Minimum required λ value
+        stability_min_steps: Minimum steps of stability required
+        stability_counter: Current stability counter
+        
+    Returns:
+        True if λ is stable and above floor
+    """
+    return (lambda_est is not None and 
+            lambda_est > lambda_floor and 
+            stability_counter >= stability_min_steps)
+
+
 class Phase(Enum):
     """
     Enumeration of the three phases in the MemoryPair state machine.
@@ -102,6 +187,74 @@ class MemoryPair:
         # For external gradient access
         self.last_grad: Optional[np.ndarray] = None
 
+        # Adaptive geometry state (only active when cfg.adaptive_geometry=True)
+        self.S_scalar: float = 0.0
+        self.t: int = 0
+        self.lambda_est: Optional[float] = None
+        self.eta_t: Optional[float] = None
+        self.lambda_estimator: Optional[LambdaEstimator] = None
+        
+        # Initialize lambda estimator if adaptive geometry is enabled
+        if cfg and getattr(cfg, 'adaptive_geometry', False):
+            ema_beta = getattr(cfg, 'ema_beta', 0.9)
+            lambda_floor = getattr(cfg, 'lambda_floor', 1e-6)
+            lambda_cap = getattr(cfg, 'lambda_cap', 1e3)
+            self.lambda_estimator = LambdaEstimator(ema_beta, lambda_floor, lambda_cap)
+
+    def _update_adaptive_geometry(self, g_t: np.ndarray) -> None:
+        """
+        Update adaptive geometry state: S_scalar, lambda estimation, and step size.
+        
+        Args:
+            g_t: Current gradient vector
+        """
+        if not (self.cfg and getattr(self.cfg, 'adaptive_geometry', False)):
+            return
+        
+        # Update cumulative squared gradient statistic
+        self.S_scalar += float(np.dot(g_t, g_t))
+        self.t += 1
+        
+        # Update lambda estimate if we have an estimator
+        if self.lambda_estimator is not None:
+            self.lambda_est = self.lambda_estimator.update(g_t, self.theta)
+        
+        # Compute step size using adaptive policy
+        self._compute_step_size()
+    
+    def _compute_step_size(self) -> None:
+        """
+        Compute adaptive step size eta_t based on current state.
+        """
+        if not (self.cfg and getattr(self.cfg, 'adaptive_geometry', False)):
+            self.eta_t = None
+            return
+        
+        # Get config parameters
+        strong_convexity = getattr(self.cfg, 'strong_convexity', False)
+        lambda_floor = getattr(self.cfg, 'lambda_floor', 1e-6)
+        stability_min_steps = getattr(self.cfg, 'lambda_stability_min_steps', 100)
+        adagrad_eps = getattr(self.cfg, 'adagrad_eps', 1e-12)
+        D_bound = getattr(self.cfg, 'D_bound', 1.0)
+        
+        # Use D_bound from calibrator if available and finalized
+        if (hasattr(self.calibrator, 'D') and 
+            self.calibrator.D is not None and 
+            self.phase != Phase.CALIBRATION):
+            D_bound = self.calibrator.D
+        
+        # Check if we should use strongly convex step size
+        stability_counter = getattr(self.lambda_estimator, 'stability_counter', 0) if self.lambda_estimator else 0
+        
+        if (strong_convexity and 
+            lambda_is_stable(self.lambda_est, lambda_floor, stability_min_steps, stability_counter)):
+            # Use strongly convex step size: eta_t = 1 / (lambda_est * t)
+            tiny = 1e-12
+            self.eta_t = 1.0 / max(self.lambda_est * self.t, tiny)
+        else:
+            # Use AdaGrad step size: eta_t = D_bound / sqrt(S_scalar + eps)
+            self.eta_t = D_bound / np.sqrt(self.S_scalar + adagrad_eps)
+
     def calibrate_step(self, x: np.ndarray, y: float) -> float:
         """
         Perform one calibration step during the bootstrap phase.
@@ -141,10 +294,13 @@ class MemoryPair:
         self.lbfgs.add_pair(s, y_vec)
         self.theta = theta_new
 
-        # 4. Log to calibrator (key difference from insert)
+        # 4. Update adaptive geometry state
+        self._update_adaptive_geometry(g_old)
+
+        # 5. Log to calibrator (key difference from insert)
         self.calibrator.observe(g_old, self.theta)
 
-        # 5. Update counters
+        # 6. Update counters
         self.events_seen += 1
         self.inserts_seen += 1
         self.last_grad = g_old
@@ -256,6 +412,9 @@ class MemoryPair:
         # Store gradient for external access
         self.last_grad = g_old
 
+        # 4. Update adaptive geometry state
+        self._update_adaptive_geometry(g_old)
+
         # Update EMA tracking for drift detection (if past calibration phase)
         if self.phase in [Phase.LEARNING, Phase.INTERLEAVING]:
             self.calibrator.observe_ongoing(g_old)
@@ -309,6 +468,9 @@ class MemoryPair:
         influence = self.lbfgs.direction(g)
         sensitivity = np.linalg.norm(influence)
         sigma = self.odometer.noise_scale(float(sensitivity))
+
+        # Update adaptive geometry state for delete gradients too
+        self._update_adaptive_geometry(g)
 
         # Handle different odometer types
         if isinstance(self.odometer, RDPOdometer):

@@ -57,6 +57,14 @@ class Config:
     window_erm: bool = False
     online_standardize: bool = False
 
+    # Adaptive geometry parameters
+    adagrad_eps: float = 1e-12
+    D_bound: float = 1.0  # fallback for AdaGrad, typically from calibrator
+    trim_quantile: float = 0.95
+    lambda_floor: float = 1e-6
+    lambda_cap: float = 1e3
+    lambda_stability_min_steps: int = 100
+
     @classmethod
     def from_cli_args(cls, **kwargs) -> "Config":
         """Create Config from CLI arguments, handling alphas parsing."""
