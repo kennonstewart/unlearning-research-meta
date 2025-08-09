@@ -40,7 +40,7 @@ class Config:
     ema_beta: float = 0.9
     recal_window: Optional[int] = None
     recal_threshold: float = 0.3
-    m_max: Optional[int] = None
+    m_max: Optional[int] = 10
 
     # Sensitivity calibration
     sens_calib: int = 50
@@ -56,6 +56,16 @@ class Config:
     lambda_cap: float = 1e3
     lambda_stability_min_steps: int = 100
     eta_max: float = 1.0
+
+    # Strong convexity parameters
+    lambda_reg: float = 0.0  # L2 regularization parameter
+    lambda_est_beta: float = 0.1  # EMA beta for lambda estimation
+    lambda_est_bounds: List[float] = field(default_factory=lambda: [1e-8, 1e6])  # bounds for lambda estimation
+    pair_admission_m: float = 1e-6  # threshold for curvature pair admission
+    hessian_clamp_eps: float = 1e-12  # epsilon for spectrum clamping
+    d_max: float = float('inf')  # max direction norm (trust region style)
+    lambda_min_threshold: float = 1e-6  # threshold for lambda stability
+    lambda_stability_K: int = 100  # steps required for stability
 
     # Feature flags (all default False for no-op behavior)
     adaptive_geometry: bool = False
