@@ -14,7 +14,7 @@ import numpy as np
 # Add code path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
 
-from data_loader import get_rotating_mnist_stream, get_synthetic_linear_stream
+from data_loader import get_rotating_mnist_stream, get_synthetic_linear_stream, parse_event_record
 from memory_pair.src.memory_pair import MemoryPair
 from memory_pair.src.odometer import PrivacyOdometer, ZCDPOdometer, rho_to_epsilon
 from memory_pair.src.calibrator import Calibrator
@@ -26,6 +26,45 @@ from phases import PhaseState, bootstrap_phase, sensitivity_calibration_phase, w
 from io_utils import EventLogger, write_summary_json, create_plots, git_commit_results, write_seed_summary_json
 from metrics_utils import aggregate_summaries, get_privacy_metrics
 from metrics import regret
+
+
+def _get_data_stream(cfg: Config, seed: int):
+    """Get data stream with unified interface for event records."""
+    stream_fn = DATASET_MAP[cfg.dataset]
+    
+    # For backward compatibility, check if loader supports use_event_schema
+    try:
+        # Try to get the stream with event schema enabled
+        if cfg.dataset == "synthetic":
+            gen = stream_fn(seed=seed, use_event_schema=True)
+        else:
+            gen = stream_fn(seed=seed, use_event_schema=True)
+    except TypeError:
+        # Fallback for loaders that don't support use_event_schema yet
+        gen = stream_fn(seed=seed)
+        # Check if the first item is an event record or (x, y) tuple
+        first_item = next(gen)
+        if isinstance(first_item, dict) and "x" in first_item:
+            # It's already an event record, create a new generator
+            def record_gen():
+                yield first_item
+                yield from gen
+            return record_gen()
+        else:
+            # It's a legacy (x, y) tuple, wrap it
+            from data_loader.event_schema import create_event_record
+            def wrapped_gen():
+                event_id = 0
+                x, y = first_item
+                yield create_event_record(x, y, f"legacy_{event_id:06d}", event_id)
+                event_id += 1
+                
+                for x, y in gen:
+                    yield create_event_record(x, y, f"legacy_{event_id:06d}", event_id)
+                    event_id += 1
+            return wrapped_gen()
+    
+    return gen
 
 
 # Algorithm and dataset mappings
@@ -102,11 +141,11 @@ class ExperimentRunner:
         np.random.seed(seed)
         
         # Initialize data stream
-        stream_fn = DATASET_MAP[self.cfg.dataset]
-        gen = stream_fn(seed=seed)
+        gen = _get_data_stream(self.cfg, seed)
         
         # Get first sample to determine dimensions
-        first_x, first_y = next(gen)
+        first_record = next(gen)
+        first_x, first_y, first_meta = parse_event_record(first_record)
         
         # Initialize model and accountant
         model = self._create_model(first_x)
@@ -115,6 +154,7 @@ class ExperimentRunner:
         logger = EventLogger()
         state = PhaseState()
         state.current_x, state.current_y = first_x, first_y
+        state.current_record = first_record  # Store full record for metadata
         
         max_events_left = self.cfg.max_events
         
@@ -186,6 +226,7 @@ class ExperimentRunner:
                 calibrator=calibrator,
                 recal_window=self.cfg.recal_window,
                 recal_threshold=self.cfg.recal_threshold,
+                cfg=self.cfg,  # Pass config for feature flags
             )
         else:
             model = model_class(dim=first_x.shape[0], odometer=odometer)
