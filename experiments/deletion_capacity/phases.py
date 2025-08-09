@@ -10,6 +10,12 @@ from io_utils import EventLogger
 from metrics import abs_error
 from metrics_utils import get_privacy_metrics
 
+# Add the data loader to path for event parsing
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
+from data_loader import parse_event_record
+
 
 def get_pred_and_grad(model, x, y, is_calibration=False):
     """Helper to obtain (pred, grad). Adjust for your API.
@@ -48,6 +54,51 @@ class PhaseState:
         self.cum_regret = 0.0
         self.current_x = None
         self.current_y = None
+        self.current_record = None  # Full event record for metadata
+
+
+def _get_next_event(gen: Generator, state: PhaseState):
+    """Get next event from generator and update state."""
+    record = next(gen)
+    x, y, meta = parse_event_record(record)
+    state.current_x = x
+    state.current_y = y
+    state.current_record = record
+    return x, y, meta
+
+
+def _create_extended_log_entry(base_entry: dict, state: PhaseState, model, cfg: Config) -> dict:
+    """Create log entry with extended columns (set to None if not computed)."""
+    # Start with base entry
+    entry = base_entry.copy()
+    
+    # Add metadata from current record
+    if state.current_record:
+        _, _, meta = parse_event_record(state.current_record)
+        entry.update({
+            "sample_id": meta.get("sample_id"),
+            "event_id": meta.get("event_id"), 
+            "segment_id": meta.get("segment_id", 0),
+        })
+        
+        # Add x_norm from metrics if available
+        if "metrics" in meta and "x_norm" in meta["metrics"]:
+            entry["x_norm"] = meta["metrics"]["x_norm"]
+        else:
+            entry["x_norm"] = None
+    
+    # Add extended columns (set to None for now as per requirements)
+    entry.update({
+        "S_scalar": None,        # Sensitivity scalar
+        "eta_t": None,           # Learning rate at time t  
+        "lambda_est": None,      # Lambda estimate
+        "rho_step": None,        # RDP step parameter
+        "sigma_step": None,      # Noise step parameter
+        "sens_delete": None,     # Sensitivity for deletions
+        "P_T_est": None,         # Probability estimate
+    })
+    
+    return entry
 
 
 def bootstrap_phase(
@@ -74,7 +125,7 @@ def bootstrap_phase(
         acc_val = abs_error(pred, state.current_y)
         
         # During calibration, odometer isn't finalized yet
-        log_entry = {
+        base_log_entry = {
             "event": state.event,
             "op": "calibrate",
             "regret": model.cumulative_regret if hasattr(model, "cumulative_regret") else np.nan,
@@ -84,24 +135,28 @@ def bootstrap_phase(
         # Add default privacy metrics for calibration phase
         odometer = getattr(model, "odometer", None)
         if cfg.accountant == "rdp" and odometer:
-            log_entry.update({
+            base_log_entry.update({
                 "eps_converted": 0.0,
                 "delta_total": odometer.delta_total,
                 "eps_remaining": odometer.eps_total,
             })
         elif odometer:
-            log_entry.update({
+            base_log_entry.update({
                 "eps_spent": 0.0,
                 "capacity_remaining": float("inf"),
             })
+        
+        # Create extended log entry with new columns
+        log_entry = _create_extended_log_entry(base_log_entry, state, model, cfg)
         
         logger.log("calibrate", **log_entry)
         state.inserts += 1
         state.event += 1
         events_used += 1
         
-        if events_used < max_events_left:
-            state.current_x, state.current_y = next(gen)
+        # Get next event if more iterations needed
+        if events_used < max_events_left and _ < cfg.bootstrap_iters - 1:
+            _get_next_event(gen, state)
     
     # Finalize calibration using learning gamma
     print("[Bootstrap] Finalizing calibration...")
@@ -140,8 +195,9 @@ def sensitivity_calibration_phase(
         state.event += 1
         events_used += 1
         
-        if events_used < max_events_left:
-            state.current_x, state.current_y = next(gen)
+        # Get next event if more iterations needed
+        if events_used < max_events_left and _ < cfg.sens_calib - 1:
+            _get_next_event(gen, state)
     
     return state, events_used
 
@@ -183,7 +239,7 @@ def warmup_phase(
         
         acc_val = abs_error(pred, state.current_y)
         
-        log_entry = {
+        base_log_entry = {
             "event": state.event,
             "op": "warmup",
             "regret": model.cumulative_regret if hasattr(model, "cumulative_regret") else np.nan,
@@ -191,16 +247,20 @@ def warmup_phase(
         }
         
         # Add privacy metrics
-        log_entry.update(get_privacy_metrics(model))
+        base_log_entry.update(get_privacy_metrics(model))
+        
+        # Create extended log entry with new columns
+        log_entry = _create_extended_log_entry(base_log_entry, state, model, cfg)
         
         logger.log("warmup", **log_entry)
         state.inserts += 1
         state.event += 1
         events_used += 1
         
-        if events_used < max_events_left:
+        # Get next event if more iterations needed
+        if events_used < max_events_left and _ < warmup_needed - 1:
             try:
-                state.current_x, state.current_y = next(gen)
+                _get_next_event(gen, state)
             except StopIteration:
                 print("[Warmup] Data stream exhausted during warmup.")
                 break
@@ -255,7 +315,7 @@ def workload_phase(
                 
                 acc_val = abs_error(pred, state.current_y)
                 
-                log_entry = {
+                base_log_entry = {
                     "event": state.event,
                     "op": "insert",
                     "regret": model.cumulative_regret if hasattr(model, "cumulative_regret") else np.nan,
@@ -263,7 +323,10 @@ def workload_phase(
                 }
                 
                 # Add privacy metrics
-                log_entry.update(get_privacy_metrics(model))
+                base_log_entry.update(get_privacy_metrics(model))
+                
+                # Create extended log entry with new columns
+                log_entry = _create_extended_log_entry(base_log_entry, state, model, cfg)
                 
                 logger.log("insert", **log_entry)
                 state.inserts += 1
@@ -273,7 +336,7 @@ def workload_phase(
                 # Delete
                 model.delete(state.current_x, state.current_y)
                 
-                log_entry = {
+                base_log_entry = {
                     "event": state.event,
                     "op": "delete",
                     "regret": model.cumulative_regret if hasattr(model, "cumulative_regret") else np.nan,
@@ -281,7 +344,10 @@ def workload_phase(
                 }
                 
                 # Add privacy metrics
-                log_entry.update(get_privacy_metrics(model))
+                base_log_entry.update(get_privacy_metrics(model))
+                
+                # Create extended log entry with new columns
+                log_entry = _create_extended_log_entry(base_log_entry, state, model, cfg)
                 
                 logger.log("delete", **log_entry)
                 state.deletes += 1
@@ -294,9 +360,10 @@ def workload_phase(
         state.event += 1
         events_used += 1
         
+        # Get next event if more iterations needed
         if events_used < max_events_left:
             try:
-                state.current_x, state.current_y = next(gen)
+                _get_next_event(gen, state)
             except StopIteration:
                 print("Data stream exhausted")
                 break
