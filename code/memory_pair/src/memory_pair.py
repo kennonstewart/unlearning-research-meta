@@ -102,6 +102,25 @@ class MemoryPair:
         # For external gradient access
         self.last_grad: Optional[np.ndarray] = None
 
+        # Adaptive geometry tracking
+        # S_scalar accumulates squared gradients from **insert** events only.
+        # Deletes are tracked separately in S_delete for diagnostics but do not
+        # influence the step-size policy.
+        self.S_scalar: float = 0.0
+        self.S_delete: float = 0.0
+        self.t: int = 0  # counts insert steps feeding S_scalar
+        self.lambda_est: Optional[float] = None
+        self.eta_t: float = 0.0
+        self.lambda_stability_counter: int = 0
+        self.sc_active: bool = False
+        self.lambda_estimator = LambdaEstimator(
+            ema_beta=getattr(cfg, "ema_beta", 0.9)
+            if cfg is not None
+            else 0.9,
+            floor=getattr(cfg, "lambda_floor", 1e-6) if cfg is not None else 1e-6,
+            cap=getattr(cfg, "lambda_cap", 1e3) if cfg is not None else 1e3,
+        )
+
     def calibrate_step(self, x: np.ndarray, y: float) -> float:
         """
         Perform one calibration step during the bootstrap phase.
@@ -128,18 +147,50 @@ class MemoryPair:
         # 1. Prediction before update
         pred = float(self.theta @ x)
 
-        # 2. Compute gradient and L-BFGS direction
+        # 2. Compute gradient and track statistics
         g_old = (pred - y) * x
-        direction = self.lbfgs.direction(g_old)
-        alpha = 1.0
-        s = alpha * direction
-        theta_new = self.theta + s
+        self.S_scalar += float(np.dot(g_old, g_old))
+        self.t += 1
 
-        # 3. Update L-BFGS with new information
+        # 3. Step-size policy
+        tiny = 1e-12
+        sc_ok = (
+            self.cfg
+            and getattr(self.cfg, "strong_convexity", False)
+            and lambda_is_stable(self.lambda_est, self.lambda_stability_counter, self.cfg)
+        )
+        eps = getattr(self.cfg, "adagrad_eps", 1e-12) if self.cfg else 1e-12
+        D_bound = getattr(self.calibrator, "D_hat_t", None)
+        if D_bound is None:
+            D_bound = getattr(self.cfg, "D_bound", 1.0) if self.cfg else 1.0
+        eta_max = getattr(self.cfg, "eta_max", 1.0) if self.cfg else 1.0
+
+        if sc_ok:
+            self.eta_t = 1.0 / max(self.lambda_est * self.t, tiny)
+        else:
+            self.eta_t = D_bound / np.sqrt(self.S_scalar + eps)
+
+        self.eta_t = min(self.eta_t, eta_max)
+        self.sc_active = bool(sc_ok)
+
+        # 4. Compute L-BFGS direction with step-size
+        direction = self.lbfgs.direction(g_old)
+        s = self.eta_t * direction
+        theta_prev = self.theta
+        theta_new = theta_prev + s
+
+        # 5. Update L-BFGS with new information
         g_new = (float(theta_new @ x) - y) * x
         y_vec = g_new - g_old
         self.lbfgs.add_pair(s, y_vec)
         self.theta = theta_new
+
+        # 6. Update lambda estimator
+        self.lambda_est = self.lambda_estimator.update(g_old, g_new, theta_prev, theta_new)
+        if self.lambda_est is not None and self.lambda_est > getattr(self.cfg, "lambda_floor", 1e-6):
+            self.lambda_stability_counter += 1
+        else:
+            self.lambda_stability_counter = 0
 
         # 4. Log to calibrator (key difference from insert)
         self.calibrator.observe(g_old, self.theta)
@@ -240,18 +291,50 @@ class MemoryPair:
         self.events_seen += 1
         self.inserts_seen += 1
 
-        # 3. Compute gradients and L-BFGS direction
+        # 3. Compute gradient and track S_T
         g_old = (pred - y) * x
-        direction = self.lbfgs.direction(g_old)
-        alpha = 1.0
-        s = alpha * direction
-        theta_new = self.theta + s
+        self.S_scalar += float(np.dot(g_old, g_old))
+        self.t += 1
 
+        # 4. Step-size policy
+        tiny = 1e-12
+        sc_ok = (
+            self.cfg
+            and getattr(self.cfg, "strong_convexity", False)
+            and lambda_is_stable(self.lambda_est, self.lambda_stability_counter, self.cfg)
+        )
+        eps = getattr(self.cfg, "adagrad_eps", 1e-12) if self.cfg else 1e-12
+        D_bound = getattr(self.calibrator, "D_hat_t", None)
+        if D_bound is None:
+            D_bound = getattr(self.cfg, "D_bound", 1.0) if self.cfg else 1.0
+        eta_max = getattr(self.cfg, "eta_max", 1.0) if self.cfg else 1.0
+
+        if sc_ok:
+            self.eta_t = 1.0 / max(self.lambda_est * self.t, tiny)
+        else:
+            self.eta_t = D_bound / np.sqrt(self.S_scalar + eps)
+
+        self.eta_t = min(self.eta_t, eta_max)
+        self.sc_active = bool(sc_ok)
+
+        # 5. Compute L-BFGS direction with step-size
+        direction = self.lbfgs.direction(g_old)
+        s = self.eta_t * direction
+        theta_prev = self.theta
+        theta_new = theta_prev + s
+
+        # 6. Update L-BFGS with new information
         g_new = (float(theta_new @ x) - y) * x
         y_vec = g_new - g_old
-
         self.lbfgs.add_pair(s, y_vec)
         self.theta = theta_new
+
+        # 7. Update lambda estimator
+        self.lambda_est = self.lambda_estimator.update(g_old, g_new, theta_prev, theta_new)
+        if self.lambda_est is not None and self.lambda_est > getattr(self.cfg, "lambda_floor", 1e-6):
+            self.lambda_stability_counter += 1
+        else:
+            self.lambda_stability_counter = 0
 
         # Store gradient for external access
         self.last_grad = g_old
@@ -304,8 +387,31 @@ class MemoryPair:
         if not self.odometer.ready_to_delete:
             raise RuntimeError("Odometer not finalized or capacity depleted.")
 
-        # Compute influence and sensitivity
+        # Compute gradient and track diagnostics (no S_scalar update)
         g = (float(self.theta @ x) - y) * x
+        self.S_delete += float(np.dot(g, g))
+
+        # Step-size policy (no lambda update during deletes)
+        tiny = 1e-12
+        sc_ok = (
+            self.cfg
+            and getattr(self.cfg, "strong_convexity", False)
+            and lambda_is_stable(self.lambda_est, self.lambda_stability_counter, self.cfg)
+        )
+        eps = getattr(self.cfg, "adagrad_eps", 1e-12) if self.cfg else 1e-12
+        D_bound = getattr(self.calibrator, "D_hat_t", None)
+        if D_bound is None:
+            D_bound = getattr(self.cfg, "D_bound", 1.0) if self.cfg else 1.0
+        eta_max = getattr(self.cfg, "eta_max", 1.0) if self.cfg else 1.0
+
+        if sc_ok:
+            self.eta_t = 1.0 / max(self.lambda_est * self.t, tiny)
+        else:
+            self.eta_t = D_bound / np.sqrt(self.S_scalar + eps)
+
+        self.eta_t = min(self.eta_t, eta_max)
+        self.sc_active = bool(sc_ok)
+
         influence = self.lbfgs.direction(g)
         sensitivity = np.linalg.norm(influence)
         sigma = self.odometer.noise_scale(float(sensitivity))
@@ -318,9 +424,9 @@ class MemoryPair:
             # For legacy PrivacyOdometer: spend without parameters
             self.odometer.spend()
 
-        # Apply noisy deletion
+        # Apply noisy deletion with step-size
         noise = np.random.normal(0, sigma, self.theta.shape)
-        self.theta = self.theta - influence + noise
+        self.theta = self.theta - self.eta_t * influence + noise
 
         # Update counters
         self.events_seen += 1
@@ -383,3 +489,35 @@ class MemoryPair:
             "current_G_ema": getattr(self.calibrator, "G_ema", None),
             "finalized_G": getattr(self.calibrator, "finalized_G", None),
         }
+
+
+class LambdaEstimator:
+    def __init__(self, ema_beta: float = 0.9, floor: float = 1e-6, cap: float = 1e3):
+        self.beta = ema_beta
+        self.floor = floor
+        self.cap = cap
+        self.ema: Optional[float] = None
+
+    def update(
+        self, g_prev: np.ndarray, g_curr: np.ndarray, w_prev: np.ndarray, w_curr: np.ndarray
+    ) -> Optional[float]:
+        diff_w = w_curr - w_prev
+        denom = float(np.dot(diff_w, diff_w))
+        if denom <= 1e-12:
+            return self.ema
+        num = float(np.dot(g_curr - g_prev, diff_w))
+        lam = max(num / denom, 0.0)
+        if self.ema is None:
+            self.ema = lam
+        else:
+            self.ema = self.beta * self.ema + (1 - self.beta) * lam
+        self.ema = float(np.clip(self.ema, self.floor, self.cap))
+        return self.ema
+
+
+def lambda_is_stable(lambda_est: Optional[float], counter: int, cfg: Any) -> bool:
+    return (
+        lambda_est is not None
+        and lambda_est > getattr(cfg, "lambda_floor", 1e-6)
+        and counter >= getattr(cfg, "lambda_stability_min_steps", 100)
+    )

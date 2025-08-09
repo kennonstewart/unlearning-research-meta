@@ -360,8 +360,24 @@ def process_seed_output(csv_files: List[str], grid_id: str, output_dir: str, man
             # Add any additional fields from the last row (e.g., privacy metrics, calibration stats)
             if len(df) > 0:
                 last_row = df.iloc[-1]
-                for col in ['eps_spent', 'capacity_remaining', 'eps_converted', 'eps_remaining', 'delta_total', 
-                           'G_hat', 'D_hat', 'c_hat', 'C_hat', 'N_star_theory', 'm_theory']:
+                for col in [
+                    'eps_spent',
+                    'capacity_remaining',
+                    'eps_converted',
+                    'eps_remaining',
+                    'delta_total',
+                    'G_hat',
+                    'D_hat',
+                    'c_hat',
+                    'C_hat',
+                    'N_star_theory',
+                    'm_theory',
+                    'N_star_live',
+                    'm_theory_live',
+                    'S_scalar',
+                    'eta_t',
+                    'lambda_est',
+                ]:
                     if col in last_row:
                         summary_row[col] = last_row[col]
             

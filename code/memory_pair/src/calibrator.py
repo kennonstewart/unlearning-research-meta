@@ -7,7 +7,17 @@ constants (G, D, c, C), and calculates sample complexity N*.
 """
 
 import numpy as np
-from typing import Optional, Dict, Any
+from dataclasses import dataclass
+from typing import Optional, Dict, Any, List
+
+
+@dataclass
+class CalibSnapshot:
+    G_hat: Optional[float]
+    D_hat: Optional[float]
+    c_hat: Optional[float]
+    C_hat: Optional[float]
+    lambda_proxy: Optional[float] = None
 
 
 class Calibrator:
@@ -35,7 +45,13 @@ class Calibrator:
         finalized_G (Optional[float]): G value used in last finalization
     """
     
-    def __init__(self, quantile: float = 0.95, D_cap: float = 10.0, ema_beta: float = 0.9):
+    def __init__(
+        self,
+        quantile: float = 0.95,
+        D_cap: float = 10.0,
+        ema_beta: float = 0.9,
+        trim_quantile: float = 0.95,
+    ):
         """
         Initialize the Calibrator.
         
@@ -44,18 +60,25 @@ class Calibrator:
             D_cap: Upper bound for hypothesis diameter to prevent extreme values
             ema_beta: EMA decay parameter (higher = more smoothing)
         """
-        self.grad_norms = []
-        self.thetas = []
+        self.grad_norms: List[float] = []
+        self.thetas: List[np.ndarray] = []
         self.quantile = quantile
         self.D_cap = D_cap
         self.c_hat: Optional[float] = None
         self.C_hat: Optional[float] = None
-        
+
         # EMA tracking for adaptive recalibration
         self.ema_beta = ema_beta
         self.G_ema: Optional[float] = None
-        self.G_ema_window = []  # Store recent EMA values
+        self.G_ema_window: List[float] = []  # Store recent EMA values
         self.finalized_G: Optional[float] = None
+
+        # Live estimates
+        self.trim_quantile = trim_quantile
+        self.grad_buffer: List[float] = []
+        self.x_buffer: List[float] = []
+        self.G_hat_t: Optional[float] = None
+        self.D_hat_t: Optional[float] = None
 
     def observe(self, grad: np.ndarray, theta: np.ndarray) -> None:
         """
@@ -78,7 +101,7 @@ class Calibrator:
     def observe_ongoing(self, grad: np.ndarray) -> None:
         """
         Update EMA tracking during ongoing learning (after calibration).
-        
+
         Args:
             grad: Gradient vector ∇ℓ_t(w_t)
         """
@@ -93,6 +116,37 @@ class Calibrator:
         self.G_ema_window.append(self.G_ema)
         if len(self.G_ema_window) > 1000:  # Limit window size
             self.G_ema_window.pop(0)
+
+    def live_bounds_update(self, obs: Dict[str, float]) -> CalibSnapshot:
+        grad_norm = obs.get("grad_norm")
+        x_norm = obs.get("x_norm")
+        if grad_norm is not None:
+            self.grad_buffer.append(float(grad_norm))
+            if len(self.grad_buffer) > 100:
+                self.grad_buffer.pop(0)
+            if self.G_hat_t is None:
+                self.G_hat_t = grad_norm
+            else:
+                self.G_hat_t = self.ema_beta * self.G_hat_t + (1 - self.ema_beta) * grad_norm
+            q = float(np.quantile(self.grad_buffer, self.trim_quantile))
+            self.G_hat_t = max(self.G_hat_t, q)
+        if x_norm is not None:
+            self.x_buffer.append(float(x_norm))
+            if len(self.x_buffer) > 100:
+                self.x_buffer.pop(0)
+            if self.D_hat_t is None:
+                self.D_hat_t = x_norm
+            else:
+                self.D_hat_t = self.ema_beta * self.D_hat_t + (1 - self.ema_beta) * x_norm
+            qd = float(np.quantile(self.x_buffer, self.trim_quantile))
+            self.D_hat_t = max(self.D_hat_t, qd)
+
+        return CalibSnapshot(
+            G_hat=self.G_hat_t,
+            D_hat=self.D_hat_t,
+            c_hat=self.c_hat if self.c_hat is not None else 1.0,
+            C_hat=self.C_hat if self.C_hat is not None else 1.0,
+        )
 
     def estimate_bounds(self, model) -> tuple[float, float]:
         """
