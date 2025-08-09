@@ -74,7 +74,8 @@ class MemoryPair:
             cfg: Configuration object with feature flags (for future use)
         """
         self.theta = np.zeros(dim)
-        self.lbfgs = LimitedMemoryBFGS(dim)
+        m_max = getattr(cfg, 'm_max', 10) if cfg else 10
+        self.lbfgs = LimitedMemoryBFGS(m_max=m_max, cfg=cfg)
         self.odometer = odometer or RDPOdometer()
 
         # Store config for feature flags (no behavior change yet)
@@ -102,6 +103,13 @@ class MemoryPair:
         # For external gradient access
         self.last_grad: Optional[np.ndarray] = None
 
+        # Strong convexity tracking for new implementation
+        self.lambda_raw: Optional[float] = None
+        self.sc_stable: int = 0
+        self.pair_admitted: bool = True
+        self.pair_damped: bool = False
+        self.d_norm: float = 0.0
+
         # Adaptive geometry tracking
         # S_scalar accumulates squared gradients from **insert** events only.
         # Deletes are tracked separately in S_delete for diagnostics but do not
@@ -120,6 +128,62 @@ class MemoryPair:
             floor=getattr(cfg, "lambda_floor", 1e-6) if cfg is not None else 1e-6,
             cap=getattr(cfg, "lambda_cap", 1e3) if cfg is not None else 1e3,
         )
+
+    def _compute_regularized_loss(self, pred: float, y: float) -> float:
+        """Compute regularized loss: l(pred, y) + (lambda_reg/2) * ||theta||^2"""
+        base_loss = 0.5 * (pred - y) ** 2  # squared loss
+        lambda_reg = getattr(self.cfg, "lambda_reg", 0.0) if self.cfg else 0.0
+        reg_term = 0.5 * lambda_reg * float(np.dot(self.theta, self.theta))
+        return base_loss + reg_term
+
+    def _compute_regularized_gradient(self, x: np.ndarray, pred: float, y: float) -> np.ndarray:
+        """Compute regularized gradient: grad_l + lambda_reg * theta"""
+        base_grad = (pred - y) * x  # gradient of squared loss
+        lambda_reg = getattr(self.cfg, "lambda_reg", 0.0) if self.cfg else 0.0
+        reg_grad = lambda_reg * self.theta
+        return base_grad + reg_grad
+
+    def _update_lambda_estimate(self, g_old: np.ndarray, g_new: np.ndarray, 
+                                theta_old: np.ndarray, theta_new: np.ndarray) -> None:
+        """Update online lambda estimate using secant method + EMA"""
+        # Compute raw secant estimate
+        diff_w = theta_new - theta_old
+        diff_g = g_new - g_old
+        
+        denom = float(np.dot(diff_w, diff_w))
+        if denom <= 1e-12:
+            self.lambda_raw = None
+            return
+        
+        num = float(np.dot(diff_g, diff_w))
+        lambda_raw = max(num / denom, 0.0)
+        
+        # Apply bounds
+        if self.cfg:
+            bounds = getattr(self.cfg, "lambda_est_bounds", [1e-8, 1e6])
+            lambda_raw = float(np.clip(lambda_raw, bounds[0], bounds[1]))
+        
+        self.lambda_raw = lambda_raw
+        
+        # EMA smoothing
+        if self.cfg:
+            beta = getattr(self.cfg, "lambda_est_beta", 0.1)
+        else:
+            beta = 0.1
+            
+        if self.lambda_est is None:
+            self.lambda_est = lambda_raw
+        else:
+            self.lambda_est = (1 - beta) * self.lambda_est + beta * lambda_raw
+            
+        # Update stability counter
+        threshold = getattr(self.cfg, "lambda_min_threshold", 1e-6) if self.cfg else 1e-6
+        K = getattr(self.cfg, "lambda_stability_K", 100) if self.cfg else 100
+        
+        if self.lambda_est > threshold:
+            self.sc_stable += 1
+        else:
+            self.sc_stable = 0
 
     def calibrate_step(self, x: np.ndarray, y: float) -> float:
         """
@@ -147,8 +211,8 @@ class MemoryPair:
         # 1. Prediction before update
         pred = float(self.theta @ x)
 
-        # 2. Compute gradient and track statistics
-        g_old = (pred - y) * x
+        # 2. Compute regularized gradient and track statistics
+        g_old = self._compute_regularized_gradient(x, pred, y)
         self.S_scalar += float(np.dot(g_old, g_old))
         self.t += 1
 
@@ -156,23 +220,30 @@ class MemoryPair:
         self._update_step_size()
 
         # 4. Compute L-BFGS direction with step-size
-        direction = self.lbfgs.direction(g_old)
+        direction = self.lbfgs.direction(g_old, calibrator=self.calibrator)
+        self.d_norm = float(np.linalg.norm(direction))
+        
+        # Apply trust region clipping if needed
+        d_max = getattr(self.cfg, "d_max", float('inf')) if self.cfg else float('inf')
+        if self.d_norm > d_max:
+            direction = direction * (d_max / self.d_norm)
+            self.d_norm = d_max
+            
         s = self.eta_t * direction
         theta_prev = self.theta
         theta_new = theta_prev + s
 
-        # 5. Update L-BFGS with new information
-        g_new = (float(theta_new @ x) - y) * x
+        # 5. Update L-BFGS with new information (using regularized gradients)
+        pred_new = float(theta_new @ x)
+        g_new = self._compute_regularized_gradient(x, pred_new, y)
         y_vec = g_new - g_old
-        self.lbfgs.add_pair(s, y_vec)
+        
+        # Track pair admission (will be implemented in lbfgs.py)
+        self.pair_admitted, self.pair_damped = self.lbfgs.add_pair(s, y_vec)
         self.theta = theta_new
 
-        # 6. Update lambda estimator
-        self.lambda_est = self.lambda_estimator.update(g_old, g_new, theta_prev, theta_new)
-        if self.lambda_est is not None and self.lambda_est > getattr(self.cfg, "lambda_floor", 1e-6):
-            self.lambda_stability_counter += 1
-        else:
-            self.lambda_stability_counter = 0
+        # 6. Update lambda estimator with new implementation
+        self._update_lambda_estimate(g_old, g_new, theta_prev, theta_new)
 
         # 4. Log to calibrator (key difference from insert)
         self.calibrator.observe(g_old, self.theta)
@@ -273,8 +344,8 @@ class MemoryPair:
         self.events_seen += 1
         self.inserts_seen += 1
 
-        # 3. Compute gradient and track S_T
-        g_old = (pred - y) * x
+        # 3. Compute regularized gradient and track S_T
+        g_old = self._compute_regularized_gradient(x, pred, y)
         self.S_scalar += float(np.dot(g_old, g_old))
         self.t += 1
 
@@ -282,23 +353,30 @@ class MemoryPair:
         self._update_step_size()
 
         # 5. Compute L-BFGS direction with step-size
-        direction = self.lbfgs.direction(g_old)
+        direction = self.lbfgs.direction(g_old, calibrator=self.calibrator)
+        self.d_norm = float(np.linalg.norm(direction))
+        
+        # Apply trust region clipping if needed
+        d_max = getattr(self.cfg, "d_max", float('inf')) if self.cfg else float('inf')
+        if self.d_norm > d_max:
+            direction = direction * (d_max / self.d_norm)
+            self.d_norm = d_max
+            
         s = self.eta_t * direction
         theta_prev = self.theta
         theta_new = theta_prev + s
 
-        # 6. Update L-BFGS with new information
-        g_new = (float(theta_new @ x) - y) * x
+        # 6. Update L-BFGS with new information (using regularized gradients)
+        pred_new = float(theta_new @ x)
+        g_new = self._compute_regularized_gradient(x, pred_new, y)
         y_vec = g_new - g_old
-        self.lbfgs.add_pair(s, y_vec)
+        
+        # Track pair admission (will be implemented in lbfgs.py)
+        self.pair_admitted, self.pair_damped = self.lbfgs.add_pair(s, y_vec)
         self.theta = theta_new
 
-        # 7. Update lambda estimator
-        self.lambda_est = self.lambda_estimator.update(g_old, g_new, theta_prev, theta_new)
-        if self.lambda_est is not None and self.lambda_est > getattr(self.cfg, "lambda_floor", 1e-6):
-            self.lambda_stability_counter += 1
-        else:
-            self.lambda_stability_counter = 0
+        # 7. Update lambda estimator with new implementation
+        self._update_lambda_estimate(g_old, g_new, theta_prev, theta_new)
 
         # Store gradient for external access
         self.last_grad = g_old
@@ -351,15 +429,16 @@ class MemoryPair:
         if not self.odometer.ready_to_delete:
             raise RuntimeError("Odometer not finalized or capacity depleted.")
 
-        # Compute gradient and track diagnostics (no S_scalar update)
-        g = (float(self.theta @ x) - y) * x
+        # Compute regularized gradient and track diagnostics (no S_scalar update)
+        pred = float(self.theta @ x)
+        g = self._compute_regularized_gradient(x, pred, y)
         self.S_delete += float(np.dot(g, g))
 
         # Step-size policy (no lambda update during deletes)
         tiny = 1e-12
         self._update_step_size()
 
-        influence = self.lbfgs.direction(g)
+        influence = self.lbfgs.direction(g, calibrator=self.calibrator)
         sensitivity = np.linalg.norm(influence)
         sigma = self.odometer.noise_scale(float(sensitivity))
 
@@ -401,11 +480,14 @@ class MemoryPair:
         """Check whether strong-convexity estimate is reliable."""
         if not self.cfg or not getattr(self.cfg, "strong_convexity", False):
             return False
+        
+        threshold = getattr(self.cfg, "lambda_min_threshold", 1e-6)
+        K = getattr(self.cfg, "lambda_stability_K", 100)
+        
         return (
             self.lambda_est is not None
-            and self.lambda_est > getattr(self.cfg, "lambda_floor", 1e-6)
-            and self.lambda_stability_counter
-            >= getattr(self.cfg, "lambda_stability_min_steps", 100)
+            and self.lambda_est > threshold
+            and self.sc_stable >= K
         )
 
     def get_average_regret(self) -> float:
@@ -413,6 +495,24 @@ class MemoryPair:
         if self.events_seen == 0:
             return float("inf")
         return self.cumulative_regret / self.events_seen
+
+    def get_current_loss_reg(self, x: np.ndarray, y: float) -> float:
+        """Get the current regularized loss value for logging."""
+        pred = float(self.theta @ x)
+        return self._compute_regularized_loss(pred, y)
+
+    def get_metrics_dict(self) -> dict:
+        """Get dictionary of current metrics for logging."""
+        return {
+            'lambda_est': self.lambda_est,
+            'lambda_raw': self.lambda_raw,
+            'sc_stable': self.sc_stable,
+            'pair_admitted': self.pair_admitted,
+            'pair_damped': self.pair_damped,
+            'd_norm': self.d_norm,
+            'eta_t': self.eta_t,
+            'sc_active': self.sc_active,
+        }
 
     def _check_recalibration_trigger(self) -> None:
         """Check if recalibration should be triggered based on drift detection."""
