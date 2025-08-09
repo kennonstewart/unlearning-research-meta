@@ -87,15 +87,84 @@ def _create_extended_log_entry(base_entry: dict, state: PhaseState, model, cfg: 
         else:
             entry["x_norm"] = None
     
-    # Add extended columns (set to None for now as per requirements)
+    # Add adaptive geometry columns (populate if adaptive_geometry is enabled)
+    if cfg.adaptive_geometry and hasattr(model, 'S_scalar'):
+        entry.update({
+            "S_scalar": model.S_scalar,
+            "eta_t": model.eta_t,
+            "lambda_est": model.lambda_est,
+        })
+    else:
+        entry.update({
+            "S_scalar": None,
+            "eta_t": None,
+            "lambda_est": None,
+        })
+    
+    # Add live N* and m estimates if available
+    if cfg.adaptive_geometry and hasattr(model, 'calibrator'):
+        # Get live bounds from calibrator
+        try:
+            # Update live bounds with current observation
+            obs = {
+                'grad_norm': np.linalg.norm(model.last_grad) if model.last_grad is not None else None,
+                'theta': model.theta.copy(),
+            }
+            live_bounds = model.calibrator.live_bounds_update(obs)
+            
+            # Compute live N* and m
+            from memory_pair.src.odometer import N_star_live, m_theory_live
+            
+            if model.S_scalar > 0:
+                N_live = N_star_live(
+                    S_T=model.S_scalar,
+                    G_hat=live_bounds['G_hat'],
+                    D_hat=live_bounds['D_hat'],
+                    c_hat=live_bounds['c_hat'],
+                    C_hat=live_bounds['C_hat'],
+                    gamma_ins=cfg.gamma_learn
+                )
+                
+                # For m_theory_live, we need sigma_step from odometer
+                sigma_step = getattr(model.odometer, 'sigma_step', 0.1) if hasattr(model, 'odometer') else 0.1
+                m_live = m_theory_live(
+                    S_T=model.S_scalar,
+                    N=model.t,
+                    G_hat=live_bounds['G_hat'],
+                    D_hat=live_bounds['D_hat'],
+                    c_hat=live_bounds['c_hat'],
+                    C_hat=live_bounds['C_hat'],
+                    gamma_del=cfg.gamma_priv,
+                    sigma_step=sigma_step
+                )
+                
+                entry.update({
+                    "N_star_live": N_live,
+                    "m_theory_live": m_live,
+                })
+            else:
+                entry.update({
+                    "N_star_live": None,
+                    "m_theory_live": None,
+                })
+        except Exception as e:
+            # If live computation fails, set to None
+            entry.update({
+                "N_star_live": None,
+                "m_theory_live": None,
+            })
+    else:
+        entry.update({
+            "N_star_live": None,
+            "m_theory_live": None,
+        })
+    
+    # Add other extended columns (for future use)
     entry.update({
-        "S_scalar": None,        # Sensitivity scalar
-        "eta_t": None,           # Learning rate at time t  
-        "lambda_est": None,      # Lambda estimate
-        "rho_step": None,        # RDP step parameter
-        "sigma_step": None,      # Noise step parameter
-        "sens_delete": None,     # Sensitivity for deletions
-        "P_T_est": None,         # Probability estimate
+        "rho_step": None,        # RDP step parameter (future)
+        "sigma_step": None,      # Noise step parameter (future)
+        "sens_delete": None,     # Sensitivity for deletions (future)
+        "P_T_est": None,         # Probability estimate (future)
     })
     
     return entry
@@ -133,18 +202,8 @@ def bootstrap_phase(
         }
         
         # Add default privacy metrics for calibration phase
-        odometer = getattr(model, "odometer", None)
-        if cfg.accountant == "rdp" and odometer:
-            base_log_entry.update({
-                "eps_converted": 0.0,
-                "delta_total": odometer.delta_total,
-                "eps_remaining": odometer.eps_total,
-            })
-        elif odometer:
-            base_log_entry.update({
-                "eps_spent": 0.0,
-                "capacity_remaining": float("inf"),
-            })
+        from metrics_utils import get_privacy_metrics
+        base_log_entry.update(get_privacy_metrics(model))
         
         # Create extended log entry with new columns
         log_entry = _create_extended_log_entry(base_log_entry, state, model, cfg)
