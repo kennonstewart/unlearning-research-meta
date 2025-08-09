@@ -141,7 +141,14 @@ class MemoryPair:
         base_grad = (pred - y) * x  # gradient of squared loss
         lambda_reg = getattr(self.cfg, "lambda_reg", 0.0) if self.cfg else 0.0
         reg_grad = lambda_reg * self.theta
-        return base_grad + reg_grad
+        
+        # Add bounds to prevent extreme gradients
+        total_grad = base_grad + reg_grad
+        grad_norm = np.linalg.norm(total_grad)
+        if grad_norm > 100.0:  # Clamp very large gradients
+            total_grad = total_grad * (100.0 / grad_norm)
+            
+        return total_grad
 
     def _update_lambda_estimate(self, g_old: np.ndarray, g_new: np.ndarray, 
                                 theta_old: np.ndarray, theta_new: np.ndarray) -> None:
@@ -241,6 +248,11 @@ class MemoryPair:
         # Track pair admission (will be implemented in lbfgs.py)
         self.pair_admitted, self.pair_damped = self.lbfgs.add_pair(s, y_vec)
         self.theta = theta_new
+        
+        # Add parameter bounds to prevent extreme values
+        theta_norm = np.linalg.norm(self.theta)
+        if theta_norm > 10.0:  # Reasonable bound for parameters
+            self.theta = self.theta * (10.0 / theta_norm)
 
         # 6. Update lambda estimator with new implementation
         self._update_lambda_estimate(g_old, g_new, theta_prev, theta_new)
@@ -374,6 +386,11 @@ class MemoryPair:
         # Track pair admission (will be implemented in lbfgs.py)
         self.pair_admitted, self.pair_damped = self.lbfgs.add_pair(s, y_vec)
         self.theta = theta_new
+        
+        # Add parameter bounds to prevent extreme values
+        theta_norm = np.linalg.norm(self.theta)
+        if theta_norm > 10.0:  # Reasonable bound for parameters
+            self.theta = self.theta * (10.0 / theta_norm)
 
         # 7. Update lambda estimator with new implementation
         self._update_lambda_estimate(g_old, g_new, theta_prev, theta_new)
@@ -468,7 +485,10 @@ class MemoryPair:
         eta_max = getattr(self.cfg, "eta_max", 1.0) if self.cfg else 1.0
 
         if self._lambda_is_stable():
-            self.eta_t = 1.0 / max(self.lambda_est * max(self.t, 1), tiny)
+            # Strong convexity step size: 1/(lambda * t) but with safeguards
+            lambda_safe = max(self.lambda_est, 1e-6)  # Prevent division by tiny numbers
+            t_safe = max(self.t, 1)
+            self.eta_t = 1.0 / (lambda_safe * t_safe)
             self.sc_active = True
         else:
             self.eta_t = D_bound / np.sqrt(self.S_scalar + eps)

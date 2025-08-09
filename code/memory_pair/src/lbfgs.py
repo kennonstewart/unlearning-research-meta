@@ -35,10 +35,11 @@ class LimitedMemoryBFGS:
         # Check admission condition: s^T y >= m_t * s^T s
         if ys < m_t * ss:
             # Option B: Apply damping
-            delta = max(0, m_t * ss - ys) / ss if ss > 1e-12 else 0
-            y = y + delta * s
-            ys = float(y @ s)
-            damped = True
+            if ss > 1e-12:
+                delta = max(0, m_t * ss - ys) / ss
+                y = y + delta * s
+                ys = float(y @ s)
+                damped = True
             
             # If still not positive after damping, skip the pair
             if ys <= max(ABS_CURV_EPS, REL_CURV_EPS * ss):
@@ -80,24 +81,32 @@ class LimitedMemoryBFGS:
         s_last = self.S[-1]
         gamma = float(s_last @ y_last) / float(y_last @ y_last)
         
-        # Apply spectrum clamping: clamp gamma to [1/C_hat, 1/c_hat]
+        # Apply spectrum clamping: clamp gamma to reasonable bounds
         if calibrator:
             c_hat = getattr(calibrator, 'c_hat', 1.0) or 1.0
             C_hat = getattr(calibrator, 'C_hat', 1.0) or 1.0
             
-            # Clamp initial scaling 
-            gamma_min = 1.0 / C_hat
-            gamma_max = 1.0 / c_hat
+            # More conservative clamping - ensure gamma stays reasonable
+            eps = getattr(self.cfg, "hessian_clamp_eps", 1e-12) if self.cfg else 1e-12
+            gamma_min = max(eps, 1e-6)  # Conservative lower bound 
+            gamma_max = min(1e6, max(1.0, C_hat / c_hat))  # Conservative upper bound
             gamma = float(np.clip(gamma, gamma_min, gamma_max))
         else:
-            # Fallback clamping
+            # Fallback clamping - very conservative
             gamma = float(np.clip(gamma, 1e-6, 1e6))
         
         r = gamma * q
         for s, y, a, r_i in zip(self.S, self.Y, reversed(alpha), reversed(rho)):
             b = r_i * (y @ r)
             r = r + s * (a - b)
-        return -r
+        
+        # Apply final bounds to direction to prevent extreme values
+        direction = -r
+        direction_norm = np.linalg.norm(direction)
+        if direction_norm > 1e3:  # Reasonable upper bound for direction
+            direction = direction * (1e3 / direction_norm)
+            
+        return direction
 
     def last_direction_norm(self, grad: np.ndarray) -> float:
         """Convenience accessor for ||direction(grad)||."""
