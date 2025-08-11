@@ -1,0 +1,84 @@
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - .devcontainer/requirements.txt
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - .devcontainer/requirements.txt
+
+jobs:
+  # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+
+    # Minimum permissions needed for cloning & (optionally) caching.
+    # contents: read is required if you explicitly checkout the repo.
+    # actions: write is required to save a cache (if you remove caching you can drop this).
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      # (Optional) Explicit checkout. If omitted, Copilot will clone after these steps complete.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Set up Python (adjust version if your project requires a specific one).
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+            python-version: '3.11'
+            cache: 'pip'
+            cache-dependency-path: .devcontainer/requirements.txt
+
+      # (Optional) Install OS-level libraries that can speed up builds or support image/scientific libs.
+      # Comment out if not needed—most wheels will install without these.
+      - name: Install system packages (optional)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libjpeg-dev \
+            zlib1g-dev \
+            libpng-dev \
+            libopenblas-dev \
+            liblapack-dev
+          sudo rm -rf /var/lib/apt/lists/*
+
+      - name: Upgrade pip/setuptools/wheel
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r .devcontainer/requirements.txt
+
+      # Quick validation to ensure core libs imported successfully.
+      - name: Sanity import check
+        run: |
+          python - <<'EOF'
+          import numpy, scipy, pandas, sklearn, skimage, torch
+          import yaml, structlog
+          print("All core libraries imported successfully.")
+          EOF
+
+      - name: Show installed package versions
+        run: |
+          pip freeze | sort
+
+      # Optional: cache torch model hub between runs (uncomment if desired)
+      # - name: Cache Hugging Face hub
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: ~/.cache/huggingface
+      #     key: hf-${{ runner.os }}-${{ hashFiles('.devcontainer/requirements.txt') }}
+      #     restore-keys: |
+      #       hf-${{ runner.os }}-
+
+      - name: Completion marker
+        run: echo "Environment setup complete. Copilot can proceed."
