@@ -13,16 +13,28 @@ from runner import ExperimentRunner, ALGO_MAP
     "--dataset", type=click.Choice(["rot-mnist", "synthetic"]), default="rot-mnist"
 )
 @click.option(
+    "--gamma-bar",
+    type=float,
+    default=None,
+    help="Total regret budget (unified approach). If specified, use with --gamma-split.",
+)
+@click.option(
+    "--gamma-split",
+    type=float,
+    default=0.5,
+    help="Fraction of gamma_bar allocated to insertions (learning). Default 0.5.",
+)
+@click.option(
     "--gamma-learn",
     type=float,
-    default=1.0,
-    help="Target avg regret for learning (sample complexity N*).",
+    default=None,
+    help="Target avg regret for learning (sample complexity N*). Legacy - prefer --gamma-bar/--gamma-split.",
 )
 @click.option(
     "--gamma-priv",
     type=float,
-    default=0.5,
-    help="Target avg regret for privacy (odometer capacity m).",
+    default=None,
+    help="Target avg regret for privacy (odometer capacity m). Legacy - prefer --gamma-bar/--gamma-split.",
 )
 @click.option(
     "--bootstrap-iters",
@@ -139,6 +151,37 @@ from runner import ExperimentRunner, ALGO_MAP
 )
 def main(**kwargs):
     """Run deletion capacity experiment with configurable privacy accountant."""
+    # Handle backward compatibility for gamma parameters
+    if kwargs.get("gamma_bar") is not None:
+        # New unified approach
+        if kwargs.get("gamma_learn") is not None or kwargs.get("gamma_priv") is not None:
+            print("Warning: --gamma_bar specified, ignoring legacy --gamma-learn/--gamma-priv")
+        gamma_bar = kwargs["gamma_bar"]
+        gamma_split = kwargs.get("gamma_split", 0.5)
+    else:
+        # Legacy approach
+        gamma_learn = kwargs.get("gamma_learn")
+        gamma_priv = kwargs.get("gamma_priv")
+        
+        if gamma_learn is not None and gamma_priv is not None:
+            print(f"Warning: Using legacy --gamma-learn={gamma_learn}/--gamma-priv={gamma_priv}. "
+                  f"Consider migrating to --gamma-bar={gamma_learn + gamma_priv} --gamma-split={gamma_learn/(gamma_learn + gamma_priv):.3f}")
+        
+        # Use defaults if not specified
+        if gamma_learn is None and gamma_priv is None:
+            gamma_bar = 1.0
+            gamma_split = 0.5
+        else:
+            gamma_learn = gamma_learn if gamma_learn is not None else 1.0
+            gamma_priv = gamma_priv if gamma_priv is not None else 0.5
+            gamma_bar = gamma_learn + gamma_priv
+            gamma_split = gamma_learn / gamma_bar
+        
+    # Remove legacy parameters and update with unified ones
+    kwargs = {k: v for k, v in kwargs.items() if k not in ['gamma_learn', 'gamma_priv']}
+    kwargs["gamma_bar"] = gamma_bar
+    kwargs["gamma_split"] = gamma_split
+    
     # Create config from CLI arguments
     cfg = Config.from_cli_args(**kwargs)
     

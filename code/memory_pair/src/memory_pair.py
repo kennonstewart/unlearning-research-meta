@@ -5,14 +5,14 @@ from enum import Enum
 from typing import Optional, Union, Tuple, Dict, Any
 
 try:
-    from .odometer import PrivacyOdometer, RDPOdometer
+    from .odometer import PrivacyOdometer, RDPOdometer, N_star_live, m_theory_live
     from .lbfgs import LimitedMemoryBFGS
     from .metrics import regret
     from .calibrator import Calibrator
     from .comparators import RollingOracle
     from .accountant_strategies import StrategyAccountantAdapter
 except ModuleNotFoundError:
-    from odometer import PrivacyOdometer, RDPOdometer
+    from odometer import PrivacyOdometer, RDPOdometer, N_star_live, m_theory_live
     from lbfgs import LimitedMemoryBFGS
     from metrics import regret
     from calibrator import Calibrator
@@ -512,39 +512,72 @@ class MemoryPair:
             return pred, g_old
         return pred
 
-    def delete(self, x: np.ndarray, y: float) -> None:
+    def delete(self, x: np.ndarray, y: float) -> Optional[str]:
         """
-        Delete a data point using differentially private unlearning.
+        Delete a data point using differentially private unlearning with gating.
 
-        Computes the influence of the data point, checks privacy budget capacity,
-        and applies the deletion update with appropriate noise injection for
-        differential privacy guarantees.
+        Computes the influence of the data point, checks both regret and privacy
+        gates, and applies the deletion update with appropriate noise injection 
+        if both gates pass.
 
         Args:
             x: Input feature vector of point to delete
             y: Target value of point to delete
 
+        Returns:
+            None if deletion succeeded, or blocked reason string if gates failed
+
         Raises:
-            RuntimeError: If odometer is not ready or capacity is exceeded
+            RuntimeError: If odometer is not ready or invalid parameters
         """
         if self.phase != Phase.INTERLEAVING:
             raise RuntimeError("Deletions are only allowed during INTERLEAVING phase")
 
         if not self.odometer.ready_to_delete:
-            raise RuntimeError("Odometer not finalized or capacity depleted.")
+            return "privacy_gate"  # Not ready due to privacy constraints
 
-        # Compute regularized gradient and track diagnostics (no S_scalar update)
+        # Compute influence for gating checks
         pred = float(self.theta @ x)
         g = self._compute_regularized_gradient(x, pred, y)
-        self.S_delete += float(np.dot(g, g))
-
-        # Step-size policy (no lambda update during deletes)
-        tiny = 1e-12
+        
+        # Get step size for deletion cost estimation
         self._update_step_size()
-
         influence = self.lbfgs.direction(g, calibrator=self.calibrator)
         sensitivity = np.linalg.norm(influence)
-        sigma = self.odometer.noise_scale(float(sensitivity))
+        
+        # Check privacy gate: can odometer handle another delete?
+        try:
+            sigma = self.odometer.noise_scale(float(sensitivity))
+            if sigma is None or np.isnan(sigma) or np.isinf(sigma):
+                return "privacy_gate"
+        except Exception:
+            return "privacy_gate"
+            
+        # Check regret gate: would this deletion violate regret constraint?
+        if hasattr(self.cfg, 'gamma_delete') and self.cfg.gamma_delete is not None:
+            # Estimate deletion regret cost
+            deletion_cost = self.eta_t * sensitivity * sigma * np.sqrt(2 * np.log(1 / 0.05))
+            
+            # Current adaptive regret (approximate)
+            if hasattr(self.odometer, 'G_hat') and hasattr(self.odometer, 'D_hat') and hasattr(self.odometer, 'c_hat') and hasattr(self.odometer, 'C_hat'):
+                G_hat = getattr(self.odometer, 'G_hat', 1.0)
+                D_hat = getattr(self.odometer, 'D_hat', 1.0) 
+                c_hat = getattr(self.odometer, 'c_hat', 1.0)
+                C_hat = getattr(self.odometer, 'C_hat', 1.0)
+                
+                current_adaptive_regret = G_hat * D_hat * np.sqrt(c_hat * C_hat * self.S_scalar)
+                projected_regret = current_adaptive_regret + deletion_cost
+                
+                # Check if projected regret would exceed budget
+                if self.events_seen > 0:
+                    regret_per_event = projected_regret / self.events_seen
+                    if regret_per_event > self.cfg.gamma_delete:
+                        return "regret_gate"
+
+        # Both gates passed - proceed with deletion
+        
+        # Track diagnostics (no S_scalar update for deletes)
+        self.S_delete += float(np.dot(g, g))
 
         # Debug: Validate parameters before calling spend
         if sensitivity is None or np.isnan(sensitivity) or np.isinf(sensitivity):
@@ -567,6 +600,12 @@ class MemoryPair:
         # Apply noisy deletion with step-size
         noise = np.random.normal(0, sigma, self.theta.shape)
         self.theta = self.theta - self.eta_t * influence + noise
+        
+        # Update counters
+        self.events_seen += 1
+        self.deletes_seen += 1
+        
+        return None  # Success
 
         # Update counters
         self.events_seen += 1
@@ -674,6 +713,43 @@ class MemoryPair:
             })
 
         return metrics
+    
+    def get_live_diagnostics(self) -> Dict[str, Any]:
+        """Get live M9 diagnostics for deletion gating."""
+        diagnostics = {}
+        
+        # Get gamma values from config
+        if hasattr(self, 'cfg') and self.cfg is not None:
+            diagnostics["gamma_bar"] = getattr(self.cfg, 'gamma_bar', None)
+            diagnostics["gamma_split"] = getattr(self.cfg, 'gamma_split', None)
+            diagnostics["gamma_ins"] = getattr(self.cfg, 'gamma_insert', None)
+            diagnostics["gamma_del"] = getattr(self.cfg, 'gamma_delete', None)
+        
+        # Get live capacity estimates if odometer is available
+        if hasattr(self.odometer, 'G_hat') and hasattr(self.odometer, 'D_hat'):
+            G_hat = getattr(self.odometer, 'G_hat', None)
+            D_hat = getattr(self.odometer, 'D_hat', None)
+            c_hat = getattr(self.odometer, 'c_hat', None)
+            C_hat = getattr(self.odometer, 'C_hat', None)
+            gamma_ins = diagnostics.get("gamma_ins", None)
+            gamma_del = diagnostics.get("gamma_del", None)
+            
+            if all(v is not None for v in [G_hat, D_hat, c_hat, C_hat, gamma_ins]):
+                diagnostics["N_star_live"] = N_star_live(
+                    self.S_scalar, G_hat, D_hat, c_hat, C_hat, gamma_ins
+                )
+                
+            if all(v is not None for v in [G_hat, D_hat, c_hat, C_hat, gamma_del]):
+                # Get noise scale estimate
+                sigma_step = getattr(self.odometer, 'sigma_step', 1.0)
+                delta_B = getattr(self.cfg, 'delta_b', 0.05) if hasattr(self, 'cfg') else 0.05
+                
+                diagnostics["m_theory_live"] = m_theory_live(
+                    self.S_scalar, self.inserts_seen, G_hat, D_hat, c_hat, C_hat,
+                    gamma_del, sigma_step, delta_B
+                )
+        
+        return diagnostics
 
     def _check_recalibration_trigger(self) -> None:
         """Check if recalibration should be triggered based on drift detection."""

@@ -22,3 +22,11 @@ wheels/
 results/grid*
 experiments/*/results/
 experiments/*/figs/
+
+# Additional patterns for M7-M10
+__pycache__/
+*.pyc
+*.png
+*.csv
+*.pdf
+.cache/
