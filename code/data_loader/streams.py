@@ -1,5 +1,8 @@
 import numpy as np
-from .utils import set_global_seed
+try:
+    from .utils import set_global_seed
+except ImportError:
+    from utils import set_global_seed
 
 
 def make_stream(X, y, mode="iid", drift_fn=None, adv_fn=None, seed=42):

@@ -1,5 +1,5 @@
 import os
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -280,3 +280,226 @@ def plot_capacity_vs_noise_tradeoff(summary_file: str, out_path: str) -> None:
         
     except Exception as e:
         print(f"Error creating capacity vs noise plot: {e}")
+
+
+# M10 New Plotting Functions
+
+def plot_nstar_m_live(csv_paths: List[str], out_path: str) -> None:
+    """Plot live N* and m capacity estimates over time."""
+    try:
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+        
+        for p in csv_paths:
+            df = pd.read_csv(p)
+            
+            # Plot N_star_live if available
+            if 'N_star_live' in df.columns:
+                events = np.arange(len(df))
+                ax1.plot(events, df['N_star_live'], alpha=0.7, label=os.path.basename(p))
+                
+            # Plot m_theory_live if available
+            if 'm_theory_live' in df.columns:
+                events = np.arange(len(df))
+                ax2.plot(events, df['m_theory_live'], alpha=0.7, label=os.path.basename(p))
+        
+        ax1.set_ylabel('N* (Live)')
+        ax1.set_title('Live Sample Complexity Estimate')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        ax2.set_xlabel('Event')
+        ax2.set_ylabel('m (Live)')
+        ax2.set_title('Live Deletion Capacity Estimate')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"Error creating N*/m live plot: {e}")
+
+
+def plot_regret_decomp(csv_paths: List[str], out_path: str) -> None:
+    """Plot regret decomposition into static, adaptive, and path components."""
+    try:
+        plt.figure(figsize=(12, 8))
+        
+        all_components = {'R_static': [], 'R_adaptive': [], 'R_path': [], 'R_empirical': []}
+        
+        for p in csv_paths:
+            df = pd.read_csv(p)
+            
+            # Compute regret decomposition if we have the necessary fields
+            if all(col in df.columns for col in ['G_hat', 'D_hat', 'c_hat', 'C_hat', 'lambda_est']):
+                events = np.arange(len(df))
+                
+                # Approximate S_T and P_T if not available
+                S_T = getattr(df, 'S_scalar', events * 1.0)  # Fallback
+                P_T = getattr(df, 'P_T', events * 0.01)  # Fallback
+                
+                for i in range(len(df)):
+                    if i % 100 == 0:  # Sample every 100 events to avoid clutter
+                        G_hat = df.iloc[i]['G_hat']
+                        D_hat = df.iloc[i]['D_hat'] 
+                        c_hat = df.iloc[i]['c_hat']
+                        C_hat = df.iloc[i]['C_hat']
+                        lambda_est = df.iloc[i]['lambda_est']
+                        regret_emp = df.iloc[i].get('regret', 0)
+                        
+                        # Static component
+                        if lambda_est > 0:
+                            R_static = (G_hat ** 2) / (lambda_est * c_hat) * (1 + np.log(i + 1))
+                        else:
+                            R_static = 0.0
+                            
+                        # Adaptive component
+                        R_adaptive = G_hat * D_hat * np.sqrt(c_hat * C_hat * S_T[i] if hasattr(S_T, '__getitem__') else S_T)
+                        
+                        # Path component  
+                        R_path = G_hat * P_T[i] if hasattr(P_T, '__getitem__') else G_hat * P_T
+                        
+                        all_components['R_static'].append(R_static)
+                        all_components['R_adaptive'].append(R_adaptive)
+                        all_components['R_path'].append(R_path)
+                        all_components['R_empirical'].append(regret_emp)
+        
+        # Plot average components
+        if all_components['R_static']:
+            events_sampled = np.arange(len(all_components['R_static'])) * 100
+            plt.plot(events_sampled, all_components['R_static'], label='Static', alpha=0.8)
+            plt.plot(events_sampled, all_components['R_adaptive'], label='Adaptive', alpha=0.8)
+            plt.plot(events_sampled, all_components['R_path'], label='Path', alpha=0.8)
+            plt.plot(events_sampled, all_components['R_empirical'], label='Empirical', alpha=0.8, linestyle='--')
+            
+        plt.xlabel('Event')
+        plt.ylabel('Regret')
+        plt.title('Regret Decomposition')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.yscale('log')
+        
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"Error creating regret decomposition plot: {e}")
+
+
+def plot_S_T(csv_paths: List[str], out_path: str) -> None:
+    """Plot S_T (cumulative gradient squared energy) over time."""
+    try:
+        plt.figure(figsize=(10, 6))
+        
+        for p in csv_paths:
+            df = pd.read_csv(p)
+            
+            if 'S_scalar' in df.columns:
+                events = np.arange(len(df))
+                plt.plot(events, df['S_scalar'], alpha=0.7, label=os.path.basename(p))
+                
+        plt.xlabel('Event')
+        plt.ylabel('S_T (Cumulative ||g_t||²)')
+        plt.title('Gradient Squared Energy Over Time')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.yscale('log')
+        
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"Error creating S_T plot: {e}")
+
+
+def plot_delete_bins(csv_paths: List[str], out_path: str) -> None:
+    """Plot deletion statistics binned by blocked reason."""
+    try:
+        blocked_reasons = {}
+        
+        for p in csv_paths:
+            df = pd.read_csv(p)
+            
+            if 'blocked_reason' in df.columns:
+                for reason in df['blocked_reason'].dropna().unique():
+                    if reason not in blocked_reasons:
+                        blocked_reasons[reason] = 0
+                    blocked_reasons[reason] += (df['blocked_reason'] == reason).sum()
+        
+        if blocked_reasons:
+            reasons = list(blocked_reasons.keys())
+            counts = list(blocked_reasons.values())
+            
+            plt.figure(figsize=(8, 6))
+            plt.bar(reasons, counts, alpha=0.7)
+            plt.xlabel('Blocked Reason')
+            plt.ylabel('Count')
+            plt.title('Deletion Blocking Reasons')
+            plt.xticks(rotation=45)
+            
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+            plt.tight_layout()
+            plt.savefig(out_path, dpi=300, bbox_inches='tight')
+            plt.close()
+        else:
+            print("No blocked_reason data found for plotting")
+            
+    except Exception as e:
+        print(f"Error creating delete bins plot: {e}")
+
+
+def plot_drift_overlay(csv_paths: List[str], out_path: str) -> None:
+    """Plot metrics with segment_id shading to show drift periods."""
+    try:
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+        
+        for p in csv_paths:
+            df = pd.read_csv(p)
+            events = np.arange(len(df))
+            
+            # Plot regret
+            if 'regret' in df.columns:
+                ax1.plot(events, df['regret'], alpha=0.7, label=os.path.basename(p))
+                
+            # Plot accuracy or other metric
+            metric_col = 'acc' if 'acc' in df.columns else 'abs_error' if 'abs_error' in df.columns else None
+            if metric_col:
+                ax2.plot(events, df[metric_col], alpha=0.7, label=os.path.basename(p))
+            
+            # Add segment shading
+            if 'segment_id' in df.columns:
+                segments = df['segment_id'].unique()
+                colors = plt.cm.Set3(np.linspace(0, 1, len(segments)))
+                
+                for i, seg_id in enumerate(segments):
+                    seg_mask = df['segment_id'] == seg_id
+                    seg_events = events[seg_mask]
+                    if len(seg_events) > 0:
+                        ax1.axvspan(seg_events.min(), seg_events.max(), alpha=0.2, color=colors[i])
+                        ax2.axvspan(seg_events.min(), seg_events.max(), alpha=0.2, color=colors[i])
+        
+        ax1.set_ylabel('Regret')
+        ax1.set_title('Regret with Drift Segments')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        ax1.set_yscale('log')
+        
+        ax2.set_xlabel('Event')
+        ax2.set_ylabel(metric_col or 'Metric')
+        ax2.set_title(f'{metric_col or "Metric"} with Drift Segments')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+    except Exception as e:
+        print(f"Error creating drift overlay plot: {e}")
