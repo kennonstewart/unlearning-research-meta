@@ -85,7 +85,7 @@ def _get_next_event(gen: Generator, state: PhaseState):
 
 
 def _create_extended_log_entry(base_entry: dict, state: PhaseState, model, cfg: Config) -> dict:
-    """Create log entry with extended columns (set to None if not computed)."""
+    """Create log entry with extended columns from model metrics."""
     # Start with base entry
     entry = base_entry.copy()
     
@@ -104,15 +104,55 @@ def _create_extended_log_entry(base_entry: dict, state: PhaseState, model, cfg: 
         else:
             entry["x_norm"] = None
     
-    # Add extended columns (set to None for now as per requirements)
+    # Get model metrics if available
+    model_metrics = {}
+    if hasattr(model, 'get_metrics_dict'):
+        try:
+            model_metrics = model.get_metrics_dict()
+        except Exception:
+            pass  # Fallback to empty if error
+    
+    # Add odometer metrics for noise calibration
+    odometer_metrics = {}
+    if hasattr(model, 'odometer') and model.odometer:
+        try:
+            if hasattr(model.odometer, 'sigma_step') and model.odometer.sigma_step is not None:
+                odometer_metrics['sigma_step_theory'] = model.odometer.sigma_step
+            if hasattr(model.odometer, 'eps_step') and model.odometer.eps_step is not None:
+                odometer_metrics['eps_step_theory'] = model.odometer.eps_step  
+            if hasattr(model.odometer, 'delta_step') and model.odometer.delta_step is not None:
+                odometer_metrics['delta_step_theory'] = model.odometer.delta_step
+            if hasattr(model.odometer, 'rho_total') and hasattr(model.odometer, 'deletion_capacity'):
+                if model.odometer.deletion_capacity > 0:
+                    odometer_metrics['rho_step'] = model.odometer.rho_total / model.odometer.deletion_capacity
+        except Exception:
+            pass  # Fallback to None if error
+    
+    # Add extended columns with actual values from model or None as fallback
     entry.update({
-        "S_scalar": None,        # Sensitivity scalar
-        "eta_t": None,           # Learning rate at time t  
-        "lambda_est": None,      # Lambda estimate
-        "rho_step": None,        # RDP step parameter
-        "sigma_step": None,      # Noise step parameter
-        "sens_delete": None,     # Sensitivity for deletions
-        "P_T_est": None,         # Probability estimate
+        # Model learning metrics
+        "S_scalar": model_metrics.get("S_scalar", getattr(model, 'S_scalar', None)),
+        "eta_t": model_metrics.get("eta_t", getattr(model, 'eta_t', None)),
+        "lambda_est": model_metrics.get("lambda_est", getattr(model, 'lambda_est', None)),
+        
+        # Noise calibration fields (as specified in comment)
+        "sigma_step_theory": odometer_metrics.get('sigma_step_theory', None),
+        "eps_step_theory": odometer_metrics.get('eps_step_theory', None), 
+        "delta_step_theory": odometer_metrics.get('delta_step_theory', None),
+        "rho_step": odometer_metrics.get('rho_step', None),
+        
+        # Comparator and drift fields (as specified in comment)
+        "P_T": model_metrics.get("P_T", None),
+        "comparator_type": model_metrics.get("comparator_type", "none"),
+        "drift_flag": model_metrics.get("drift_flag", False),
+        
+        # Additional useful fields
+        "sens_delete": None,  # Will be populated during actual deletions
+        "P_T_est": model_metrics.get("P_T_est", model_metrics.get("P_T", None)),  # Legacy alias
+        
+        # Drift-responsive fields
+        "drift_boost_remaining": model_metrics.get("drift_boost_remaining", 0),
+        "base_eta_t": model_metrics.get("base_eta_t", None),
     })
     
     return entry
