@@ -10,12 +10,14 @@ try:
     from .metrics import regret
     from .calibrator import Calibrator
     from .comparators import RollingOracle
+    from .accountant_strategies import StrategyAccountantAdapter
 except ModuleNotFoundError:
     from odometer import PrivacyOdometer, RDPOdometer
     from lbfgs import LimitedMemoryBFGS
     from metrics import regret
     from calibrator import Calibrator
     from comparators import RollingOracle
+    from accountant_strategies import StrategyAccountantAdapter
 
 
 class Phase(Enum):
@@ -513,8 +515,9 @@ class MemoryPair:
         sigma = self.odometer.noise_scale(float(sensitivity))
 
         # Handle different odometer types
-        if isinstance(self.odometer, RDPOdometer):
-            # For RDP: spend budget with actual sensitivity and sigma
+        if (isinstance(self.odometer, RDPOdometer) or
+            isinstance(self.odometer, StrategyAccountantAdapter)):
+            # For RDP and new accountant strategies: spend budget with actual sensitivity and sigma
             self.odometer.spend(sensitivity, sigma)
         else:
             # For legacy PrivacyOdometer: spend without parameters
