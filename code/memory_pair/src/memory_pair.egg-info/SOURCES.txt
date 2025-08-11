@@ -2,10 +2,12 @@ README.md
 pyproject.toml
 src/__init__.py
 src/calibrator.py
+src/comparators.py
 src/lbfgs.py
 src/memory_pair.py
 src/metrics.py
 src/odometer.py
+src/plotting.py
 src/memory_pair.egg-info/PKG-INFO
 src/memory_pair.egg-info/SOURCES.txt
 src/memory_pair.egg-info/dependency_links.txt

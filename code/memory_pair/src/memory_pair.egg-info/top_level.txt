@@ -1,6 +1,8 @@
 __init__
 calibrator
+comparators
 lbfgs
 memory_pair
 metrics
 odometer
+plotting

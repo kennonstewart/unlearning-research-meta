@@ -22,8 +22,8 @@ def test_recompute_nstar_and_m():
         'G_hat': [2.5, 2.4, 2.6],  # Mandatory field
         'D_hat': [1.8, 1.9, 1.7],  # Mandatory field
         'sigma_step_theory': [0.05, 0.04, 0.06],  # Mandatory field
-        'gamma_learn': [0.9, 0.9, 0.9],
-        'gamma_priv': [0.1, 0.1, 0.1],
+        'gamma_bar': [1.0, 1.0, 1.0],
+        'gamma_split': [0.9, 0.9, 0.9],
         'eps_total': [1.0, 1.0, 1.0]
     }
     
@@ -35,10 +35,11 @@ def test_recompute_nstar_and_m():
     assert len(missing_fields) == 0, f"Missing mandatory fields: {missing_fields}"
     
     # Mock computation of N★ from theory (simplified example)
-    def compute_nstar_theory(G_hat, D_hat, gamma_learn, eps_total):
+    def compute_nstar_theory(G_hat, D_hat, gamma_bar, gamma_split, eps_total):
         """Mock theoretical computation of N★"""
-        # This is a simplified formula for demonstration
-        return int(np.ceil((G_hat * D_hat) / (gamma_learn * eps_total) * 100))
+        # Use gamma_insert (gamma_bar * gamma_split) for learning
+        gamma_insert = gamma_bar * gamma_split
+        return int(np.ceil((G_hat * D_hat) / (gamma_insert * eps_total) * 100))
     
     def compute_m_theory(sigma_step_theory, eps_total):
         """Mock theoretical computation of m"""
@@ -47,7 +48,7 @@ def test_recompute_nstar_and_m():
     
     # Recompute theoretical values from mandatory fields
     df['N_star_recomputed'] = df.apply(
-        lambda row: compute_nstar_theory(row['G_hat'], row['D_hat'], row['gamma_learn'], row['eps_total']),
+        lambda row: compute_nstar_theory(row['G_hat'], row['D_hat'], row['gamma_bar'], row['gamma_split'], row['eps_total']),
         axis=1
     )
     

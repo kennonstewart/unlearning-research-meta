@@ -15,12 +15,12 @@ from config import Config
 def test_original_issue_scenario():
     """Test the original scenario that caused the issue."""
     print("Testing original issue scenario...")
-    print("Parameters: {'gamma_learn': 0.7, 'gamma_priv': 0.3, 'quantile': 0.9, 'delete_ratio': 5, 'accountant': 'legacy', 'eps_total': 1.0}")
+    print("Parameters: {'gamma_bar': 1.0, 'gamma_split': 0.7, 'quantile': 0.9, 'delete_ratio': 5, 'accountant': 'legacy', 'eps_total': 1.0}")
     
-    # Create config matching the original issue
+    # Create config matching the original issue (gamma_learn=0.7, gamma_priv=0.3 -> gamma_bar=1.0, gamma_split=0.7)
     config = Config(
-        gamma_learn=0.7,
-        gamma_priv=0.3,
+        gamma_bar=1.0,
+        gamma_split=0.7,  # 70% to insertion (gamma_learn), 30% to deletion (gamma_priv)
         quantile=0.9,
         delete_ratio=5,
         accountant="default",  # using default instead of legacy for now
@@ -28,10 +28,9 @@ def test_original_issue_scenario():
         bootstrap_iters=100,  # Smaller for quick test
         max_events=10000,     # Smaller for quick test
         seeds=2,              # Just test 2 seeds
-        max_warmup_N=50000,   # Our new cap
     )
     
-    print(f"Config created with max_warmup_N = {config.max_warmup_N}")
+    print(f"gamma_insert: {config.gamma_insert}, gamma_delete: {config.gamma_delete}")
     print("✓ Configuration successfully created with safeguards")
     return True
 
@@ -40,11 +39,13 @@ def test_config_serialization():
     """Test that the config can be serialized (for grid search)."""
     print("Testing config serialization...")
     
-    config = Config(max_warmup_N=25000)
+    config = Config(gamma_bar=2.0, gamma_split=0.8)
     config_dict = config.to_dict()
     
-    assert 'max_warmup_N' in config_dict
-    assert config_dict['max_warmup_N'] == 25000
+    assert 'gamma_bar' in config_dict
+    assert config_dict['gamma_bar'] == 2.0
+    assert 'gamma_split' in config_dict
+    assert config_dict['gamma_split'] == 0.8
     
     print("✓ Config serialization works correctly")
     return True
@@ -55,16 +56,16 @@ def test_from_cli_args():
     print("Testing from_cli_args...")
     
     config = Config.from_cli_args(
-        gamma_learn=0.7,
-        gamma_priv=0.3,
+        gamma_bar=1.0,
+        gamma_split=0.7,
         quantile=0.9,
-        max_warmup_N=30000
     )
     
-    assert config.gamma_learn == 0.7
-    assert config.gamma_priv == 0.3
+    assert config.gamma_bar == 1.0
+    assert config.gamma_split == 0.7
+    assert config.gamma_insert == 0.7  # 70% of gamma_bar
+    assert config.gamma_delete == 0.3  # 30% of gamma_bar
     assert config.quantile == 0.9
-    assert config.max_warmup_N == 30000
     
     print("✓ from_cli_args works correctly")
     return True
