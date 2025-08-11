@@ -12,5 +12,3 @@ PyYAML>=6.0
 click
 tqdm>=4.62
 torch>=2.2
-transformers>=4.20
-datasets>=2.4
