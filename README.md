@@ -46,6 +46,7 @@ This repository is organized as a unified codebase with shared components and in
 - **Memory-Pair Algorithm**: Implements a three-phase state machine (calibration, learning, interleaving) with privacy-preserving deletion capabilities
 - **Data Loaders**: Unified, fail-safe dataset loaders for various machine learning benchmarks
 - **Experiments**: Each subdirectory contains an independent study with its own `AGENTS.md` for specific instructions
+- **Paper Materials**: LaTeX source and figures for the research paper in the `paper/` directory
 
 ## 🚀 Getting Started
 
@@ -115,6 +116,10 @@ python run_accuracy.py --dataset mnist --deletions 100 --seed 42
 - **Regret-Constrained Optimization**: Maximizes deletion capacity under regret bounds
 - **Adaptive Noise Scaling**: Computes optimal Gaussian noise for each deletion
 - **Budget Tracking**: Monitors ε and δ expenditure across deletions
+
+## 🛠️ Repository Maintenance
+
+For information about potential repository structure improvements and refactoring opportunities, see [`REFACTORING_OPPORTUNITIES.md`](./REFACTORING_OPPORTUNITIES.md). This document identifies ways to simplify the codebase organization and improve maintainability.
 
 ## ✍️ Development Guidelines
 
@@ -222,6 +227,33 @@ Features:
 ## 📚 References
 
 This implementation follows the theoretical framework established in our research on online machine unlearning with differential privacy guarantees and regret minimization.
+
+## 📂 Additional Files
+
+### Documentation
+- `IMPLEMENTATION_SUMMARY.md`: Technical overview of implementation details
+- `MILESTONE5_SUMMARY.md`: Summary of recent milestone achievements
+
+### Demo and Examples
+- `milestone5_demo.py`: Demonstration script showcasing current capabilities
+- `oracle_integration_example.py`: Example of oracle integration patterns
+
+### Test Suite
+The repository includes comprehensive tests for various components:
+- `test_minimal_experiment.py`: Basic experiment functionality tests
+- `test_integration.py`: Integration tests across components
+- `test_zcdp_odometer.py`: Zero-concentrated differential privacy tests
+- `test_enhanced_oracle.py`: Enhanced oracle functionality tests
+- `test_milestone5_*.py`: Milestone-specific functionality tests
+- `test_dynamic_comparator.py`: Dynamic comparison algorithm tests
+- `test_flags_default_noop.py`: Configuration flag tests
+- `test_schema.py`: Data schema validation tests
+- `test_issue_requirements.py`: Requirement compliance tests
+
+To run the test suite:
+```bash
+python -m pytest test_*.py -v
+```
 
 ## 📝 License
 
