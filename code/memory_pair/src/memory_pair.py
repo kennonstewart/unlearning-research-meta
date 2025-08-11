@@ -141,27 +141,40 @@ class MemoryPair:
         )
 
         # Oracle for dynamic regret tracking (optional)
-        self.oracle: Optional[RollingOracle] = None
+        self.oracle: Optional[Union[RollingOracle, "StaticOracle"]] = None
         if cfg and getattr(cfg, "enable_oracle", False):
-            oracle_window_W = getattr(cfg, "oracle_window_W", 512)
-            oracle_steps = getattr(cfg, "oracle_steps", 15)
-            oracle_stride = getattr(cfg, "oracle_stride", None)
-            oracle_tol = getattr(cfg, "oracle_tol", 1e-6)
-            oracle_warmstart = getattr(cfg, "oracle_warmstart", True)
-            path_length_norm = getattr(cfg, "path_length_norm", "L2")
-            lambda_reg = getattr(cfg, "lambda_reg", 0.0)
+            comparator_type = getattr(cfg, "comparator_type", "dynamic")
+            
+            if comparator_type == "static":
+                # Import here to avoid circular imports
+                from comparators import StaticOracle
+                lambda_reg = getattr(cfg, "lambda_reg", 0.0)
+                self.oracle = StaticOracle(dim=dim, lambda_reg=lambda_reg, cfg=cfg)
+            else:
+                # Dynamic (rolling) oracle
+                oracle_window_W = getattr(cfg, "oracle_window_W", 512)
+                oracle_steps = getattr(cfg, "oracle_steps", 15)
+                oracle_stride = getattr(cfg, "oracle_stride", None)
+                oracle_tol = getattr(cfg, "oracle_tol", 1e-6)
+                oracle_warmstart = getattr(cfg, "oracle_warmstart", True)
+                path_length_norm = getattr(cfg, "path_length_norm", "L2")
+                lambda_reg = getattr(cfg, "lambda_reg", 0.0)
 
-            self.oracle = RollingOracle(
-                dim=dim,
-                window_W=oracle_window_W,
-                oracle_steps=oracle_steps,
-                oracle_stride=oracle_stride,
-                oracle_tol=oracle_tol,
-                oracle_warmstart=oracle_warmstart,
-                path_length_norm=path_length_norm,
-                lambda_reg=lambda_reg,
-                cfg=cfg,
-            )
+                self.oracle = RollingOracle(
+                    dim=dim,
+                    window_W=oracle_window_W,
+                    oracle_steps=oracle_steps,
+                    oracle_stride=oracle_stride,
+                    oracle_tol=oracle_tol,
+                    oracle_warmstart=oracle_warmstart,
+                    path_length_norm=path_length_norm,
+                    lambda_reg=lambda_reg,
+                    cfg=cfg,
+                )
+                
+        # Drift-responsive rate adaptation
+        self.drift_adaptation_enabled = getattr(cfg, "drift_adaptation", False) if cfg else False
+        self.drift_rate_boost = getattr(cfg, "drift_rate_boost", 1.5) if cfg else 1.5
 
     def _compute_regularized_loss(self, pred: float, y: float) -> float:
         """Compute regularized loss: l(pred, y) + (lambda_reg/2) * ||theta||^2"""
@@ -336,6 +349,18 @@ class MemoryPair:
         # Store stats for later access
         self.calibration_stats = stats
 
+        # Calibrate static oracle if enabled
+        if self.oracle is not None and hasattr(self.oracle, 'calibrate_with_initial_data'):
+            # For static oracle, use calibration data collected during bootstrap
+            # In a real implementation, we'd collect the calibration data
+            # For now, we'll mark it as calibrated (the calibrator should provide this data)
+            if hasattr(self.calibrator, 'get_calibration_data'):
+                calibration_data = self.calibrator.get_calibration_data()
+                self.oracle.calibrate_with_initial_data(calibration_data)
+            else:
+                # Fallback: mark as calibrated with empty data
+                self.oracle.calibrate_with_initial_data([])
+
         # DO NOT finalize odometer here - it should be done after warmup
 
         # Transition to LEARNING phase
@@ -457,12 +482,16 @@ class MemoryPair:
             Phase.LEARNING,
             Phase.INTERLEAVING,
         ]:
-            oracle_refreshed = self.oracle.maybe_update(x, y, self.theta)
+            # Handle dynamic oracle (RollingOracle)
+            if hasattr(self.oracle, 'maybe_update'):
+                oracle_refreshed = self.oracle.maybe_update(x, y, self.theta)
+                if oracle_refreshed:
+                    print(
+                        f"[Oracle] Refreshed at event {self.events_seen}, P_T_est = {self.oracle.P_T_est:.4f}"
+                    )
+            
+            # Update regret accounting for both static and dynamic oracles
             self.oracle.update_regret_accounting(x, y, self.theta)
-            if oracle_refreshed:
-                print(
-                    f"[Oracle] Refreshed at event {self.events_seen}, P_T_est = {self.oracle.P_T_est:.4f}"
-                )
 
         # 4. Handle state transitions
         if (
@@ -560,6 +589,17 @@ class MemoryPair:
             self.sc_active = False
 
         self.eta_t = min(self.eta_t, eta_max)
+        
+        # Apply drift-responsive rate adaptation
+        if (self.drift_adaptation_enabled and 
+            self.oracle is not None and 
+            hasattr(self.oracle, 'is_drift_detected') and
+            self.oracle.is_drift_detected()):
+            # Boost learning rate when drift is detected
+            self.eta_t *= self.drift_rate_boost
+            self.eta_t = min(self.eta_t, eta_max)  # Still respect max limit
+            # Reset drift flag after adaptation
+            self.oracle.reset_drift_flag()
 
     def _lambda_is_stable(self) -> bool:
         """Check whether strong-convexity estimate is reliable."""
