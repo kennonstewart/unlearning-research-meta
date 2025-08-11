@@ -160,17 +160,25 @@ def main(**kwargs):
         gamma_split = kwargs.get("gamma_split", 0.5)
     else:
         # Legacy approach
-        gamma_learn = kwargs.get("gamma_learn", 1.0)
-        gamma_priv = kwargs.get("gamma_priv", 0.5)
+        gamma_learn = kwargs.get("gamma_learn")
+        gamma_priv = kwargs.get("gamma_priv")
         
         if gamma_learn is not None and gamma_priv is not None:
             print(f"Warning: Using legacy --gamma-learn={gamma_learn}/--gamma-priv={gamma_priv}. "
                   f"Consider migrating to --gamma-bar={gamma_learn + gamma_priv} --gamma-split={gamma_learn/(gamma_learn + gamma_priv):.3f}")
         
-        gamma_bar = (gamma_learn or 1.0) + (gamma_priv or 0.5)
-        gamma_split = (gamma_learn or 1.0) / gamma_bar
+        # Use defaults if not specified
+        if gamma_learn is None and gamma_priv is None:
+            gamma_bar = 1.0
+            gamma_split = 0.5
+        else:
+            gamma_learn = gamma_learn if gamma_learn is not None else 1.0
+            gamma_priv = gamma_priv if gamma_priv is not None else 0.5
+            gamma_bar = gamma_learn + gamma_priv
+            gamma_split = gamma_learn / gamma_bar
         
-    # Update kwargs with the unified parameters
+    # Remove legacy parameters and update with unified ones
+    kwargs = {k: v for k, v in kwargs.items() if k not in ['gamma_learn', 'gamma_priv']}
     kwargs["gamma_bar"] = gamma_bar
     kwargs["gamma_split"] = gamma_split
     

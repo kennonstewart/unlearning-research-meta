@@ -163,6 +163,62 @@ Each experiment directory contains:
 4. **Test thoroughly**: Run relevant sanity checks and unit tests
 5. **Document changes**: Update relevant README files
 
+## 🆕 Advanced Features (M7-M10)
+
+### Unified Gamma Split (M9)
+The deletion capacity experiments now support unified regret budget allocation:
+
+```bash
+# New unified approach (recommended)
+python cli.py --gamma-bar 2.0 --gamma-split 0.7  # 70% for learning, 30% for privacy
+
+# Legacy approach (backward compatible)
+python cli.py --gamma-learn 1.4 --gamma-priv 0.6  # equivalent to above
+```
+
+### Enhanced Data Loaders
+
+#### CovType with Online Standardization (M7)
+```bash
+python cli.py --dataset covtype --online-standardize --clip-k 3.0
+```
+Features:
+- Welford's algorithm for online feature standardization
+- k-sigma clipping with configurable threshold
+- Label shift tracking with sliding window
+- Diagnostics: `mean_l2`, `std_l2`, `clip_rate`, `segment_id`
+
+#### Linear with Spectrum Control (M8)
+```bash
+python cli.py --dataset linear --eigs "1.0,0.5,0.1" --path-type rotating
+```
+Features:
+- Configurable covariance matrix with eigenvalue control
+- Controlled parameter path evolution
+- Online strong convexity estimation
+- Diagnostics: `lambda_est`, `P_T_true`
+
+### Deletion Gating (M9)
+Automatic gating prevents deletions that would violate constraints:
+- **Regret Gate**: Blocks deletions that would exceed regret budget
+- **Privacy Gate**: Blocks deletions when privacy budget is depleted
+- Logs blocked operations with `blocked_reason`
+
+### Evaluation Suite (M10)
+Generate comprehensive analysis reports:
+
+```bash
+cd experiments/deletion_capacity
+python report.py --datasets linear covtype mnist --seeds 5
+```
+
+Features:
+- Live capacity estimates (`N_star_live`, `m_theory_live`)
+- Regret decomposition (static, adaptive, path components)
+- S_T gradient energy tracking
+- Sensitivity bin analysis
+- Drift overlay visualization
+
 ## 📚 References
 
 This implementation follows the theoretical framework established in our research on online machine unlearning with differential privacy guarantees and regret minimization.
