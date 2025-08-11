@@ -59,6 +59,11 @@ class AccountantStrategy(Protocol):
     def deletions_count(self) -> int:
         """Get number of deletions performed so far."""
         ...
+    
+    @property
+    def ready_to_delete(self) -> bool:
+        """Check if accountant is finalized and ready for deletions."""
+        ...
 
 
 class BaseAccountantStrategy(ABC):
@@ -126,6 +131,13 @@ class BaseAccountantStrategy(ABC):
         if self._underlying_odometer is None:
             return 0
         return self._underlying_odometer.deletions_count
+    
+    @property
+    def ready_to_delete(self) -> bool:
+        """Check if accountant is finalized and ready for deletions."""
+        if self._underlying_odometer is None:
+            return False
+        return self._underlying_odometer.ready_to_delete
     
     @abstractmethod
     def _spend_impl(self, sensitivity: Optional[float], sigma: Optional[float]) -> None:
