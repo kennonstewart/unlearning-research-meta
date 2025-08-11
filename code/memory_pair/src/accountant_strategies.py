@@ -103,6 +103,10 @@ class BaseAccountantStrategy(ABC):
         if not self._finalized:
             raise RuntimeError("Accountant not finalized")
         
+        # Add debugging information
+        if sensitivity is None or sigma is None:
+            raise RuntimeError(f"BaseAccountantStrategy.spend called with None values: sensitivity={sensitivity}, sigma={sigma}")
+        
         # Delegate to underlying odometer with appropriate parameters
         self._spend_impl(sensitivity, sigma)
     
@@ -183,7 +187,7 @@ class ZCDPAccountant(BaseAccountantStrategy):
     def _spend_impl(self, sensitivity: Optional[float], sigma: Optional[float]) -> None:
         """Spend zCDP budget using actual sensitivity and noise scale."""
         if sensitivity is None or sigma is None:
-            raise ValueError("zCDP accountant requires both sensitivity and sigma for spending")
+            raise ValueError(f"zCDP accountant requires both sensitivity and sigma for spending (got sensitivity={sensitivity}, sigma={sigma})")
         self._underlying_odometer.spend(sensitivity, sigma)
     
     def metrics(self) -> Dict[str, Any]:

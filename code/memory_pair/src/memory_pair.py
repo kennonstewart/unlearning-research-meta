@@ -514,11 +514,20 @@ class MemoryPair:
         sensitivity = np.linalg.norm(influence)
         sigma = self.odometer.noise_scale(float(sensitivity))
 
+        # Debug: Validate parameters before calling spend
+        if sensitivity is None or np.isnan(sensitivity) or np.isinf(sensitivity):
+            raise RuntimeError(f"Invalid sensitivity value: {sensitivity}")
+        if sigma is None or np.isnan(sigma) or np.isinf(sigma):
+            raise RuntimeError(f"Invalid sigma value: {sigma}")
+
         # Handle different odometer types
         if (isinstance(self.odometer, RDPOdometer) or
             isinstance(self.odometer, StrategyAccountantAdapter)):
             # For RDP and new accountant strategies: spend budget with actual sensitivity and sigma
-            self.odometer.spend(sensitivity, sigma)
+            try:
+                self.odometer.spend(float(sensitivity), float(sigma))
+            except Exception as e:
+                raise RuntimeError(f"Odometer spend failed with sensitivity={sensitivity}, sigma={sigma}: {e}")
         else:
             # For legacy PrivacyOdometer: spend without parameters
             self.odometer.spend()
