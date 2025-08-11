@@ -8,13 +8,13 @@ for ChatGPT / Codex agents contributing code
 
 unlearning-research-meta/
 ├── code/                 # canonical, installable source
-│   └── memory_pair/      # ← import here for all algorithms
-├── data/                 
-│   └── data_loader/      # unified, fail-safe dataset loaders
+│   ├── memory_pair/      # ← import here for all algorithms
+│   ├── data_loader/      # unified, fail-safe dataset loaders
+│   └── baselines/        # baseline algorithm implementations
 └── experiments/          # ⚑ each sub-folder is an independent study
-    ├── sublinear_regret/
     ├── deletion_capacity/
-    └── post_deletion_accuracy/
+    ├── post_deletion_accuracy/
+    └── sublinear_regret/
 
 	•	Top-level AGENTS.md (this file) describes global conventions.
 	•	Every directory inside experiments/ has its own AGENTS.md
@@ -37,7 +37,7 @@ from code.memory_pair.src.memory_pair import MemoryPair
 
 Data
 
-from data_loader import get_rotating_mnist_stream
+from code.data_loader import get_rotating_mnist_stream
 
 Never duplicate Memory-Pair logic or re-download datasets in
 experiment folders.
@@ -46,7 +46,7 @@ experiment folders.
 After changing code/ or data/, run
 
 pip install -e code/memory_pair
-pip install -e data/data_loader
+pip install -e code/data_loader
 
 to ensure namespace packages resolve.
 
@@ -109,7 +109,7 @@ Navigate to experiments/<your-feature>/AGENTS.md and follow the
 step-by-step instructions.
 If a directory is missing that file, open an issue before coding.
 	2.	Run sanity checks
-	•	python data/data_loader/sanity_check.py
+	•	python code/data_loader/sanity_check.py
 	•	Unit tests inside code/memory_pair/tests (if any)
 	•	Experiment-specific smoke test (usually python run.py --help)
 	3.	Open a pull request
