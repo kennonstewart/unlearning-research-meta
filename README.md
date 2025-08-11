@@ -117,6 +117,10 @@ python run_accuracy.py --dataset mnist --deletions 100 --seed 42
 - **Adaptive Noise Scaling**: Computes optimal Gaussian noise for each deletion
 - **Budget Tracking**: Monitors ε and δ expenditure across deletions
 
+## 🛠️ Repository Maintenance
+
+For information about potential repository structure improvements and refactoring opportunities, see [`REFACTORING_OPPORTUNITIES.md`](./REFACTORING_OPPORTUNITIES.md). This document identifies ways to simplify the codebase organization and improve maintainability.
+
 ## ✍️ Development Guidelines
 
 ### Import Policy
