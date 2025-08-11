@@ -30,8 +30,10 @@ def test_plotting_compatibility():
                 'sigma_step_theory': [0.05],
                 'eps_spent': [0.8 + seed * 0.1],
                 'capacity_remaining': [0.2 - seed * 0.1],
-                'gamma_learn': [0.9],
-                'gamma_priv': [0.1]
+                'gamma_bar': [1.0],
+                'gamma_split': [0.9],
+                'gamma_insert': [0.9],
+                'gamma_delete': [0.1]
             }
             
             csv_path = os.path.join(temp_dir, f"seed_{seed:03d}.csv")

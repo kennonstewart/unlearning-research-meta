@@ -28,8 +28,10 @@ def create_mock_experiment_output(output_dir: str, seed: int) -> str:
             'G_hat': 2.5,
             'D_hat': 1.8,
             'sigma_step_theory': 0.05,
-            'gamma_learn': 0.9,
-            'gamma_priv': 0.1,
+            'gamma_bar': 1.0,
+            'gamma_split': 0.9,
+            'gamma_insert': 0.9,
+            'gamma_delete': 0.1,
             'quantile': 0.95,
             'accountant_type': 'legacy'
         }
@@ -53,8 +55,8 @@ def test_integration():
         grid_file = os.path.join(temp_dir, "test_grid.yaml")
         with open(grid_file, 'w') as f:
             f.write("""
-gamma_learn: [0.9]
-gamma_priv: [0.1]
+gamma_bar: [1.0]
+gamma_split: [0.9]
 quantile: [0.95]
 delete_ratio: [10]
 accountant: ["legacy"]
@@ -86,8 +88,8 @@ eps_total: [1.0]
                 'G_hat': 2.5,
                 'D_hat': 1.8,
                 'sigma_step_theory': 0.05,
-                'gamma_learn': 0.9,
-                'gamma_priv': 0.1,
+                'gamma_bar': 1.0,
+                'gamma_split': 0.9,
                 'quantile': 0.95,
                 'delete_ratio': 10,
                 'accountant': 'legacy',
