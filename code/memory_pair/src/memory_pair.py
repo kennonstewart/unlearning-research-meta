@@ -1,11 +1,21 @@
+# /code/memory_pair/src/memory_pair.py
+
 import numpy as np
 from enum import Enum
 from typing import Optional, Union, Tuple, Dict, Any
-from lbfgs import LimitedMemoryBFGS
-from odometer import PrivacyOdometer, RDPOdometer
-from metrics import regret
-from calibrator import Calibrator
-from comparators import RollingOracle
+
+try:
+    from .odometer import PrivacyOdometer, RDPOdometer
+    from .lbfgs import LimitedMemoryBFGS
+    from .metrics import regret
+    from .calibrator import Calibrator
+    from .comparators import RollingOracle
+except ModuleNotFoundError:
+    from odometer import PrivacyOdometer, RDPOdometer
+    from lbfgs import LimitedMemoryBFGS
+    from metrics import regret
+    from calibrator import Calibrator
+    from comparators import RollingOracle
 
 
 class Phase(Enum):
@@ -75,13 +85,13 @@ class MemoryPair:
             cfg: Configuration object with feature flags (for future use)
         """
         self.theta = np.zeros(dim)
-        m_max = getattr(cfg, 'm_max', 10) if cfg else 10
+        m_max = getattr(cfg, "m_max", 10) if cfg else 10
         self.lbfgs = LimitedMemoryBFGS(m_max=m_max, cfg=cfg)
         self.odometer = odometer or RDPOdometer()
 
         # Store config for feature flags (no behavior change yet)
         self.cfg = cfg
-        
+
         # State machine attributes
         self.phase = Phase.CALIBRATION
         self.calibrator = calibrator or Calibrator()  # Use provided calibrator
@@ -123,24 +133,22 @@ class MemoryPair:
         self.lambda_stability_counter: int = 0
         self.sc_active: bool = False
         self.lambda_estimator = LambdaEstimator(
-            ema_beta=getattr(cfg, "ema_beta", 0.9)
-            if cfg is not None
-            else 0.9,
+            ema_beta=getattr(cfg, "ema_beta", 0.9) if cfg is not None else 0.9,
             floor=getattr(cfg, "lambda_floor", 1e-6) if cfg is not None else 1e-6,
             cap=getattr(cfg, "lambda_cap", 1e3) if cfg is not None else 1e3,
         )
 
         # Oracle for dynamic regret tracking (optional)
         self.oracle: Optional[RollingOracle] = None
-        if cfg and getattr(cfg, 'enable_oracle', False):
-            oracle_window_W = getattr(cfg, 'oracle_window_W', 512)
-            oracle_steps = getattr(cfg, 'oracle_steps', 15)
-            oracle_stride = getattr(cfg, 'oracle_stride', None)
-            oracle_tol = getattr(cfg, 'oracle_tol', 1e-6)
-            oracle_warmstart = getattr(cfg, 'oracle_warmstart', True)
-            path_length_norm = getattr(cfg, 'path_length_norm', 'L2')
-            lambda_reg = getattr(cfg, 'lambda_reg', 0.0)
-            
+        if cfg and getattr(cfg, "enable_oracle", False):
+            oracle_window_W = getattr(cfg, "oracle_window_W", 512)
+            oracle_steps = getattr(cfg, "oracle_steps", 15)
+            oracle_stride = getattr(cfg, "oracle_stride", None)
+            oracle_tol = getattr(cfg, "oracle_tol", 1e-6)
+            oracle_warmstart = getattr(cfg, "oracle_warmstart", True)
+            path_length_norm = getattr(cfg, "path_length_norm", "L2")
+            lambda_reg = getattr(cfg, "lambda_reg", 0.0)
+
             self.oracle = RollingOracle(
                 dim=dim,
                 window_W=oracle_window_W,
@@ -160,57 +168,66 @@ class MemoryPair:
         reg_term = 0.5 * lambda_reg * float(np.dot(self.theta, self.theta))
         return base_loss + reg_term
 
-    def _compute_regularized_gradient(self, x: np.ndarray, pred: float, y: float) -> np.ndarray:
+    def _compute_regularized_gradient(
+        self, x: np.ndarray, pred: float, y: float
+    ) -> np.ndarray:
         """Compute regularized gradient: grad_l + lambda_reg * theta"""
         base_grad = (pred - y) * x  # gradient of squared loss
         lambda_reg = getattr(self.cfg, "lambda_reg", 0.0) if self.cfg else 0.0
         reg_grad = lambda_reg * self.theta
-        
+
         # Add bounds to prevent extreme gradients
         total_grad = base_grad + reg_grad
         grad_norm = np.linalg.norm(total_grad)
         if grad_norm > 100.0:  # Clamp very large gradients
             total_grad = total_grad * (100.0 / grad_norm)
-            
+
         return total_grad
 
-    def _update_lambda_estimate(self, g_old: np.ndarray, g_new: np.ndarray, 
-                                theta_old: np.ndarray, theta_new: np.ndarray) -> None:
+    def _update_lambda_estimate(
+        self,
+        g_old: np.ndarray,
+        g_new: np.ndarray,
+        theta_old: np.ndarray,
+        theta_new: np.ndarray,
+    ) -> None:
         """Update online lambda estimate using secant method + EMA"""
         # Compute raw secant estimate
         diff_w = theta_new - theta_old
         diff_g = g_new - g_old
-        
+
         denom = float(np.dot(diff_w, diff_w))
         if denom <= 1e-12:
             self.lambda_raw = None
             return
-        
+
         num = float(np.dot(diff_g, diff_w))
         lambda_raw = max(num / denom, 0.0)
-        
+
         # Apply bounds
         if self.cfg:
             bounds = getattr(self.cfg, "lambda_est_bounds", [1e-8, 1e6])
             lambda_raw = float(np.clip(lambda_raw, bounds[0], bounds[1]))
-        
+
         self.lambda_raw = lambda_raw
-        
+
         # EMA smoothing
         if self.cfg:
             beta = getattr(self.cfg, "lambda_est_beta", 0.1)
         else:
             beta = 0.1
-            
+
         if self.lambda_est is None:
             self.lambda_est = lambda_raw
         else:
             self.lambda_est = (1 - beta) * self.lambda_est + beta * lambda_raw
-            
+
         # Update stability counter
-        threshold = getattr(self.cfg, "lambda_min_threshold", 1e-6) if self.cfg else 1e-6
+        threshold = (
+            getattr(self.cfg, "lambda_min_threshold", 1e-6) if self.cfg else 1e-6
+        )
         K = getattr(self.cfg, "lambda_stability_K", 100) if self.cfg else 100
-        
+
         if self.lambda_est > threshold:
             self.sc_stable += 1
         else:
@@ -253,13 +270,13 @@ class MemoryPair:
         # 4. Compute L-BFGS direction with step-size
         direction = self.lbfgs.direction(g_old, calibrator=self.calibrator)
         self.d_norm = float(np.linalg.norm(direction))
-        
+
         # Apply trust region clipping if needed
-        d_max = getattr(self.cfg, "d_max", float('inf')) if self.cfg else float('inf')
+        d_max = getattr(self.cfg, "d_max", float("inf")) if self.cfg else float("inf")
         if self.d_norm > d_max:
             direction = direction * (d_max / self.d_norm)
             self.d_norm = d_max
-            
+
         s = self.eta_t * direction
         theta_prev = self.theta
         theta_new = theta_prev + s
@@ -268,11 +285,11 @@ class MemoryPair:
         pred_new = float(theta_new @ x)
         g_new = self._compute_regularized_gradient(x, pred_new, y)
         y_vec = g_new - g_old
-        
+
         # Track pair admission (will be implemented in lbfgs.py)
         self.pair_admitted, self.pair_damped = self.lbfgs.add_pair(s, y_vec)
         self.theta = theta_new
-        
+
         # Add parameter bounds to prevent extreme values
         theta_norm = np.linalg.norm(self.theta)
         if theta_norm > 10.0:  # Reasonable bound for parameters
@@ -391,13 +408,13 @@ class MemoryPair:
         # 5. Compute L-BFGS direction with step-size
         direction = self.lbfgs.direction(g_old, calibrator=self.calibrator)
         self.d_norm = float(np.linalg.norm(direction))
-        
+
         # Apply trust region clipping if needed
-        d_max = getattr(self.cfg, "d_max", float('inf')) if self.cfg else float('inf')
+        d_max = getattr(self.cfg, "d_max", float("inf")) if self.cfg else float("inf")
         if self.d_norm > d_max:
             direction = direction * (d_max / self.d_norm)
             self.d_norm = d_max
-            
+
         s = self.eta_t * direction
         theta_prev = self.theta
         theta_new = theta_prev + s
@@ -406,11 +423,11 @@ class MemoryPair:
         pred_new = float(theta_new @ x)
         g_new = self._compute_regularized_gradient(x, pred_new, y)
         y_vec = g_new - g_old
-        
+
         # Track pair admission (will be implemented in lbfgs.py)
         self.pair_admitted, self.pair_damped = self.lbfgs.add_pair(s, y_vec)
         self.theta = theta_new
-        
+
         # Add parameter bounds to prevent extreme values
         theta_norm = np.linalg.norm(self.theta)
         if theta_norm > 10.0:  # Reasonable bound for parameters
@@ -434,11 +451,16 @@ class MemoryPair:
             self.odometer.observe(g_old, self.theta)
 
         # Update oracle if enabled (only for insert events)
-        if self.oracle is not None and self.phase in [Phase.LEARNING, Phase.INTERLEAVING]:
+        if self.oracle is not None and self.phase in [
+            Phase.LEARNING,
+            Phase.INTERLEAVING,
+        ]:
             oracle_refreshed = self.oracle.maybe_update(x, y, self.theta)
             self.oracle.update_regret_accounting(x, y, self.theta)
             if oracle_refreshed:
-                print(f"[Oracle] Refreshed at event {self.events_seen}, P_T_est = {self.oracle.P_T_est:.4f}")
+                print(
+                    f"[Oracle] Refreshed at event {self.events_seen}, P_T_est = {self.oracle.P_T_est:.4f}"
+                )
 
         # 4. Handle state transitions
         if (
@@ -531,10 +553,10 @@ class MemoryPair:
         """Check whether strong-convexity estimate is reliable."""
         if not self.cfg or not getattr(self.cfg, "strong_convexity", False):
             return False
-        
+
         threshold = getattr(self.cfg, "lambda_min_threshold", 1e-6)
         K = getattr(self.cfg, "lambda_stability_K", 100)
-        
+
         return (
             self.lambda_est is not None
             and self.lambda_est > threshold
@@ -555,21 +577,21 @@ class MemoryPair:
     def get_metrics_dict(self) -> dict:
         """Get dictionary of current metrics for logging."""
         metrics = {
-            'lambda_est': self.lambda_est,
-            'lambda_raw': self.lambda_raw,
-            'sc_stable': self.sc_stable,
-            'pair_admitted': self.pair_admitted,
-            'pair_damped': self.pair_damped,
-            'd_norm': self.d_norm,
-            'eta_t': self.eta_t,
-            'sc_active': self.sc_active,
+            "lambda_est": self.lambda_est,
+            "lambda_raw": self.lambda_raw,
+            "sc_stable": self.sc_stable,
+            "pair_admitted": self.pair_admitted,
+            "pair_damped": self.pair_damped,
+            "d_norm": self.d_norm,
+            "eta_t": self.eta_t,
+            "sc_active": self.sc_active,
         }
-        
+
         # Add oracle metrics if oracle is enabled
         if self.oracle is not None:
             oracle_metrics = self.oracle.get_oracle_metrics()
             metrics.update(oracle_metrics)
-            
+
         return metrics
 
     def _check_recalibration_trigger(self) -> None:
@@ -633,7 +655,11 @@ class LambdaEstimator:
         self.ema: Optional[float] = None
 
     def update(
-        self, g_prev: np.ndarray, g_curr: np.ndarray, w_prev: np.ndarray, w_curr: np.ndarray
+        self,
+        g_prev: np.ndarray,
+        g_curr: np.ndarray,
+        w_prev: np.ndarray,
+        w_curr: np.ndarray,
     ) -> Optional[float]:
         diff_w = w_curr - w_prev
         denom = float(np.dot(diff_w, diff_w))
@@ -647,5 +673,3 @@ class LambdaEstimator:
             self.ema = self.beta * self.ema + (1 - self.beta) * lam
         self.ema = float(np.clip(self.ema, self.floor, self.cap))
         return self.ema
-
-
