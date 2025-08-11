@@ -101,6 +101,42 @@ from runner import ExperimentRunner, ALGO_MAP
     default=50,
     help="Number of sensitivity samples for RDP calibration.",
 )
+@click.option(
+    "--comparator",
+    type=click.Choice(["static", "dynamic"]),
+    default="dynamic",
+    help="Comparator type: static (fixed w_0*) or dynamic (rolling oracle w_t*).",
+)
+@click.option(
+    "--drift-threshold",
+    type=float,
+    default=0.1,
+    help="Threshold for drift detection (relative P_T increase).",
+)
+@click.option(
+    "--drift-kappa",
+    type=float,
+    default=0.5,
+    help="Learning rate boost factor during drift: η_t *= (1 + κ).",
+)
+@click.option(
+    "--drift-window",
+    type=int,
+    default=10,
+    help="Duration of learning rate boost in steps after drift detection.",
+)
+@click.option(
+    "--enable-oracle",
+    is_flag=True,
+    default=False,
+    help="Enable oracle/comparator functionality for regret decomposition.",
+)
+@click.option(
+    "--drift-adaptation",
+    is_flag=True,
+    default=False,
+    help="Enable drift-responsive learning rate adaptation.",
+)
 def main(**kwargs):
     """Run deletion capacity experiment with configurable privacy accountant."""
     # Create config from CLI arguments

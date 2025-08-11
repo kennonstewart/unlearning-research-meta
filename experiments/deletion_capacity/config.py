@@ -79,6 +79,14 @@ class Config:
     window_erm: bool = False
     online_standardize: bool = False
 
+    # Comparator and drift configuration
+    comparator: str = "dynamic"  # "static" or "dynamic" (mapped from --comparator)
+    enable_oracle: bool = False  # Enable oracle/comparator functionality
+    drift_threshold: float = 0.1  # Threshold for drift detection
+    drift_kappa: float = 0.5  # LR boost factor (1 + kappa)
+    drift_window: int = 10  # Duration of LR boost in steps
+    drift_adaptation: bool = False  # Enable drift-responsive learning rate
+
     @property
     def gamma_insert(self) -> float:
         """Gamma budget allocated to insertions (learning)."""
