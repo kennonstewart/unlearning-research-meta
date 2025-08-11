@@ -143,11 +143,11 @@ class MemoryPair:
         # Oracle for dynamic regret tracking (optional)
         self.oracle: Optional[Union[RollingOracle, "StaticOracle"]] = None
         if cfg and getattr(cfg, "enable_oracle", False):
-            comparator_type = getattr(cfg, "comparator_type", "dynamic")
+            comparator_type = getattr(cfg, "comparator", "dynamic")
             
             if comparator_type == "static":
                 # Import here to avoid circular imports
-                from comparators import StaticOracle
+                from .comparators import StaticOracle
                 lambda_reg = getattr(cfg, "lambda_reg", 0.0)
                 self.oracle = StaticOracle(dim=dim, lambda_reg=lambda_reg, cfg=cfg)
             else:
@@ -174,7 +174,10 @@ class MemoryPair:
                 
         # Drift-responsive rate adaptation
         self.drift_adaptation_enabled = getattr(cfg, "drift_adaptation", False) if cfg else False
-        self.drift_rate_boost = getattr(cfg, "drift_rate_boost", 1.5) if cfg else 1.5
+        self.drift_kappa = getattr(cfg, "drift_kappa", 0.5) if cfg else 0.5  # (1 + kappa) factor
+        self.drift_window = getattr(cfg, "drift_window", 10) if cfg else 10  # Duration in steps
+        self.drift_boost_remaining = 0  # Steps remaining for current boost
+        self.base_eta_t = 0.0  # Store base learning rate for boost calculation
 
     def _compute_regularized_loss(self, pred: float, y: float) -> float:
         """Compute regularized loss: l(pred, y) + (lambda_reg/2) * ||theta||^2"""
@@ -578,28 +581,39 @@ class MemoryPair:
             D_bound = getattr(self.cfg, "D_bound", 1.0) if self.cfg else 1.0
         eta_max = getattr(self.cfg, "eta_max", 1.0) if self.cfg else 1.0
 
+        # Base step size: strongly convex η_t = 1/(λ * t) or AdaGrad
         if self._lambda_is_stable():
             # Strong convexity step size: 1/(lambda * t) but with safeguards
             lambda_safe = max(self.lambda_est, 1e-6)  # Prevent division by tiny numbers
             t_safe = max(self.t, 1)
-            self.eta_t = 1.0 / (lambda_safe * t_safe)
+            self.base_eta_t = 1.0 / (lambda_safe * t_safe)
             self.sc_active = True
         else:
-            self.eta_t = D_bound / np.sqrt(self.S_scalar + eps)
+            self.base_eta_t = D_bound / np.sqrt(self.S_scalar + eps)
             self.sc_active = False
 
-        self.eta_t = min(self.eta_t, eta_max)
+        self.base_eta_t = min(self.base_eta_t, eta_max)
         
-        # Apply drift-responsive rate adaptation
+        # Check for drift detection and apply LR nudge
         if (self.drift_adaptation_enabled and 
             self.oracle is not None and 
             hasattr(self.oracle, 'is_drift_detected') and
             self.oracle.is_drift_detected()):
-            # Boost learning rate when drift is detected
-            self.eta_t *= self.drift_rate_boost
-            self.eta_t = min(self.eta_t, eta_max)  # Still respect max limit
-            # Reset drift flag after adaptation
+            # Start new drift boost: temporarily multiply η_t by (1 + κ) for K steps
+            self.drift_boost_remaining = self.drift_window
             self.oracle.reset_drift_flag()
+            print(f"[MemoryPair] Drift detected at t={self.t}, applying LR boost: "
+                  f"η_t *= (1 + {self.drift_kappa}) for {self.drift_window} steps")
+        
+        # Apply drift boost if active
+        if self.drift_boost_remaining > 0:
+            self.eta_t = self.base_eta_t * (1.0 + self.drift_kappa)
+            self.drift_boost_remaining -= 1
+        else:
+            self.eta_t = self.base_eta_t
+            
+        # Final cap to stability
+        self.eta_t = min(self.eta_t, eta_max)
 
     def _lambda_is_stable(self) -> bool:
         """Check whether strong-convexity estimate is reliable."""
@@ -637,12 +651,27 @@ class MemoryPair:
             "d_norm": self.d_norm,
             "eta_t": self.eta_t,
             "sc_active": self.sc_active,
+            # Drift-responsive fields
+            "drift_boost_remaining": getattr(self, 'drift_boost_remaining', 0),
+            "base_eta_t": getattr(self, 'base_eta_t', self.eta_t),
         }
 
         # Add oracle metrics if oracle is enabled
         if self.oracle is not None:
             oracle_metrics = self.oracle.get_oracle_metrics()
+            # Map oracle metrics to expected field names from comment feedback
+            oracle_metrics["P_T"] = oracle_metrics.get("P_T_est", 0.0)
+            oracle_metrics["drift_flag"] = oracle_metrics.get("drift_detected", False)
+            if hasattr(self.oracle, "__class__"):
+                oracle_metrics["comparator_type"] = "static" if "Static" in self.oracle.__class__.__name__ else "dynamic"
             metrics.update(oracle_metrics)
+        else:
+            # Default values when oracle is disabled
+            metrics.update({
+                "P_T": 0.0,
+                "drift_flag": False,
+                "comparator_type": "none",
+            })
 
         return metrics
 

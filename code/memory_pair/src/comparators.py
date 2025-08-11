@@ -4,17 +4,69 @@ Dynamic and static comparators for measuring regret decomposition.
 
 Implements both rolling oracle w_t* (dynamic) and fixed oracle w_0* (static) 
 for regret decomposition as per Definition 5.8. Dynamic mode tracks 
-path-length P_T for decomposition: O(G²/λ log T + G P_T).
+path-length P_T for decomposition: R_T^{dyn} ≤ G²/(λc)(1+ln T) + G P_T.
 """
 
 import numpy as np
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
+from abc import ABC, abstractmethod
 
 try:
     from .lbfgs import LimitedMemoryBFGS
 except ImportError:
     from lbfgs import LimitedMemoryBFGS
+
+
+class Comparator(ABC):
+    """
+    Base comparator interface following Definition 5.8.
+    
+    Provides a unified API for both static and dynamic comparators
+    with path-length tracking P_T.
+    """
+    
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset comparator state."""
+        pass
+    
+    @abstractmethod
+    def update_target(self, t: int, *, x: Optional[np.ndarray] = None, 
+                     y: Optional[float] = None, model: Optional[np.ndarray] = None) -> np.ndarray:
+        """
+        Update and return target w_t*.
+        
+        Args:
+            t: Time step
+            x: Feature vector (for dynamic oracle)
+            y: Target value (for dynamic oracle) 
+            model: Current model parameters
+            
+        Returns:
+            Target comparator w_t*
+        """
+        pass
+    
+    @abstractmethod 
+    def path_increment(self, w_star_prev: np.ndarray, w_star_now: np.ndarray) -> float:
+        """
+        Compute path increment ||w_t* - w_{t-1}*||.
+        
+        Args:
+            w_star_prev: Previous comparator w_{t-1}*
+            w_star_now: Current comparator w_t*
+            
+        Returns:
+            Path increment (scalar)
+        """
+        pass
+    
+    @property
+    @abstractmethod
+    def P_T(self) -> float:
+        """Current accumulated path length P_T."""
+        pass
 
 
 @dataclass
@@ -28,7 +80,7 @@ class OracleState:
     path_length_norm: str = "L2"
 
 
-class StaticOracle:
+class StaticOracle(Comparator):
     """
     Static oracle that uses a fixed comparator w_0* from calibration phase.
     
@@ -62,7 +114,54 @@ class StaticOracle:
         self.regret_static = 0.0
         self.events_seen = 0
         
-    def calibrate_with_initial_data(self, data_buffer: List[Tuple[np.ndarray, float]]) -> None:
+        # Path-length tracking (always 0 for static oracle)
+        self._P_T = 0.0
+        
+    def reset(self) -> None:
+        """Reset static oracle state."""
+        self.w_star_fixed = None
+        self.is_calibrated = False
+        self.regret_static = 0.0
+        self.events_seen = 0
+        self._P_T = 0.0
+    
+    def update_target(self, t: int, *, x: Optional[np.ndarray] = None, 
+                     y: Optional[float] = None, model: Optional[np.ndarray] = None) -> np.ndarray:
+        """
+        Return static target w_0*.
+        
+        Args:
+            t: Time step (ignored for static oracle)
+            x: Feature vector (ignored)
+            y: Target value (ignored)
+            model: Current model parameters (ignored)
+            
+        Returns:
+            Fixed comparator w_0*
+        """
+        if not self.is_calibrated or self.w_star_fixed is None:
+            if model is not None:
+                return model.copy()  # Fallback to current model
+            return np.zeros(self.dim)
+        return self.w_star_fixed.copy()
+    
+    def path_increment(self, w_star_prev: np.ndarray, w_star_now: np.ndarray) -> float:
+        """
+        Compute path increment (always 0 for static oracle).
+        
+        Args:
+            w_star_prev: Previous comparator (ignored)
+            w_star_now: Current comparator (ignored)
+            
+        Returns:
+            0.0 (static oracle has no path movement)
+        """
+        return 0.0
+    
+    @property
+    def P_T(self) -> float:
+        """Current accumulated path length (always 0 for static oracle)."""
+        return self._P_T
         """
         Calibrate static oracle using initial data from calibration phase.
         
@@ -171,7 +270,7 @@ class StaticOracle:
         return None
 
 
-class RollingOracle:
+class RollingOracle(Comparator):
     """
     Rolling oracle that maintains w_t* by solving ERM on a sliding window.
 
@@ -244,6 +343,67 @@ class RollingOracle:
         self.P_T_history: List[float] = []  # Track P_T history for drift detection
         self.drift_episodes: List[int] = []  # Track when drift was detected
         self.drift_detected = False
+
+    def reset(self) -> None:
+        """Reset oracle state."""
+        self.window_buffer.clear()
+        self.oracle_state = None
+        self.events_seen = 0
+        self.last_refresh_event = 0
+        self.P_T_est = 0.0
+        self.regret_dynamic = 0.0
+        self.regret_static_term = 0.0
+        self.regret_path_term = 0.0
+        self.w_star_first = None
+        self.oracle_refreshes = 0
+        self.oracle_stalled_count = 0
+        self.P_T_history.clear()
+        self.drift_episodes.clear()
+        self.drift_detected = False
+
+    def update_target(self, t: int, *, x: Optional[np.ndarray] = None, 
+                     y: Optional[float] = None, model: Optional[np.ndarray] = None) -> np.ndarray:
+        """
+        Update and return current target w_t*.
+        
+        Args:
+            t: Time step
+            x: Feature vector for oracle update
+            y: Target value for oracle update
+            model: Current model parameters
+            
+        Returns:
+            Current oracle target w_t*
+        """
+        # For rolling oracle, update with new data if provided
+        if x is not None and y is not None and model is not None:
+            self.maybe_update(x, y, model)
+        
+        # Return current oracle target
+        if self.oracle_state is not None:
+            return self.oracle_state.w_star.copy()
+        elif model is not None:
+            return model.copy()  # Fallback to current model
+        else:
+            return np.zeros(self.dim)
+
+    def path_increment(self, w_star_prev: np.ndarray, w_star_now: np.ndarray) -> float:
+        """
+        Compute path increment ||w_t* - w_{t-1}*||_2.
+        
+        Args:
+            w_star_prev: Previous comparator w_{t-1}*
+            w_star_now: Current comparator w_t*
+            
+        Returns:
+            Path increment using configured norm
+        """
+        return self._compute_path_increment(w_star_prev, w_star_now)
+    
+    @property
+    def P_T(self) -> float:
+        """Current accumulated path length P_T."""
+        return self.P_T_est
 
     def maybe_update(self, x: np.ndarray, y: float, current_theta: np.ndarray) -> bool:
         """
