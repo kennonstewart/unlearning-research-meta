@@ -158,9 +158,9 @@ def bootstrap_phase(
         if events_used < max_events_left and _ < cfg.bootstrap_iters - 1:
             _get_next_event(gen, state)
     
-    # Finalize calibration using learning gamma
+    # Finalize calibration using insertion gamma
     print("[Bootstrap] Finalizing calibration...")
-    model.finalize_calibration(gamma=cfg.gamma_learn)  # Use learning gamma for N*
+    model.finalize_calibration(gamma=cfg.gamma_insert)  # Use insertion gamma for N*
     
     return state, events_used
 

@@ -1,9 +1,11 @@
 # Default parameter grid for deletion capacity experiments
 # Based on the grid specified in AGENTS.md
 
-# Learning ↔ Privacy split
-gamma_learn: [0.9, 0.7, 0.5, 0.3]
-gamma_priv: [0.1, 0.3, 0.5, 0.7]
+# Unified gamma budget
+gamma_bar: [1.0, 1.0, 1.0, 1.0]
+
+# Gamma split ratio (gamma_insert : gamma_delete)
+gamma_split: [0.9, 0.7, 0.5, 0.3]
 
 # Calibrator conservativeness  
 quantile: [0.90]

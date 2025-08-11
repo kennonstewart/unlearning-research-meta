@@ -13,8 +13,8 @@ class Config:
 
     # Dataset and basic params
     dataset: str = "synthetic"
-    gamma_learn: float = 1.0
-    gamma_priv: float = 0.5
+    gamma_bar: float = 1.0
+    gamma_split: float = 0.5  # Fraction of gamma_bar allocated to insertions
     bootstrap_iters: int = 500
     delete_ratio: float = 10.0
     max_events: int = 100_000
@@ -75,6 +75,16 @@ class Config:
     drift_mode: bool = False
     window_erm: bool = False
     online_standardize: bool = False
+
+    @property
+    def gamma_insert(self) -> float:
+        """Gamma budget allocated to insertions (learning)."""
+        return self.gamma_bar * self.gamma_split
+    
+    @property 
+    def gamma_delete(self) -> float:
+        """Gamma budget allocated to deletions (privacy)."""
+        return self.gamma_bar * (1.0 - self.gamma_split)
 
     @classmethod
     def from_cli_args(cls, **kwargs) -> "Config":
