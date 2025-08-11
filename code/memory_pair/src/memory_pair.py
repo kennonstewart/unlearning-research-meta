@@ -291,7 +291,7 @@ class MemoryPair:
 
         return pred
 
-    def finalize_calibration(self, gamma: float) -> None:
+    def finalize_calibration(self, gamma_insert: float) -> None:
         """
         Finalize the calibration phase and transition to LEARNING.
 
@@ -300,7 +300,7 @@ class MemoryPair:
         separately after the warmup phase completes.
 
         Args:
-            gamma: Target average regret per step for theoretical bounds (gamma_learn)
+            gamma_insert: Target average regret per step for theoretical bounds
 
         Raises:
             RuntimeError: If called outside CALIBRATION phase
@@ -311,7 +311,7 @@ class MemoryPair:
             )
 
         # Get calibration statistics
-        stats = self.calibrator.finalize(gamma, self)
+        stats = self.calibrator.finalize(gamma_insert, self)
         self.N_star = stats["N_star"]
 
         # Store stats for later access

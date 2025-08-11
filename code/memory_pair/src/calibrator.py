@@ -187,20 +187,20 @@ class Calibrator:
         # Fallback to conservative constants
         return 1.0, 1.0
 
-    def finalize(self, gamma: float, model) -> Dict[str, Any]:
+    def finalize(self, gamma_insert: float, model) -> Dict[str, Any]:
         """
         Compute final statistics and sample complexity after calibration.
-        
+
         Estimates:
         - G_hat: Robust gradient norm upper bound (quantile of observed norms)
         - D_hat: Hypothesis diameter (max distance from initial parameters, clamped by D_cap)
         - c_hat, C_hat: L-BFGS curvature bounds
         - N_star: Sample complexity = ⌈(G·D·√(cC)/γ)²⌉
-        
+
         Args:
-            gamma: Target average regret per step
+            gamma_insert: Target average regret per step for inserts
             model: Model with L-BFGS optimizer for curvature estimation
-            
+
         Returns:
             Dictionary containing estimated constants and sample complexity
         """
@@ -224,7 +224,7 @@ class Calibrator:
         
         # Compute sample complexity
         numerator = G_hat * D_hat * np.sqrt(self.c_hat * self.C_hat)
-        N_star_raw = (numerator / gamma) ** 2
+        N_star_raw = (numerator / gamma_insert) ** 2
         
         # Add reasonable bounds to prevent overflow
         N_star = int(np.ceil(min(N_star_raw, 1e6)))  # Cap at 1M

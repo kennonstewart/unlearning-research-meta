@@ -23,7 +23,7 @@ The agent then writes one aggregated CSV per grid cell and a master CSV covering
 
 | Group                           | Parameter                   | Values to sweep                           |
 | ------------------------------- | --------------------------- | ----------------------------------------- |
-| **Learning ↔ Privacy split**    | `gamma_learn`, `gamma_priv` | `(0.9,0.1) (0.7,0.3) (0.5,0.5) (0.3,0.7)` |
+| **Gamma allocation**            | `gamma_bar`, `gamma_split` | `1.0×(0.9) 1.0×(0.7) 1.0×(0.5) 1.0×(0.3)` |
 | **Calibrator conservativeness** | `quantile`                  | `0.90 0.95 0.99`                          |
 | **Delete workload**             | `delete_ratio`              | `1 5 10`                                  |
 | **Accountant type**             | `accountant`                | `"default" "rdp"`                         |
@@ -61,7 +61,8 @@ The agent then writes one aggregated CSV per grid cell and a master CSV covering
    import importlib, types, pathlib, textwrap
    cfg_txt = textwrap.dedent(f"""
        dataset      = '{cfg.dataset}'
-       gamma_learn  = {cfg.gamma_learn}
+       gamma_bar    = {cfg.gamma_bar}
+       gamma_split  = {cfg.gamma_split}
        ...
    """)
    pathlib.Path("config_runtime.py").write_text(cfg_txt)

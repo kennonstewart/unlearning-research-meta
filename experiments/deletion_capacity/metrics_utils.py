@@ -31,6 +31,14 @@ def get_privacy_metrics(model) -> Dict[str, Any]:
         })
     
     # Add theoretical metrics from odometer if available
+    if hasattr(model, "cfg"):
+        cfg = model.cfg
+        metrics.update({
+            "gamma_bar": getattr(cfg, "gamma_bar", None),
+            "gamma_insert": getattr(cfg, "gamma_insert", None),
+            "gamma_delete": getattr(cfg, "gamma_delete", None),
+        })
+
     if odometer:
         if hasattr(odometer, "deletion_capacity"):
             metrics["m_theory"] = odometer.deletion_capacity

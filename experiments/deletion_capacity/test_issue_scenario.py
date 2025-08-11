@@ -15,12 +15,12 @@ from config import Config
 def test_original_issue_scenario():
     """Test the original scenario that caused the issue."""
     print("Testing original issue scenario...")
-    print("Parameters: {'gamma_learn': 0.7, 'gamma_priv': 0.3, 'quantile': 0.9, 'delete_ratio': 5, 'accountant': 'legacy', 'eps_total': 1.0}")
+    print("Parameters: {'gamma_bar': 1.0, 'gamma_split': 0.7, 'quantile': 0.9, 'delete_ratio': 5, 'accountant': 'legacy', 'eps_total': 1.0}")
     
     # Create config matching the original issue
     config = Config(
-        gamma_learn=0.7,
-        gamma_priv=0.3,
+        gamma_bar=1.0,
+        gamma_split=0.7,
         quantile=0.9,
         delete_ratio=5,
         accountant="default",  # using default instead of legacy for now
@@ -55,14 +55,14 @@ def test_from_cli_args():
     print("Testing from_cli_args...")
     
     config = Config.from_cli_args(
-        gamma_learn=0.7,
-        gamma_priv=0.3,
+        gamma_bar=1.0,
+        gamma_split=0.7,
         quantile=0.9,
         max_warmup_N=30000
     )
-    
-    assert config.gamma_learn == 0.7
-    assert config.gamma_priv == 0.3
+
+    assert config.gamma_bar == 1.0
+    assert config.gamma_split == 0.7
     assert config.quantile == 0.9
     assert config.max_warmup_N == 30000
     

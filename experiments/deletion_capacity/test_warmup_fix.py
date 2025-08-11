@@ -36,8 +36,8 @@ def test_warmup_with_cap():
     # Create config with small cap
     config = Config(
         dataset="synthetic",
-        gamma_learn=0.1,  # Small gamma to make N* large
-        gamma_priv=0.3,
+        gamma_bar=0.4,
+        gamma_split=0.25,  # insert gamma = 0.1, delete gamma = 0.3
         bootstrap_iters=50,  # Small for quick test
         max_events=10000,
         seeds=1,
@@ -55,7 +55,7 @@ def test_warmup_with_cap():
         eps_total=config.eps_total,
         delta_total=config.delta_total,
         T=config.max_events,
-        gamma=config.gamma_priv,
+        gamma=config.gamma_delete,
         lambda_=config.lambda_,
         delta_b=config.delta_b,
     )
@@ -84,7 +84,7 @@ def test_warmup_with_cap():
     
     # Finalize calibration
     print("Finalizing calibration...")
-    model.finalize_calibration(gamma=config.gamma_learn, max_N=config.max_warmup_N)
+    model.finalize_calibration(gamma_insert=config.gamma_insert, max_N=config.max_warmup_N)
     
     print(f"N* = {model.N_star}")
     

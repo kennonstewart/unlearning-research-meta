@@ -15,7 +15,10 @@ def create_event_record(
     sample_id: str,
     event_id: int,
     segment_id: int = 0,
-    metrics: Optional[Dict[str, Any]] = None
+    metrics: Optional[Dict[str, Any]] = None,
+    gamma_bar: Optional[float] = None,
+    gamma_insert: Optional[float] = None,
+    gamma_delete: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     Create a canonical event record.
@@ -33,6 +36,14 @@ def create_event_record(
     """
     if metrics is None:
         metrics = {}
+
+    # Add gamma parameters for reproducibility if provided
+    if gamma_bar is not None:
+        metrics.setdefault("gamma_bar", gamma_bar)
+    if gamma_insert is not None:
+        metrics.setdefault("gamma_insert", gamma_insert)
+    if gamma_delete is not None:
+        metrics.setdefault("gamma_delete", gamma_delete)
     
     # Compute x_norm if not provided
     if "x_norm" not in metrics:

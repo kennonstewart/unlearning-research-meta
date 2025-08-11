@@ -28,8 +28,8 @@ def create_mock_experiment_output(output_dir: str, seed: int) -> str:
             'G_hat': 2.5,
             'D_hat': 1.8,
             'sigma_step_theory': 0.05,
-            'gamma_learn': 0.9,
-            'gamma_priv': 0.1,
+            'gamma_bar': 1.0,
+            'gamma_split': 0.9,
             'quantile': 0.95,
             'accountant_type': 'legacy'
         }
@@ -52,17 +52,16 @@ def test_integration():
         # Create a minimal grid file
         grid_file = os.path.join(temp_dir, "test_grid.yaml")
         with open(grid_file, 'w') as f:
-            f.write("""
-gamma_learn: [0.9]
-gamma_priv: [0.1]
+            f.write("""gamma_bar: [1.0]
+gamma_split: [0.9]
 quantile: [0.95]
 delete_ratio: [10]
-accountant: ["legacy"]
+accountant: [\"legacy\"]
 eps_total: [1.0]
 """)
         
         # Create mock outputs for testing
-        grid_id = "split_0.9-0.1_q0.95_k10_legacy_eps1.0"
+        grid_id = "gamma1.0_split0.90_q0.95_k10_legacy_eps1.0"
         grid_dir = os.path.join(base_out, "sweep", grid_id)
         os.makedirs(grid_dir, exist_ok=True)
         
@@ -86,8 +85,8 @@ eps_total: [1.0]
                 'G_hat': 2.5,
                 'D_hat': 1.8,
                 'sigma_step_theory': 0.05,
-                'gamma_learn': 0.9,
-                'gamma_priv': 0.1,
+                'gamma_bar': 1.0,
+                'gamma_split': 0.9,
                 'quantile': 0.95,
                 'delete_ratio': 10,
                 'accountant': 'legacy',

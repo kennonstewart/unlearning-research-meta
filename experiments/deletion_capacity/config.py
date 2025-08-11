@@ -13,8 +13,8 @@ class Config:
 
     # Dataset and basic params
     dataset: str = "synthetic"
-    gamma_learn: float = 1.0
-    gamma_priv: float = 0.5
+    gamma_bar: float = 1.5
+    gamma_split: float = 0.5  # Fraction allocated to inserts
     bootstrap_iters: int = 500
     delete_ratio: float = 10.0
     max_events: int = 100_000
@@ -76,6 +76,11 @@ class Config:
     window_erm: bool = False
     online_standardize: bool = False
 
+    def __post_init__(self) -> None:
+        """Compute gamma allocation after initialization."""
+        self.gamma_insert = self.gamma_bar * self.gamma_split
+        self.gamma_delete = self.gamma_bar * (1 - self.gamma_split)
+
     @classmethod
     def from_cli_args(cls, **kwargs) -> "Config":
         """Create Config from CLI arguments, handling alphas parsing."""
@@ -90,6 +95,16 @@ class Config:
                 else:
                     alphas.append(float(alpha_str))
             kwargs["alphas"] = alphas
+
+        # Backward compatibility: allow gamma_learn/gamma_priv
+        if "gamma_learn" in kwargs or "gamma_priv" in kwargs:
+            g_l = float(kwargs.pop("gamma_learn", 0.0))
+            g_p = float(kwargs.pop("gamma_priv", 0.0))
+            total = g_l + g_p
+            if "gamma_bar" not in kwargs:
+                kwargs["gamma_bar"] = total
+            if "gamma_split" not in kwargs:
+                kwargs["gamma_split"] = g_l / total if total > 0 else 0.5
 
         return cls(**kwargs)
 

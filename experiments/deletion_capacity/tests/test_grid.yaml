@@ -1,6 +1,6 @@
 # Test grid with minimal combinations for validation
-gamma_learn: [0.9]
-gamma_priv: [0.1]
+gamma_bar: [1.0]
+gamma_split: [0.9]
 quantile: [0.95]
 delete_ratio: [10]
 accountant: ["legacy"]

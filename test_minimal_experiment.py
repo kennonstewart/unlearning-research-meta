@@ -30,8 +30,8 @@ try:
             cfg.seeds = 1
             cfg.out_dir = temp_dir
             cfg.sens_calib = 0  # Disable to speed up test
-            cfg.gamma_learn = 1.0
-            cfg.gamma_priv = 0.5
+            cfg.gamma_bar = 1.5
+            cfg.gamma_split = 2/3
             
             # All feature flags should be False (default no-op)
             assert cfg.adaptive_geometry == False

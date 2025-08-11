@@ -29,64 +29,29 @@ def load_grid(grid_file: str) -> Dict[str, List[Any]]:
     """Load parameter grid from YAML file."""
     with open(grid_file, 'r') as f:
         grid = yaml.safe_load(f)
-    
-    # Validate that gamma_learn and gamma_priv have same length for pairing
-    if 'gamma_learn' in grid and 'gamma_priv' in grid:
-        if len(grid['gamma_learn']) != len(grid['gamma_priv']):
-            raise ValueError("gamma_learn and gamma_priv must have same length for pairing")
-    
     return grid
 
 
 def generate_combinations(grid: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
-    """Generate all parameter combinations from grid.
-    
-    Special handling: gamma_learn and gamma_priv are paired, not crossed.
-    """
-    # Separate gamma pairs from other parameters
-    gamma_pairs = []
-    other_params = {}
-    
-    if 'gamma_learn' in grid and 'gamma_priv' in grid:
-        gamma_pairs = list(zip(grid['gamma_learn'], grid['gamma_priv']))
-        other_params = {k: v for k, v in grid.items() 
-                       if k not in ['gamma_learn', 'gamma_priv']}
-    else:
-        # No gamma pairs, treat all as independent
-        other_params = grid
-    
-    # Generate combinations
-    if gamma_pairs:
-        # Create combinations with gamma pairs
-        other_combos = list(itertools.product(*other_params.values()))
-        other_keys = list(other_params.keys())
-        
-        combinations = []
-        for gamma_learn, gamma_priv in gamma_pairs:
-            for other_combo in other_combos:
-                combo_dict = {'gamma_learn': gamma_learn, 'gamma_priv': gamma_priv}
-                combo_dict.update(dict(zip(other_keys, other_combo)))
-                combinations.append(combo_dict)
-    else:
-        # No gamma pairs, simple Cartesian product
-        combos = list(itertools.product(*grid.values()))
-        param_names = list(grid.keys())
-        combinations = [dict(zip(param_names, combo)) for combo in combos]
-    
-    return combinations
+    """Generate all parameter combinations from grid."""
+    combos = list(itertools.product(*grid.values()))
+    param_names = list(grid.keys())
+    return [dict(zip(param_names, combo)) for combo in combos]
 
 
 def create_grid_id(params: Dict[str, Any]) -> str:
     """Create a unique identifier for this parameter combination."""
-    # Format: split_0.7-0.3_q0.95_k10_default_eps1.0
-    gamma_l = params.get('gamma_learn', 1.0)
-    gamma_p = params.get('gamma_priv', 0.5)
+    gamma_bar = params.get('gamma_bar', 1.0)
+    gamma_split = params.get('gamma_split', 0.5)
     quantile = params.get('quantile', 0.95)
     delete_ratio = params.get('delete_ratio', 10)
     accountant = params.get('accountant', 'default')
     eps_total = params.get('eps_total', 1.0)
-    
-    return f"split_{gamma_l:.1f}-{gamma_p:.1f}_q{quantile:.2f}_k{delete_ratio:.0f}_{accountant}_eps{eps_total:.1f}"
+
+    return (
+        f"gamma{gamma_bar:.1f}_split{gamma_split:.2f}_q{quantile:.2f}_"
+        f"k{delete_ratio:.0f}_{accountant}_eps{eps_total:.1f}"
+    )
 
 
 def run_single_experiment(params: Dict[str, Any], seed: int, base_out_dir: str, output_granularity: str = "seed") -> str:
@@ -172,8 +137,8 @@ def run_parameter_combination(params: Dict[str, Any], seeds: List[int], base_out
                 
                 # Also add static parameters that don't change
                 mandatory_fields.update({
-                    'gamma_learn': params.get('gamma_learn'),
-                    'gamma_priv': params.get('gamma_priv'),
+                    'gamma_bar': params.get('gamma_bar'),
+                    'gamma_split': params.get('gamma_split'),
                     'quantile': params.get('quantile'),
                     'delete_ratio': params.get('delete_ratio'),
                     'accountant': params.get('accountant'),
@@ -233,25 +198,22 @@ def aggregate_results(sweep_dir: str) -> str:
             # Parse grid_id to extract parameters
             # Format: split_0.7-0.3_q0.95_k10_default
             parts = grid_id.split('_')
-            if len(parts) >= 4:
-                # Parse split
-                split_part = parts[1]  # "0.7-0.3"
-                gamma_parts = split_part.split('-')
-                if len(gamma_parts) == 2:
-                    df['gamma_learn_grid'] = float(gamma_parts[0])
-                    df['gamma_priv_grid'] = float(gamma_parts[1])
-                
-                # Parse quantile
-                q_part = parts[2]  # "q0.95"
+            if len(parts) >= 5:
+                gamma_part = parts[0]
+                split_part = parts[1]
+                if gamma_part.startswith('gamma'):
+                    df['gamma_bar_grid'] = float(gamma_part[5:])
+                if split_part.startswith('split'):
+                    df['gamma_split_grid'] = float(split_part[5:])
+
+                q_part = parts[2]
                 if q_part.startswith('q'):
                     df['quantile_grid'] = float(q_part[1:])
-                
-                # Parse delete ratio
-                k_part = parts[3]  # "k10"
+
+                k_part = parts[3]
                 if k_part.startswith('k'):
                     df['delete_ratio_grid'] = float(k_part[1:])
-                
-                # Parse accountant
+
                 if len(parts) >= 5:
                     df['accountant_grid'] = parts[4]
             

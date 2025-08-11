@@ -160,7 +160,7 @@ def bootstrap_phase(
     
     # Finalize calibration using learning gamma
     print("[Bootstrap] Finalizing calibration...")
-    model.finalize_calibration(gamma=cfg.gamma_learn)  # Use learning gamma for N*
+    model.finalize_calibration(gamma=cfg.gamma_insert)  # Use insert gamma for N*
     
     return state, events_used
 

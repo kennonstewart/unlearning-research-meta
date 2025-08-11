@@ -5,12 +5,12 @@ import numpy as np
 from typing import Dict, Any, Optional, Tuple
 
 
-def N_star_live(S_T, G_hat, D_hat, c_hat, C_hat, gamma_ins) -> int:
+def N_star_live(S_T, G_hat, D_hat, c_hat, C_hat, gamma_insert) -> int:
     """Live sample complexity using cumulative squared gradients."""
     tiny = 1e-12
-    if D_hat is None or c_hat is None or C_hat is None or gamma_ins is None:
+    if D_hat is None or c_hat is None or C_hat is None or gamma_insert is None:
         return 0
-    coeff = D_hat * np.sqrt(c_hat * C_hat) / max(gamma_ins, tiny)
+    coeff = D_hat * np.sqrt(c_hat * C_hat) / max(gamma_insert, tiny)
     # Estimate average gradient squared using S_T and G_hat bound
     if G_hat is None or abs(G_hat) <= tiny:
         avg_sq = S_T
@@ -27,7 +27,7 @@ def m_theory_live(
     D_hat,
     c_hat,
     C_hat,
-    gamma_del,
+    gamma_delete,
     sigma_step,
     delta_B: float = 0.05,
 ) -> int:
@@ -35,7 +35,7 @@ def m_theory_live(
     tiny = 1e-12
     insertion_regret = D_hat * np.sqrt(c_hat * C_hat * S_T)
     coeff = (G_hat * D_hat / max(sigma_step, tiny)) * np.sqrt(2 * np.log(1 / max(delta_B, tiny)))
-    remaining = gamma_del * N - insertion_regret
+    remaining = gamma_delete * N - insertion_regret
     if remaining <= 0:
         return 0
     m = int(np.floor(remaining / max(coeff, tiny)))

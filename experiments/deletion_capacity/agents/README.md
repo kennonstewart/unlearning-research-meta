@@ -24,7 +24,7 @@ The parameter grid is defined in `grids.yaml` (or custom file with `--grid-file`
 
 ### Default Grid Parameters
 
-- **Learning ↔ Privacy split**: `gamma_learn` and `gamma_priv` are paired
+- **Gamma allocation**: `gamma_bar` (total) with `gamma_split` ratio
   - (0.9, 0.1), (0.7, 0.3), (0.5, 0.5), (0.3, 0.7)
 - **Calibrator conservativeness**: `quantile` 
   - 0.90, 0.95, 0.99
@@ -58,7 +58,7 @@ The aggregated `all_runs.csv` contains all per-event logs with additional grid m
 ### Base Columns
 - `event`, `op`, `regret`, `acc` - Standard event data
 - `grid_id`, `seed` - Grid cell identifier and seed number
-- `gamma_learn_grid`, `gamma_priv_grid`, `quantile_grid`, `delete_ratio_grid`, `accountant_grid` - Grid parameters
+- `gamma_bar_grid`, `gamma_split_grid`, `quantile_grid`, `delete_ratio_grid`, `accountant_grid` - Grid parameters
 
 ### Accountant-specific Columns
 - **Legacy accountant**: `eps_spent`, `capacity_remaining`, `eps_step_theory`, `delta_step_theory`

@@ -175,7 +175,7 @@ def main():
             snap.D_hat,
             snap.c_hat,
             snap.C_hat,
-            config.gamma_learn,
+            config.gamma_insert,
         )
         m_live = m_theory_live(
             model.S_scalar,
@@ -184,7 +184,7 @@ def main():
             snap.D_hat,
             snap.c_hat,
             snap.C_hat,
-            config.gamma_priv,
+            config.gamma_delete,
             getattr(model.odometer, "sigma_step", 1.0),
         )
         return {
@@ -227,7 +227,7 @@ def main():
     os.makedirs(runs_dir, exist_ok=True)
 
     print(
-        f"[Config] gamma_learn = {config.gamma_learn}, gamma_priv = {config.gamma_priv}"
+        f"[Config] gamma_bar = {config.gamma_bar}, split = {config.gamma_split:.2f}"
     )
     print(f"[Config] quantile = {config.quantile}, D_cap = {config.D_cap}")
     print(f"[Config] accountant = {config.accountant}")
@@ -257,7 +257,7 @@ def main():
                 rho_total=rho_total,
                 delta_total=config.delta_total,
                 T=config.max_events,
-                gamma=config.gamma_priv,
+                gamma=config.gamma_delete,
                 lambda_=config.lambda_,
                 delta_b=config.delta_b,
                 m_max=config.m_max,
@@ -267,7 +267,7 @@ def main():
                 eps_total=config.eps_total,
                 delta_total=config.delta_total,
                 T=config.max_events,
-                gamma=config.gamma_priv,
+                gamma=config.gamma_delete,
                 lambda_=config.lambda_,
                 delta_b=config.delta_b,
             )
@@ -343,7 +343,7 @@ def main():
         # Finalize calibration using learning gamma
         print("[Bootstrap] Finalizing calibration...")
         model.finalize_calibration(
-            gamma=config.gamma_learn
+            gamma=config.gamma_insert
         )  # Use learning gamma for N*
         N_star = model.N_star
 
@@ -399,7 +399,7 @@ def main():
         )
 
         # NOW finalize odometer after warmup using total expected events
-        print(f"[Warmup] Finalizing odometer with privacy gamma = {config.gamma_priv}")
+        print(f"[Warmup] Finalizing odometer with privacy gamma = {config.gamma_delete}")
         if hasattr(model, "calibration_stats") and model.calibration_stats:
             model.odometer.finalize_with(model.calibration_stats, T_estimate=max_events)
         else:
@@ -543,8 +543,9 @@ def main():
             "C_hat": model.calibration_stats.get("C")
             if hasattr(model, "calibration_stats") and model.calibration_stats
             else None,
-            "gamma_learn": config.gamma_learn,
-            "gamma_priv": config.gamma_priv,
+            "gamma_bar": config.gamma_bar,
+            "gamma_insert": config.gamma_insert,
+            "gamma_delete": config.gamma_delete,
             "quantile": config.quantile,
             "D_cap": config.D_cap,
             "accountant_type": config.accountant,
