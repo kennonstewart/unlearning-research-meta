@@ -146,7 +146,10 @@ class ZCDPAccountant(BaseAccountantStrategy):
                  delta_total: float = 1e-5,
                  **kwargs):
         """Initialize zCDP accountant."""
-        super().__init__(eps_total=eps_total, delta_total=delta_total, **kwargs)
+        # Filter out parameters that ZCDPOdometer doesn't accept
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k not in ['relaxation_factor']}
+        
+        super().__init__(eps_total=eps_total, delta_total=delta_total, **filtered_kwargs)
         
         # Convert (ε, δ)-DP to zCDP: ρ ≈ ε²/(2*log(1/δ))
         rho_total = eps_total**2 / (2 * math.log(1 / delta_total))
@@ -158,7 +161,7 @@ class ZCDPAccountant(BaseAccountantStrategy):
             gamma=self.gamma,
             lambda_=self.lambda_,
             delta_b=self.delta_b,
-            **self._extra_kwargs
+            **{k: v for k, v in self._extra_kwargs.items() if k not in ['relaxation_factor']}
         )
     
     @property
@@ -195,7 +198,10 @@ class EpsDeltaAccountant(BaseAccountantStrategy):
     
     def __init__(self, **kwargs):
         """Initialize (ε, δ)-DP accountant."""
-        super().__init__(**kwargs)
+        # Filter out parameters that PrivacyOdometer doesn't accept
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k not in ['relaxation_factor']}
+        
+        super().__init__(**filtered_kwargs)
         
         self._underlying_odometer = PrivacyOdometer(
             eps_total=self.eps_total,

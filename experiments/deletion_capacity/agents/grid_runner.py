@@ -23,6 +23,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
 from config import Config
 from runner import ExperimentRunner
+from plots import plot_accountant_comparison, plot_accountant_summary_stats, plot_capacity_vs_noise_tradeoff
 
 
 def load_grid(grid_file: str) -> Dict[str, List[Any]]:
@@ -598,6 +599,61 @@ def main():
         expected_accountants = grid.get('accountant', ['legacy'])
         if master_csv:
             validate_schema(master_csv, expected_accountants)
+    
+    # Generate Milestone 5 accountant comparison visualizations
+    try:
+        print("\n=== Generating Milestone 5 Accountant Visualizations ===")
+        
+        vis_dir = os.path.join(args.base_out, "visualizations")
+        os.makedirs(vis_dir, exist_ok=True)
+        
+        # Generate accountant comparison plots if we have multiple accountant types
+        accountants_in_grid = set()
+        for combo in combinations:
+            accountants_in_grid.add(combo.get('accountant', 'default'))
+        
+        if len(accountants_in_grid) > 1:
+            print(f"Generating comparisons for accountants: {accountants_in_grid}")
+            
+            # Plot regret comparison
+            plot_accountant_comparison(
+                data_dir=sweep_dir,
+                out_path=os.path.join(vis_dir, "accountant_regret_comparison.png"),
+                metric="regret"
+            )
+            
+            # Plot capacity comparison  
+            plot_accountant_comparison(
+                data_dir=sweep_dir,
+                out_path=os.path.join(vis_dir, "accountant_capacity_comparison.png"),
+                metric="capacity"
+            )
+            
+            # Plot noise comparison
+            plot_accountant_comparison(
+                data_dir=sweep_dir,
+                out_path=os.path.join(vis_dir, "accountant_noise_comparison.png"),
+                metric="noise"
+            )
+            
+            # Generate summary statistics plots if we have aggregated data
+            if master_csv and os.path.exists(master_csv):
+                plot_accountant_summary_stats(
+                    summary_file=master_csv,
+                    out_path=os.path.join(vis_dir, "accountant_summary_stats.png")
+                )
+                
+                plot_capacity_vs_noise_tradeoff(
+                    summary_file=master_csv,
+                    out_path=os.path.join(vis_dir, "capacity_vs_noise_tradeoff.png")
+                )
+            
+            print(f"✅ Visualizations saved to: {vis_dir}")
+        else:
+            print(f"Skipping visualizations - only one accountant type: {accountants_in_grid}")
+    
+    except Exception as e:
+        print(f"Warning: Failed to generate visualizations: {e}")
     
     print(f"\nGrid search complete!")
     print(f"Results in: {sweep_dir}")

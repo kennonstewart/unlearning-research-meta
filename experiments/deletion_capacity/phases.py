@@ -7,8 +7,25 @@ import numpy as np
 from typing import Tuple, Any, Generator
 from config import Config
 from io_utils import EventLogger
-from metrics import abs_error
-from metrics_utils import get_privacy_metrics
+
+# Import local modules from deletion_capacity experiment directory
+import importlib.util
+import os
+
+# Import abs_error from local metrics module
+_this_dir = os.path.dirname(os.path.abspath(__file__))
+_metrics_path = os.path.join(_this_dir, "metrics.py")
+_metrics_spec = importlib.util.spec_from_file_location("local_metrics", _metrics_path)
+local_metrics = importlib.util.module_from_spec(_metrics_spec)
+_metrics_spec.loader.exec_module(local_metrics)
+abs_error = local_metrics.abs_error
+
+# Import get_privacy_metrics from local metrics_utils module
+_metrics_utils_path = os.path.join(_this_dir, "metrics_utils.py")
+_metrics_utils_spec = importlib.util.spec_from_file_location("local_metrics_utils", _metrics_utils_path)
+local_metrics_utils = importlib.util.module_from_spec(_metrics_utils_spec)
+_metrics_utils_spec.loader.exec_module(local_metrics_utils)
+get_privacy_metrics = local_metrics_utils.get_privacy_metrics
 
 # Add the data loader to path for event parsing
 import sys
