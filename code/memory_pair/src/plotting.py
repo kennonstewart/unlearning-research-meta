@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# /code/memory_pair/src/plotting.py
 """
 Plotting utilities for dynamic regret decomposition visualization.
 """
@@ -6,7 +6,7 @@ Plotting utilities for dynamic regret decomposition visualization.
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Optional
 import os
 
 
@@ -24,11 +24,11 @@ def plot_regret_decomposition(
 ) -> None:
     """
     Plot dynamic regret decomposition into static vs path terms.
-    
+
     Args:
         events: List of event numbers
         regret_static: Static regret term values
-        regret_path: Path regret term values  
+        regret_path: Path regret term values
         P_T_values: Path-length P_T estimates
         oracle_refreshes: Event numbers where oracle was refreshed
         title: Plot title
@@ -38,24 +38,47 @@ def plot_regret_decomposition(
         lambda_param: Regularization parameter for theory bound
     """
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
-    
+
     # Plot 1: Regret decomposition
-    ax1.plot(events, regret_static, label='Static Term (vs first oracle)', 
-             color='blue', linewidth=2)
-    ax1.plot(events, regret_path, label='Path Term (drift component)', 
-             color='red', linewidth=2)
-    
+    ax1.plot(
+        events,
+        regret_static,
+        label="Static Term (vs first oracle)",
+        color="blue",
+        linewidth=2,
+    )
+    ax1.plot(
+        events,
+        regret_path,
+        label="Path Term (drift component)",
+        color="red",
+        linewidth=2,
+    )
+
     total_regret = [s + p for s, p in zip(regret_static, regret_path)]
-    ax1.plot(events, total_regret, label='Total Dynamic Regret', 
-             color='black', linewidth=2, linestyle='--')
-    
+    ax1.plot(
+        events,
+        total_regret,
+        label="Total Dynamic Regret",
+        color="black",
+        linewidth=2,
+        linestyle="--",
+    )
+
     # Add oracle refresh markers
     if oracle_refreshes:
         for refresh_event in oracle_refreshes:
             if refresh_event <= max(events):
-                ax1.axvline(x=refresh_event, color='green', alpha=0.7, 
-                           linestyle=':', label='Oracle Refresh' if refresh_event == oracle_refreshes[0] else "")
-    
+                ax1.axvline(
+                    x=refresh_event,
+                    color="green",
+                    alpha=0.7,
+                    linestyle=":",
+                    label="Oracle Refresh"
+                    if refresh_event == oracle_refreshes[0]
+                    else "",
+                )
+
     # Show theoretical bound if requested
     if show_theory_bound and len(events) > 0:
         T_values = np.array(events)
@@ -64,38 +87,50 @@ def plot_regret_decomposition(
         if len(P_T_values) == len(T_values):
             path_term = G * np.array(P_T_values)
             theory_bound = log_term + path_term
-            ax1.plot(events, theory_bound, label='Theory: O(G²/λ log T + G·P_T)', 
-                    color='orange', linewidth=1, linestyle='-.')
-    
-    ax1.set_xlabel('Event Number')
-    ax1.set_ylabel('Regret')
-    ax1.set_title(f'{title} - Regret Terms')
+            ax1.plot(
+                events,
+                theory_bound,
+                label="Theory: O(G²/λ log T + G·P_T)",
+                color="orange",
+                linewidth=1,
+                linestyle="-.",
+            )
+
+    ax1.set_xlabel("Event Number")
+    ax1.set_ylabel("Regret")
+    ax1.set_title(f"{title} - Regret Terms")
     ax1.legend()
     ax1.grid(True, alpha=0.3)
-    
+
     # Plot 2: Path-length P_T
-    ax2.plot(events, P_T_values, label='Path-Length P_T', 
-             color='purple', linewidth=2)
-    
+    ax2.plot(events, P_T_values, label="Path-Length P_T", color="purple", linewidth=2)
+
     # Add oracle refresh markers
     if oracle_refreshes:
         for refresh_event in oracle_refreshes:
             if refresh_event <= max(events):
-                ax2.axvline(x=refresh_event, color='green', alpha=0.7, 
-                           linestyle=':', label='Oracle Refresh' if refresh_event == oracle_refreshes[0] else "")
-    
-    ax2.set_xlabel('Event Number')
-    ax2.set_ylabel('Path-Length P_T')
-    ax2.set_title(f'{title} - Path-Length Evolution')
+                ax2.axvline(
+                    x=refresh_event,
+                    color="green",
+                    alpha=0.7,
+                    linestyle=":",
+                    label="Oracle Refresh"
+                    if refresh_event == oracle_refreshes[0]
+                    else "",
+                )
+
+    ax2.set_xlabel("Event Number")
+    ax2.set_ylabel("Path-Length P_T")
+    ax2.set_title(f"{title} - Path-Length Evolution")
     ax2.legend()
     ax2.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
-    
+
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
         print(f"Plot saved to {save_path}")
-    
+
     plt.show()
 
 
@@ -109,7 +144,7 @@ def plot_oracle_diagnostics(
 ) -> None:
     """
     Plot oracle diagnostic information.
-    
+
     Args:
         events: Event numbers
         oracle_objectives: Oracle objective values at refresh
@@ -119,34 +154,34 @@ def plot_oracle_diagnostics(
         save_path: Optional save path
     """
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 12))
-    
+
     # Plot 1: Oracle objective values
-    ax1.plot(events, oracle_objectives, 'o-', color='blue', markersize=4)
-    ax1.set_xlabel('Event Number')
-    ax1.set_ylabel('Oracle Objective')
-    ax1.set_title(f'{title} - Oracle Objective Values')
+    ax1.plot(events, oracle_objectives, "o-", color="blue", markersize=4)
+    ax1.set_xlabel("Event Number")
+    ax1.set_ylabel("Oracle Objective")
+    ax1.set_title(f"{title} - Oracle Objective Values")
     ax1.grid(True, alpha=0.3)
-    
+
     # Plot 2: Oracle parameter norms
-    ax2.plot(events, oracle_w_norms, 's-', color='red', markersize=4)
-    ax2.set_xlabel('Event Number')
-    ax2.set_ylabel('||w_star|| (Oracle Norm)')
-    ax2.set_title(f'{title} - Oracle Parameter Norms')
+    ax2.plot(events, oracle_w_norms, "s-", color="red", markersize=4)
+    ax2.set_xlabel("Event Number")
+    ax2.set_ylabel("||w_star|| (Oracle Norm)")
+    ax2.set_title(f"{title} - Oracle Parameter Norms")
     ax2.grid(True, alpha=0.3)
-    
+
     # Plot 3: Window sizes
-    ax3.plot(events, window_sizes, '^-', color='green', markersize=4)
-    ax3.set_xlabel('Event Number')
-    ax3.set_ylabel('Window Size')
-    ax3.set_title(f'{title} - Oracle Window Sizes')
+    ax3.plot(events, window_sizes, "^-", color="green", markersize=4)
+    ax3.set_xlabel("Event Number")
+    ax3.set_ylabel("Window Size")
+    ax3.set_title(f"{title} - Oracle Window Sizes")
     ax3.grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
-    
+
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
         print(f"Oracle diagnostics saved to {save_path}")
-    
+
     plt.show()
 
 
@@ -157,27 +192,27 @@ def create_regret_decomposition_from_csv(
 ) -> None:
     """
     Create regret decomposition plots from a CSV file with oracle metrics.
-    
+
     Args:
         csv_path: Path to CSV file with oracle metrics
         title: Optional custom title
         save_dir: Optional directory to save plots
     """
     df = pd.read_csv(csv_path)
-    
+
     # Check for required columns
-    required_cols = ['event', 'regret_static_term', 'regret_path_term', 'P_T_est']
+    required_cols = ["event", "regret_static_term", "regret_path_term", "P_T_est"]
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
         print(f"Warning: Missing required columns: {missing_cols}")
         return
-    
+
     # Extract data
-    events = df['event'].tolist()
-    regret_static = df['regret_static_term'].tolist()
-    regret_path = df['regret_path_term'].tolist()
-    P_T_values = df['P_T_est'].tolist()
-    
+    events = df["event"].tolist()
+    regret_static = df["regret_static_term"].tolist()
+    regret_path = df["regret_path_term"].tolist()
+    P_T_values = df["P_T_est"].tolist()
+
     # Find oracle refresh events (where P_T increases)
     oracle_refreshes = []
     prev_P_T = 0
@@ -185,18 +220,18 @@ def create_regret_decomposition_from_csv(
         if P_T > prev_P_T:
             oracle_refreshes.append(events[i])
             prev_P_T = P_T
-    
+
     # Generate title
     if title is None:
         title = f"Dynamic Regret Decomposition - {os.path.basename(csv_path)}"
-    
+
     # Save path
     save_path = None
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
         base_name = os.path.splitext(os.path.basename(csv_path))[0]
         save_path = os.path.join(save_dir, f"{base_name}_regret_decomposition.png")
-    
+
     # Create plot
     plot_regret_decomposition(
         events=events,
@@ -207,18 +242,25 @@ def create_regret_decomposition_from_csv(
         title=title,
         save_path=save_path,
     )
-    
+
     # Oracle diagnostics if available
-    if all(col in df.columns for col in ['oracle_objective', 'oracle_w_norm', 'window_size']):
-        oracle_events = df[df['oracle_objective'].notna()]['event'].tolist()
-        oracle_objectives = df[df['oracle_objective'].notna()]['oracle_objective'].tolist()
-        oracle_w_norms = df[df['oracle_w_norm'].notna()]['oracle_w_norm'].tolist()
-        window_sizes = df[df['window_size'].notna()]['window_size'].tolist()
-        
+    if all(
+        col in df.columns
+        for col in ["oracle_objective", "oracle_w_norm", "window_size"]
+    ):
+        oracle_events = df[df["oracle_objective"].notna()]["event"].tolist()
+        oracle_objectives = df[df["oracle_objective"].notna()][
+            "oracle_objective"
+        ].tolist()
+        oracle_w_norms = df[df["oracle_w_norm"].notna()]["oracle_w_norm"].tolist()
+        window_sizes = df[df["window_size"].notna()]["window_size"].tolist()
+
         diag_save_path = None
         if save_dir:
-            diag_save_path = os.path.join(save_dir, f"{base_name}_oracle_diagnostics.png")
-        
+            diag_save_path = os.path.join(
+                save_dir, f"{base_name}_oracle_diagnostics.png"
+            )
+
         plot_oracle_diagnostics(
             events=oracle_events,
             oracle_objectives=oracle_objectives,
@@ -237,39 +279,41 @@ def analyze_regret_decomposition(
 ) -> Dict[str, float]:
     """
     Analyze regret decomposition and return summary statistics.
-    
+
     Args:
         regret_static: Static regret term values
         regret_path: Path regret term values
         P_T_values: Path-length values
         events: Event numbers
-        
+
     Returns:
         Dictionary with analysis results
     """
     if not regret_static or not regret_path or not P_T_values:
         return {}
-    
+
     total_regret = [s + p for s, p in zip(regret_static, regret_path)]
-    
+
     analysis = {
-        'final_static_term': regret_static[-1],
-        'final_path_term': regret_path[-1],
-        'final_total_regret': total_regret[-1],
-        'final_P_T': P_T_values[-1],
-        'path_fraction': abs(regret_path[-1]) / (abs(total_regret[-1]) + 1e-10),
-        'max_P_T': max(P_T_values),
-        'avg_path_increment': P_T_values[-1] / len(P_T_values) if P_T_values[-1] > 0 else 0,
-        'total_events': len(events),
+        "final_static_term": regret_static[-1],
+        "final_path_term": regret_path[-1],
+        "final_total_regret": total_regret[-1],
+        "final_P_T": P_T_values[-1],
+        "path_fraction": abs(regret_path[-1]) / (abs(total_regret[-1]) + 1e-10),
+        "max_P_T": max(P_T_values),
+        "avg_path_increment": P_T_values[-1] / len(P_T_values)
+        if P_T_values[-1] > 0
+        else 0,
+        "total_events": len(events),
     }
-    
+
     # Check if path term dominates (indicating significant drift)
-    analysis['path_dominates'] = analysis['path_fraction'] > 0.5
-    
+    analysis["path_dominates"] = analysis["path_fraction"] > 0.5
+
     # Estimate drift rate
     if len(events) > 1 and P_T_values[-1] > 0:
-        analysis['drift_rate_estimate'] = P_T_values[-1] / (events[-1] - events[0])
+        analysis["drift_rate_estimate"] = P_T_values[-1] / (events[-1] - events[0])
     else:
-        analysis['drift_rate_estimate'] = 0.0
-    
+        analysis["drift_rate_estimate"] = 0.0
+
     return analysis

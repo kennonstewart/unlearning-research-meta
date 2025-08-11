@@ -35,6 +35,9 @@ class Config:
     alphas: List[float] = field(
         default_factory=lambda: [1.5, 2, 3, 4, 8, 16, 32, 64, float("inf")]
     )
+    
+    # Relaxed accountant specific parameters
+    relaxation_factor: float = 0.8  # Factor to reduce noise for relaxed mode
 
     # Adaptive recalibration
     ema_beta: float = 0.9

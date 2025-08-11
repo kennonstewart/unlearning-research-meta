@@ -40,6 +40,16 @@ def get_privacy_metrics(model) -> Dict[str, Any]:
     if odometer is None:
         return metrics
     
+    # Try to get metrics from new accountant strategy interface first
+    if hasattr(odometer, "metrics"):
+        try:
+            strategy_metrics = odometer.metrics()
+            metrics.update(strategy_metrics)
+            return metrics
+        except Exception:
+            pass  # Fallback to legacy method
+    
+    # Legacy fallback: extract metrics directly from odometer attributes
     # Common metrics for both accountant types
     if hasattr(odometer, "eps_spent"):
         metrics["eps_spent"] = odometer.eps_spent
@@ -69,6 +79,13 @@ def get_privacy_metrics(model) -> Dict[str, Any]:
         metrics["eps_step_theory"] = odometer.eps_step
     if hasattr(odometer, "delta_step"):
         metrics["delta_step_theory"] = odometer.delta_step
+    
+    # Add accountant type if not already present
+    if "accountant_type" not in metrics:
+        if hasattr(odometer, "accountant_type"):
+            metrics["accountant_type"] = odometer.accountant_type
+        else:
+            metrics["accountant_type"] = "unknown"
     
     return metrics
 

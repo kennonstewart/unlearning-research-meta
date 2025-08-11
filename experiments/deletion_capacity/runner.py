@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
 from data_loader import get_rotating_mnist_stream, get_synthetic_linear_stream, parse_event_record
 from memory_pair.src.memory_pair import MemoryPair
 from memory_pair.src.odometer import PrivacyOdometer, ZCDPOdometer, rho_to_epsilon
+from memory_pair.src.accountant_strategies import create_accountant_strategy, StrategyAccountantAdapter
 from memory_pair.src.calibrator import Calibrator
 from baselines import SekhariBatchUnlearning, QiaoHessianFree
 
@@ -183,32 +184,22 @@ class ExperimentRunner:
         return SeedResult(summary=summary, csv_path=csv_path)
     
     def _create_model(self, first_x):
-        """Create model with appropriate accountant."""
-        # Parse alphas for RDP
-        alpha_list = self.cfg.alphas.copy()
+        """Create model with appropriate accountant strategy."""
+        # Create accountant using strategy pattern
+        accountant_strategy = create_accountant_strategy(
+            accountant_type=self.cfg.accountant,
+            eps_total=self.cfg.eps_total,
+            delta_total=self.cfg.delta_total,
+            T=self.cfg.max_events,
+            gamma=self.cfg.gamma_delete,
+            lambda_=self.cfg.lambda_,
+            delta_b=self.cfg.delta_b,
+            m_max=self.cfg.m_max,
+            relaxation_factor=getattr(self.cfg, 'relaxation_factor', 0.8),
+        )
         
-        # Create accountant
-        if self.cfg.accountant == "rdp":
-            # Convert eps_total to rho_total for zCDP
-            rho_total = self.cfg.eps_total**2 / (2 * math.log(1 / self.cfg.delta_total))
-            odometer = ZCDPOdometer(
-                rho_total=rho_total,
-                delta_total=self.cfg.delta_total,
-                T=self.cfg.max_events,
-                gamma=self.cfg.gamma_delete,
-                lambda_=self.cfg.lambda_,
-                delta_b=self.cfg.delta_b,
-                m_max=self.cfg.m_max,
-            )
-        else:  # legacy
-            odometer = PrivacyOdometer(
-                eps_total=self.cfg.eps_total,
-                delta_total=self.cfg.delta_total,
-                T=self.cfg.max_events,
-                gamma=self.cfg.gamma_delete,
-                lambda_=self.cfg.lambda_,
-                delta_b=self.cfg.delta_b,
-            )
+        # Wrap in adapter for backward compatibility
+        odometer = StrategyAccountantAdapter(accountant_strategy)
         
         # Create calibrator
         calibrator = Calibrator(

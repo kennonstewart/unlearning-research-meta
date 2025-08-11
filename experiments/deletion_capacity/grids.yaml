@@ -13,8 +13,11 @@ quantile: [0.90]
 # Delete workload
 delete_ratio: [1, 5]
 
-# Accountant type
-accountant: ["legacy"]
+# Accountant type - now supports all Milestone 5 accountant strategies
+accountant: ["eps_delta", "zcdp", "relaxed"]
 
 # Privacy budget (optional)
 eps_total: [1.0]
+
+# Relaxation factor for relaxed accountant
+relaxation_factor: [0.8]

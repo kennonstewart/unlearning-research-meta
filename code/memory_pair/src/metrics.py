@@ -1,3 +1,7 @@
+# /code/memory_pair/src/metrics.py
+# Metrics for evaluating regret in prediction tasks.
+
+
 def regret(prediction: float, target: float) -> float:
     """
     Calculates the squared error regret for a single prediction.

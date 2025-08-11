@@ -55,9 +55,9 @@ from runner import ExperimentRunner, ALGO_MAP
 )
 @click.option(
     "--accountant",
-    type=click.Choice(["rdp", "legacy"]),
-    default="rdp",
-    help="Privacy accountant type.",
+    type=click.Choice(["default", "legacy", "eps_delta", "zcdp", "rdp", "relaxed"]),
+    default="default",
+    help="Privacy accountant type: default/legacy/eps_delta=(ε,δ)-DP, zcdp/rdp=zCDP, relaxed=experimental.",
 )
 @click.option(
     "--alphas",
@@ -88,6 +88,12 @@ from runner import ExperimentRunner, ALGO_MAP
     type=int,
     default=None,
     help="Upper bound for deletion capacity binary search.",
+)
+@click.option(
+    "--relaxation-factor",
+    type=float,
+    default=0.8,
+    help="Relaxation factor for relaxed accountant (0.8 = 20% less noise).",
 )
 @click.option(
     "--sens-calib",
