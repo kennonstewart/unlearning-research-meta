@@ -132,18 +132,18 @@ def bootstrap_phase(
             "acc": acc_val,
         }
         
-        # Add default privacy metrics for calibration phase
+        # Add privacy metrics from accountant strategy
         odometer = getattr(model, "odometer", None)
-        if cfg.accountant == "rdp" and odometer:
-            base_log_entry.update({
-                "eps_converted": 0.0,
-                "delta_total": odometer.delta_total,
-                "eps_remaining": odometer.eps_total,
-            })
+        if odometer and hasattr(odometer, "metrics"):
+            privacy_metrics = odometer.metrics()
+            base_log_entry.update(privacy_metrics)
         elif odometer:
+            # Fallback for legacy odometers
             base_log_entry.update({
+                "accountant_type": getattr(cfg, "accountant", "unknown"),
                 "eps_spent": 0.0,
                 "capacity_remaining": float("inf"),
+                "sigma_step_theory": None,
             })
         
         # Create extended log entry with new columns
