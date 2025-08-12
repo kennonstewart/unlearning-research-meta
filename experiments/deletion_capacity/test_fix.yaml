@@ -1,0 +1,7 @@
+# Test grid with unified gamma parameters for testing the fix
+gamma_bar: [1.0, 1.0]
+gamma_split: [0.3, 0.7]
+quantile: [0.95]
+delete_ratio: [5]
+accountant: ["eps_delta"]
+eps_total: [0.5]

@@ -309,7 +309,12 @@ class DeletionCapacityAuditor:
     
     def _a2_mandatory_fields(self) -> Dict[str, Any]:
         """A2: Check presence of mandatory fields."""
-        mandatory_fields = ['G_hat', 'D_hat', 'sigma_step_theory']
+        # Mandatory fields from problem statement
+        mandatory_fields = [
+            'gamma_bar', 'gamma_split', 'accountant', 
+            'G_hat', 'D_hat', 'sigma_step_theory', 
+            'N_star_live', 'm_theory_live', 'blocked_reason'
+        ]
         missing_fields_by_grid = {}
         
         for grid_id, data in self.grid_data.items():

@@ -30,7 +30,7 @@
 - N* errors (>5%): 0
 
 ### A2: Mandatory Fields
-- Required fields: G_hat, D_hat, sigma_step_theory
+- Required fields: gamma_bar, gamma_split, accountant, G_hat, D_hat, sigma_step_theory, N_star_live, m_theory_live, blocked_reason
 - All fields present: ❌
 
 ### A3: Regret Bounds
