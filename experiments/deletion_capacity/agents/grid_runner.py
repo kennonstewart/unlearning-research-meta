@@ -158,30 +158,48 @@ def run_parameter_combination(params: Dict[str, Any], seeds: List[int], base_out
             results = pool.map(run_func, seeds)
             csv_paths = [r for r in results if r is not None]
     
-    # Extract mandatory fields that should be consistent across all seeds
-    mandatory_fields = {}
+    # Ensure ALL mandatory fields that should be consistent across all seeds
+    mandatory_fields = {
+        # Static parameters from grid
+        'gamma_bar': params.get('gamma_bar', np.nan),
+        'gamma_split': params.get('gamma_split', np.nan),
+        'accountant': params.get('accountant', 'unknown'),
+        'quantile': params.get('quantile', np.nan),
+        'delete_ratio': params.get('delete_ratio', np.nan),
+        'eps_total': params.get('eps_total', np.nan),
+        'blocked_reason': "",  # Default to empty string
+        # Calibration/diagnostics fields - will be filled from CSV if available
+        'G_hat': np.nan,
+        'D_hat': np.nan,
+        'c_hat': np.nan,
+        'C_hat': np.nan,
+        'lambda_est': np.nan,
+        'S_scalar': np.nan,
+        # Odometer fields
+        'sigma_step_theory': np.nan,
+        'N_star_live': np.nan,
+        'm_theory_live': np.nan,
+    }
+    
     if csv_paths:
         try:
-            # Read first CSV to extract mandatory fields
+            # Read first CSV to extract calibration fields that aren't in params
             first_df = pd.read_csv(csv_paths[0])
             if len(first_df) > 0:
                 last_row = first_df.iloc[-1]
-                # Extract G_hat, D_hat, sigma_step_theory if they exist (but these should come from individual CSVs)
-                for field in ['sigma_step_theory']:
-                    if field in last_row:
+                # Extract calibration/diagnostic fields from the last row
+                for field in ['G_hat', 'D_hat', 'c_hat', 'C_hat', 'lambda_est', 'S_scalar',
+                             'sigma_step_theory', 'N_star_live', 'm_theory_live', 'blocked_reason']:
+                    if field in last_row and not pd.isna(last_row[field]):
                         mandatory_fields[field] = last_row[field]
-                
-                # Also add static parameters that don't change
-                mandatory_fields.update({
-                    'gamma_bar': params.get('gamma_bar'),
-                    'gamma_split': params.get('gamma_split'),
-                    'quantile': params.get('quantile'),
-                    'delete_ratio': params.get('delete_ratio'),
-                    'accountant': params.get('accountant'),
-                    'eps_total': params.get('eps_total')
-                })
         except Exception as e:
-            print(f"Warning: Could not extract mandatory fields: {e}")
+            print(f"Warning: Could not extract calibration fields from CSV: {e}")
+    
+    # Save params.json for this grid cell
+    params_file = os.path.join(grid_output_dir, "params.json")
+    with open(params_file, 'w') as f:
+        import json
+        json.dump(params, f, indent=2)
     
     # Process outputs based on granularity
     processed_files = []
@@ -366,8 +384,16 @@ def process_seed_output(csv_files: List[str], grid_id: str, output_dir: str, man
                 'total_events': len(df)
             }
             
-            # Add mandatory fields
-            summary_row.update(mandatory_fields)
+            # Ensure ALL mandatory fields are present, even if NaN
+            mandatory_field_names = [
+                'gamma_bar', 'gamma_split', 'accountant',
+                'G_hat', 'D_hat', 'c_hat', 'C_hat', 'lambda_est', 'S_scalar',
+                'sigma_step_theory', 'N_star_live', 'm_theory_live', 'blocked_reason'
+            ]
+            
+            # Add mandatory fields from parameters first
+            for field in mandatory_field_names:
+                summary_row[field] = mandatory_fields.get(field, np.nan)
             
             # Add any additional fields from the last row (e.g., privacy metrics, calibration stats)
             if len(df) > 0:
@@ -389,9 +415,15 @@ def process_seed_output(csv_files: List[str], grid_id: str, output_dir: str, man
                     'S_scalar',
                     'eta_t',
                     'lambda_est',
+                    'sigma_step_theory',
+                    'blocked_reason',
                 ]:
-                    if col in last_row:
+                    if col in last_row and not pd.isna(last_row[col]):
                         summary_row[col] = last_row[col]
+            
+            # Ensure blocked_reason is a string
+            if 'blocked_reason' not in summary_row or pd.isna(summary_row['blocked_reason']):
+                summary_row['blocked_reason'] = ""
             
             # Write seed summary file
             seed_output_file = os.path.join(output_dir, f"seed_{seed:03d}.csv")
@@ -428,9 +460,24 @@ def process_event_output(csv_files: List[str], grid_id: str, output_dir: str, ma
             df['seed'] = seed
             df['grid_id'] = grid_id
             
-            # Add mandatory fields to every row
-            for field, value in mandatory_fields.items():
-                df[field] = value
+            # Ensure ALL mandatory fields are present in every row, even if NaN
+            mandatory_field_names = [
+                'gamma_bar', 'gamma_split', 'accountant',
+                'G_hat', 'D_hat', 'c_hat', 'C_hat', 'lambda_est', 'S_scalar',
+                'sigma_step_theory', 'N_star_live', 'm_theory_live', 'blocked_reason'
+            ]
+            
+            for field in mandatory_field_names:
+                if field not in df.columns:
+                    df[field] = mandatory_fields.get(field, np.nan)
+                else:
+                    # Fill NaN values with mandatory field values if available
+                    if field in mandatory_fields:
+                        df[field] = df[field].fillna(mandatory_fields[field])
+            
+            # Ensure blocked_reason is a string
+            if 'blocked_reason' in df.columns:
+                df['blocked_reason'] = df['blocked_reason'].fillna("")
             
             # Add event_type column if not present (derive from 'op' or 'event')
             if 'event_type' not in df.columns:
@@ -515,12 +562,18 @@ def process_aggregate_output(csv_files: List[str], grid_id: str, output_dir: str
         'final_acc_median': summary_df['final_acc'].median()
     }
     
-    # Add mandatory fields as medians/means
-    for field, value in mandatory_fields.items():
-        if isinstance(value, (int, float)):
-            aggregate_row[field] = value  # Static values stay the same
+    # Ensure ALL mandatory fields are present, even if NaN
+    mandatory_field_names = [
+        'gamma_bar', 'gamma_split', 'accountant',
+        'G_hat', 'D_hat', 'c_hat', 'C_hat', 'lambda_est', 'S_scalar',
+        'sigma_step_theory', 'N_star_live', 'm_theory_live', 'blocked_reason'
+    ]
+    
+    for field in mandatory_field_names:
+        if field in mandatory_fields:
+            aggregate_row[field] = mandatory_fields[field]
         else:
-            aggregate_row[field] = value  # String values stay the same
+            aggregate_row[field] = np.nan if field != 'blocked_reason' else ""
     
     # Add privacy metrics aggregates
     for col in ['eps_spent', 'capacity_remaining', 'eps_converted', 'eps_remaining', 'delta_total']:
@@ -654,6 +707,28 @@ def main():
     
     except Exception as e:
         print(f"Warning: Failed to generate visualizations: {e}")
+    
+    # Create sweep manifest (requirement 2)
+    try:
+        print("\n=== Creating sweep manifest ===")
+        
+        # Create manifest mapping grid_id to parameters
+        manifest = {}
+        for params in combinations:
+            grid_id = create_grid_id(params)
+            manifest[grid_id] = params
+        
+        # Write manifest.json
+        manifest_file = os.path.join(sweep_dir, "manifest.json")
+        with open(manifest_file, 'w') as f:
+            import json
+            json.dump(manifest, f, indent=2)
+        
+        print(f"✅ Sweep manifest saved to: {manifest_file}")
+        print(f"   Manifest contains {len(manifest)} grid cells")
+        
+    except Exception as e:
+        print(f"Warning: Failed to create sweep manifest: {e}")
     
     print(f"\nGrid search complete!")
     print(f"Results in: {sweep_dir}")
