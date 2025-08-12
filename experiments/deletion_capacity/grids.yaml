@@ -11,7 +11,7 @@ gamma_split: [0.9, 0.7, 0.5, 0.3]
 quantile: [0.90]
 
 # Delete workload
-delete_ratio: [1, 5]
+delete_ratio: [1, 5, 10, 100]
 
 # Accountant type - now supports all Milestone 5 accountant strategies
 accountant: ["eps_delta", "zcdp", "relaxed"]
