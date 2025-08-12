@@ -63,12 +63,12 @@ class MemoryPair:
 
     The algorithm uses L-BFGS for second-order optimization and maintains cumulative
     regret tracking. Deletions are performed with differential privacy guarantees
-    managed by the PrivacyOdometer.
+    managed by the unified Accountant interface.
 
     Attributes:
         theta (np.ndarray): Current parameter vector
         lbfgs (LimitedMemoryBFGS): L-BFGS optimizer instance
-        odometer (PrivacyOdometer): Privacy budget tracking for deletions
+        accountant (Accountant): Unified privacy accounting interface for deletions
         phase (Phase): Current phase of the state machine
         calibrator (Calibrator): Helper for collecting calibration statistics
         cumulative_regret (float): Total regret accumulated over all events
@@ -95,7 +95,7 @@ class MemoryPair:
 
         Args:
             dim: Dimensionality of the parameter space
-            odometer: Privacy odometer for deletion tracking (creates default if None)
+            odometer: Legacy odometer for backward compatibility (creates adapter automatically)
             accountant: Accountant adapter for unified privacy accounting (if provided, overrides odometer)
             calibrator: Calibrator for bootstrap phase (creates default if None)
             recal_window: Events between recalibration checks (None = disabled)
@@ -106,7 +106,7 @@ class MemoryPair:
         m_max = getattr(cfg, "m_max", 10) if cfg else 10
         self.lbfgs = LimitedMemoryBFGS(m_max=m_max, cfg=cfg)
         
-        # Handle accountant vs odometer parameters
+        # Handle accountant vs odometer parameters - always ensure we have an accountant
         if accountant is not None:
             self.accountant = accountant
             self.odometer = None  # Keep for backward compatibility logging
@@ -125,8 +125,33 @@ class MemoryPair:
                 self.accountant = get_adapter(cfg.accountant, **accountant_params)
                 self.odometer = None  # Use accountant instead
             else:
-                self.odometer = odometer or RDPOdometer()
-                self.accountant = None
+                # For backward compatibility: wrap provided or default odometer in adapter
+                actual_odometer = odometer or RDPOdometer()
+                self.odometer = actual_odometer  # Keep reference for legacy access patterns
+                
+                # Create appropriate adapter based on odometer type
+                if isinstance(actual_odometer, PrivacyOdometer):
+                    # Extract parameters for eps-delta adapter
+                    adapter_params = {
+                        'eps_total': getattr(actual_odometer, 'eps_total', 1.0),
+                        'delta_total': getattr(actual_odometer, 'delta_total', 1e-5),
+                        'T': getattr(actual_odometer, 'T', 10000),
+                        'gamma': getattr(actual_odometer, 'gamma', 0.5),
+                        'lambda_': getattr(actual_odometer, 'lambda_', 0.1),
+                        'delta_b': getattr(actual_odometer, 'delta_b', 0.05),
+                    }
+                    self.accountant = get_adapter('eps_delta', **adapter_params)
+                else:
+                    # Assume zCDP-compatible (RDPOdometer, ZCDPOdometer)
+                    adapter_params = {
+                        'rho_total': getattr(actual_odometer, 'rho_total', 1.0),
+                        'delta_total': getattr(actual_odometer, 'delta_total', 1e-5),
+                        'T': getattr(actual_odometer, 'T', 10000),
+                        'gamma': getattr(actual_odometer, 'gamma', 0.5),
+                        'lambda_': getattr(actual_odometer, 'lambda_', 0.1),
+                        'delta_b': getattr(actual_odometer, 'delta_b', 0.05),
+                    }
+                    self.accountant = get_adapter('zcdp', **adapter_params)
 
         # Store config for feature flags (no behavior change yet)
         self.cfg = cfg
@@ -599,11 +624,8 @@ class MemoryPair:
         if self.phase != Phase.INTERLEAVING:
             raise RuntimeError("Deletions are only allowed during INTERLEAVING phase")
 
-        # Use accountant if available, otherwise fall back to odometer
-        if self.accountant is not None:
-            return self._delete_with_accountant(x, y)
-        else:
-            return self._delete_with_odometer(x, y)
+        # Always use accountant interface (no more odometer branching)
+        return self._delete_with_accountant(x, y)
 
     def _delete_with_accountant(self, x: np.ndarray, y: float) -> Optional[str]:
         """Delete using the new accountant interface."""
@@ -653,82 +675,6 @@ class MemoryPair:
         
         # Track diagnostics (no S_scalar update for deletes)
         self.S_delete += float(np.dot(g, g))
-
-        # Apply noisy deletion with step-size
-        noise = np.random.normal(0, sigma, self.theta.shape)
-        self.theta = self.theta - self.eta_t * influence + noise
-        
-        # Update counters
-        self.events_seen += 1
-        self.deletes_seen += 1
-        
-        return None  # Success
-
-    def _delete_with_odometer(self, x: np.ndarray, y: float) -> Optional[str]:
-        """Legacy delete method using odometer directly."""
-        if not self.odometer.ready_to_delete:
-            return "privacy_gate"  # Not ready due to privacy constraints
-
-        # Compute influence for gating checks
-        pred = float(self.theta @ x)
-        g = self._compute_regularized_gradient(x, pred, y)
-        
-        # Get step size for deletion cost estimation
-        self._update_step_size()
-        influence = self.lbfgs.direction(g, calibrator=self.calibrator)
-        sensitivity = np.linalg.norm(influence)
-        
-        # Check privacy gate: can odometer handle another delete?
-        try:
-            sigma = self.odometer.noise_scale(float(sensitivity))
-            if sigma is None or np.isnan(sigma) or np.isinf(sigma):
-                return "privacy_gate"
-        except Exception:
-            return "privacy_gate"
-            
-        # Check regret gate: would this deletion violate regret constraint?
-        if hasattr(self.cfg, 'gamma_delete') and self.cfg.gamma_delete is not None:
-            # Estimate deletion regret cost
-            deletion_cost = self.eta_t * sensitivity * sigma * np.sqrt(2 * np.log(1 / 0.05))
-            
-            # Current adaptive regret (approximate)
-            if hasattr(self.odometer, 'G_hat') and hasattr(self.odometer, 'D_hat') and hasattr(self.odometer, 'c_hat') and hasattr(self.odometer, 'C_hat'):
-                G_hat = getattr(self.odometer, 'G_hat', 1.0)
-                D_hat = getattr(self.odometer, 'D_hat', 1.0) 
-                c_hat = getattr(self.odometer, 'c_hat', 1.0)
-                C_hat = getattr(self.odometer, 'C_hat', 1.0)
-                
-                current_adaptive_regret = G_hat * D_hat * np.sqrt(c_hat * C_hat * self.S_scalar)
-                projected_regret = current_adaptive_regret + deletion_cost
-                
-                # Check if projected regret would exceed budget
-                if self.events_seen > 0:
-                    regret_per_event = projected_regret / self.events_seen
-                    if regret_per_event > self.cfg.gamma_delete:
-                        return "regret_gate"
-
-        # Both gates passed - proceed with deletion
-        
-        # Track diagnostics (no S_scalar update for deletes)
-        self.S_delete += float(np.dot(g, g))
-
-        # Debug: Validate parameters before calling spend
-        if sensitivity is None or np.isnan(sensitivity) or np.isinf(sensitivity):
-            raise RuntimeError(f"Invalid sensitivity value: {sensitivity}")
-        if sigma is None or np.isnan(sigma) or np.isinf(sigma):
-            raise RuntimeError(f"Invalid sigma value: {sigma}")
-
-        # Handle different odometer types
-        if (isinstance(self.odometer, RDPOdometer) or
-            isinstance(self.odometer, StrategyAccountantAdapter)):
-            # For RDP and new accountant strategies: spend budget with actual sensitivity and sigma
-            try:
-                self.odometer.spend(float(sensitivity), float(sigma))
-            except Exception as e:
-                raise RuntimeError(f"Odometer spend failed with sensitivity={sensitivity}, sigma={sigma}: {e}")
-        else:
-            # For legacy PrivacyOdometer: spend without parameters
-            self.odometer.spend()
 
         # Apply noisy deletion with step-size
         noise = np.random.normal(0, sigma, self.theta.shape)
