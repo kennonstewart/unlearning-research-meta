@@ -30,3 +30,6 @@ __pycache__/
 *.csv
 *.pdf
 .cache/
+# Test files
+test_*.py
+*.yaml
