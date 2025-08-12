@@ -3,6 +3,7 @@
 import numpy as np
 from enum import Enum
 from typing import Optional, Union, Tuple, Dict, Any
+from dataclasses import dataclass
 
 try:
     from .odometer import PrivacyOdometer, RDPOdometer, N_star_live, m_theory_live
@@ -11,6 +12,8 @@ try:
     from .calibrator import Calibrator
     from .comparators import RollingOracle
     from .accountant_strategies import StrategyAccountantAdapter
+    from .accountant import get_adapter
+    from .accountant.types import Accountant
 except ModuleNotFoundError:
     from odometer import PrivacyOdometer, RDPOdometer, N_star_live, m_theory_live
     from lbfgs import LimitedMemoryBFGS
@@ -18,6 +21,17 @@ except ModuleNotFoundError:
     from calibrator import Calibrator
     from comparators import RollingOracle
     from accountant_strategies import StrategyAccountantAdapter
+    from accountant import get_adapter
+    from accountant.types import Accountant
+
+
+@dataclass
+class CalibStats:
+    G: float
+    D: float
+    c: float
+    C: float
+    N_star: int
 
 
 class Phase(Enum):
@@ -70,6 +84,7 @@ class MemoryPair:
         self,
         dim: int,
         odometer: Union[PrivacyOdometer, RDPOdometer] = None,
+        accountant: Optional[Accountant] = None,
         calibrator: Optional[Calibrator] = None,
         recal_window: Optional[int] = None,
         recal_threshold: float = 0.3,
@@ -81,6 +96,7 @@ class MemoryPair:
         Args:
             dim: Dimensionality of the parameter space
             odometer: Privacy odometer for deletion tracking (creates default if None)
+            accountant: Accountant adapter for unified privacy accounting (if provided, overrides odometer)
             calibrator: Calibrator for bootstrap phase (creates default if None)
             recal_window: Events between recalibration checks (None = disabled)
             recal_threshold: Relative threshold for drift detection
@@ -89,7 +105,27 @@ class MemoryPair:
         self.theta = np.zeros(dim)
         m_max = getattr(cfg, "m_max", 10) if cfg else 10
         self.lbfgs = LimitedMemoryBFGS(m_max=m_max, cfg=cfg)
-        self.odometer = odometer or RDPOdometer()
+        
+        # Handle accountant vs odometer parameters
+        if accountant is not None:
+            self.accountant = accountant
+            self.odometer = None  # Keep for backward compatibility logging
+        else:
+            self.odometer = odometer or RDPOdometer()
+            # Create accountant adapter if config specifies it
+            if cfg and hasattr(cfg, 'accountant'):
+                accountant_params = {
+                    'eps_total': getattr(cfg, 'eps_total', 1.0),
+                    'delta_total': getattr(cfg, 'delta_total', 1e-5),
+                    'rho_total': getattr(cfg, 'rho_total', 1.0),
+                    'T': getattr(cfg, 'T', 10000),
+                    'gamma': getattr(cfg, 'gamma_delete', 0.5),
+                    'lambda_': getattr(cfg, 'lambda_reg', 0.1),
+                    'delta_b': getattr(cfg, 'delta_b', 0.05),
+                }
+                self.accountant = get_adapter(cfg.accountant, **accountant_params)
+            else:
+                self.accountant = None
 
         # Store config for feature flags (no behavior change yet)
         self.cfg = cfg
@@ -106,6 +142,9 @@ class MemoryPair:
         self.N_star: Optional[int] = None
         self.ready_to_predict = False
         self.calibration_stats: Optional[dict] = None
+
+        # Frozen snapshot of calibrator stats after calibration
+        self.calib_stats: Optional[CalibStats] = None
 
         # Adaptive recalibration attributes
         self.recal_window = recal_window
@@ -351,6 +390,15 @@ class MemoryPair:
 
         # Store stats for later access
         self.calibration_stats = stats
+        
+        # Store frozen snapshot of calibrator stats
+        self.calib_stats = CalibStats(
+            G=stats["G"],
+            D=stats["D"], 
+            c=stats["c"],
+            C=stats["C"],
+            N_star=stats["N_star"]
+        )
 
         # Calibrate static oracle if enabled
         if self.oracle is not None and hasattr(self.oracle, 'calibrate_with_initial_data'):
@@ -507,6 +555,23 @@ class MemoryPair:
             print(
                 f"[MemoryPair] Reached N* = {self.N_star} inserts. Ready to predict, transitioning to INTERLEAVING phase."
             )
+            print("[Finalize] Finalizing odometer...")
+            
+            # Finalize accountant or odometer
+            if self.accountant is not None:
+                self.accountant.finalize(
+                    {"G": self.calib_stats.G, "D": self.calib_stats.D, "c": self.calib_stats.c, "C": self.calib_stats.C},
+                    T_estimate=self.calib_stats.N_star or self.events_seen or 1
+                )
+            elif self.odometer is not None:
+                # Backward compatibility - finalize legacy odometer
+                odometer_stats = {
+                    "G": self.calib_stats.G,
+                    "D": self.calib_stats.D, 
+                    "c": self.calib_stats.c,
+                    "C": self.calib_stats.C
+                }
+                self.odometer.finalize_with(odometer_stats, self.calib_stats.N_star or self.events_seen or 1)
 
         if return_grad:
             return pred, g_old
@@ -528,11 +593,78 @@ class MemoryPair:
             None if deletion succeeded, or blocked reason string if gates failed
 
         Raises:
-            RuntimeError: If odometer is not ready or invalid parameters
+            RuntimeError: If accountant is not ready or invalid parameters
         """
         if self.phase != Phase.INTERLEAVING:
             raise RuntimeError("Deletions are only allowed during INTERLEAVING phase")
 
+        # Use accountant if available, otherwise fall back to odometer
+        if self.accountant is not None:
+            return self._delete_with_accountant(x, y)
+        else:
+            return self._delete_with_odometer(x, y)
+
+    def _delete_with_accountant(self, x: np.ndarray, y: float) -> Optional[str]:
+        """Delete using the new accountant interface."""
+        if not self.accountant.ready():
+            return "privacy_gate"
+
+        # Compute influence for gating checks
+        pred = float(self.theta @ x)
+        g = self._compute_regularized_gradient(x, pred, y)
+        
+        # Get step size for deletion cost estimation
+        self._update_step_size()
+        influence = self.lbfgs.direction(g, calibrator=self.calibrator)
+        sensitivity = np.linalg.norm(influence)
+        
+        # Check privacy gate via accountant
+        ok, sigma, reason = self.accountant.pre_delete(sensitivity)
+        if not ok:
+            return reason
+            
+        # Check regret gate using new theory functions
+        if hasattr(self.cfg, 'gamma_delete') and self.cfg.gamma_delete is not None:
+            from .theory import regret_insert_bound, regret_delete_bound
+            
+            L = self.calib_stats.G
+            ins_reg = regret_insert_bound(
+                self.S_scalar, self.calib_stats.G, self.calib_stats.D, 
+                self.calib_stats.c, self.calib_stats.C
+            )
+            
+            # Projected avg regret with one more delete (m_used + 1)
+            m_used = self.accountant.metrics().get("m_used", 0)
+            del_reg = regret_delete_bound(
+                m_used + 1, L, 
+                getattr(self.cfg, "lambda_reg", 0.0) or 1e-12, 
+                sigma, 
+                getattr(self.cfg, "delta_b", 0.05)
+            )
+            proj_avg = (ins_reg + del_reg) / max(self.events_seen or 1, 1)
+            if proj_avg > getattr(self.cfg, "gamma_delete", float("inf")):
+                return "regret_gate"
+
+        # Both gates passed - proceed with deletion
+        
+        # Spend budget
+        self.accountant.spend(sensitivity, sigma)
+        
+        # Track diagnostics (no S_scalar update for deletes)
+        self.S_delete += float(np.dot(g, g))
+
+        # Apply noisy deletion with step-size
+        noise = np.random.normal(0, sigma, self.theta.shape)
+        self.theta = self.theta - self.eta_t * influence + noise
+        
+        # Update counters
+        self.events_seen += 1
+        self.deletes_seen += 1
+        
+        return None  # Success
+
+    def _delete_with_odometer(self, x: np.ndarray, y: float) -> Optional[str]:
+        """Legacy delete method using odometer directly."""
         if not self.odometer.ready_to_delete:
             return "privacy_gate"  # Not ready due to privacy constraints
 
@@ -606,10 +738,6 @@ class MemoryPair:
         self.deletes_seen += 1
         
         return None  # Success
-
-        # Update counters
-        self.events_seen += 1
-        self.deletes_seen += 1
 
     def _update_step_size(self) -> None:
         """Compute step size based on AdaGrad or strong-convexity schedule."""
@@ -694,6 +822,34 @@ class MemoryPair:
             "drift_boost_remaining": getattr(self, 'drift_boost_remaining', 0),
             "base_eta_t": getattr(self, 'base_eta_t', self.eta_t),
         }
+
+        # Add accountant metrics if accountant is available
+        if self.accountant is not None:
+            acc_metrics = self.accountant.metrics()
+            metrics.update({
+                "accountant": acc_metrics.get("accountant"),
+                "m_capacity": acc_metrics.get("m_capacity"),
+                "m_used": acc_metrics.get("m_used"),
+                "sigma_step": acc_metrics.get("sigma_step"),
+                "eps_spent": acc_metrics.get("eps_spent"),
+                "eps_remaining": acc_metrics.get("eps_remaining"),
+                "rho_spent": acc_metrics.get("rho_spent"),
+                "rho_remaining": acc_metrics.get("rho_remaining"),
+                "delta_total": acc_metrics.get("delta_total"),
+            })
+        else:
+            # Default values when accountant is not available
+            metrics.update({
+                "accountant": None,
+                "m_capacity": None,
+                "m_used": None,
+                "sigma_step": None,
+                "eps_spent": None,
+                "eps_remaining": None,
+                "rho_spent": None,
+                "rho_remaining": None,
+                "delta_total": None,
+            })
 
         # Add oracle metrics if oracle is enabled
         if self.oracle is not None:
