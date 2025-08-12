@@ -12,7 +12,16 @@ class Adapter:
     
     def __init__(self, **kwargs):
         """Initialize with PrivacyOdometer parameters."""
-        self.odometer = PrivacyOdometer(**kwargs)
+        # Filter kwargs for PrivacyOdometer
+        odometer_kwargs = {
+            'eps_total': kwargs.get('eps_total', 1.0),
+            'delta_total': kwargs.get('delta_total', 1e-5),
+            'T': kwargs.get('T', 10000),
+            'gamma': kwargs.get('gamma', 0.5),
+            'lambda_': kwargs.get('lambda_', 0.1),
+            'delta_b': kwargs.get('delta_b', 0.05),
+        }
+        self.odometer = PrivacyOdometer(**odometer_kwargs)
     
     def finalize(self, stats: Dict[str, float], T_estimate: int) -> None:
         """Finalize using calibration statistics."""
@@ -46,10 +55,10 @@ class Adapter:
         """Get current privacy metrics."""
         return {
             "accountant": "eps_delta",
-            "m_capacity": self.odometer.deletion_capacity,
-            "m_used": self.odometer.deletions_count,
-            "eps_spent": self.odometer.eps_spent,
-            "eps_remaining": self.odometer.eps_total - self.odometer.eps_spent,
-            "delta_total": self.odometer.delta_total,
-            "sigma_step": getattr(self.odometer, 'sigma_step', None),
+            "m_capacity": int(self.odometer.deletion_capacity),
+            "m_used": int(self.odometer.deletions_count),
+            "eps_spent": float(self.odometer.eps_spent),
+            "eps_remaining": float(self.odometer.eps_total - self.odometer.eps_spent),
+            "delta_total": float(self.odometer.delta_total),
+            "sigma_step": float(getattr(self.odometer, 'sigma_step', 0.0)) if getattr(self.odometer, 'sigma_step', None) is not None else None,
         }

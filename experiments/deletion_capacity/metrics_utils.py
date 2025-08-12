@@ -17,6 +17,7 @@ def mean_ci(values: List[float]) -> Tuple[float, float]:
 def get_privacy_metrics(model) -> Dict[str, Any]:
     """Extract privacy metrics from model's odometer and calibration statistics."""
     odometer = getattr(model, "odometer", None)
+    accountant = getattr(model, "accountant", None)
     metrics = {}
     
     # Add calibration statistics if available
@@ -30,6 +31,18 @@ def get_privacy_metrics(model) -> Dict[str, Any]:
             "N_star_theory": stats.get("N_star"),
         })
     
+    # Try to get metrics from new accountant interface first
+    if accountant and hasattr(accountant, "metrics"):
+        try:
+            accountant_metrics = accountant.metrics()
+            metrics.update(accountant_metrics)
+            # Add some additional mappings for compatibility
+            if "sigma_step" in accountant_metrics:
+                metrics["sigma_step_theory"] = accountant_metrics["sigma_step"]
+            return metrics
+        except Exception:
+            pass  # Fallback to odometer method
+    
     # Add theoretical metrics from odometer if available
     if odometer:
         if hasattr(odometer, "deletion_capacity"):
@@ -40,7 +53,7 @@ def get_privacy_metrics(model) -> Dict[str, Any]:
     if odometer is None:
         return metrics
     
-    # Try to get metrics from new accountant strategy interface first
+    # Try to get metrics from new accountant strategy interface on odometer
     if hasattr(odometer, "metrics"):
         try:
             strategy_metrics = odometer.metrics()

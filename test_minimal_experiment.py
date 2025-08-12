@@ -60,8 +60,8 @@ try:
                 
                 assert len(rows) > 0, "No events logged"
                 
-                # Check first row has expected columns
-                row = rows[0]
+                # Check last row (should be from interleaving phase with finalized accountant)
+                row = rows[-1]
                 
                 # Base columns
                 expected_base = ['event', 'op', 'regret', 'acc']
@@ -73,18 +73,21 @@ try:
                 for col in expected_schema:
                     assert col in row, f"Missing schema column: {col}"
                 
-                # Extended columns (should be None)
+                # Extended columns (should now have real values with new accountant interface)
                 expected_extended = ['S_scalar', 'eta_t', 'lambda_est', 'rho_step', 'sigma_step', 'sens_delete', 'P_T_est']
                 for col in expected_extended:
                     assert col in row, f"Missing extended column: {col}"
-                    # Values should be None or empty string (CSV representation)
-                    assert row[col] in [None, '', 'None'], f"Extended column {col} should be None, got: {row[col]}"
+                    # With new accountant interface, some columns should have real values
+                    # S_scalar, eta_t, sigma_step should be numeric
+                    if col in ['S_scalar', 'eta_t', 'sigma_step']:
+                        assert row[col] not in [None, '', 'None'], f"Extended column {col} should have a value, got: {row[col]}"
+                    # Others may still be None depending on configuration
                 
                 print(f"✓ Minimal experiment completed successfully")
                 print(f"  - Generated {len(rows)} events")
                 print(f"  - Output file: {csv_path}")
                 print(f"  - All required columns present")
-                print(f"  - Extended columns properly set to None")
+                print(f"  - Extended columns properly populated with accountant interface")
                 
                 return True
                 

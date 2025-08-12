@@ -12,7 +12,17 @@ class Adapter:
     
     def __init__(self, **kwargs):
         """Initialize with ZCDPOdometer parameters."""
-        self.odometer = ZCDPOdometer(**kwargs)
+        # Filter kwargs for ZCDPOdometer
+        odometer_kwargs = {
+            'rho_total': kwargs.get('rho_total', 1.0),
+            'delta_total': kwargs.get('delta_total', 1e-5),
+            'T': kwargs.get('T', 10000),
+            'gamma': kwargs.get('gamma', 0.5),
+            'lambda_': kwargs.get('lambda_', 0.1),
+            'delta_b': kwargs.get('delta_b', 0.05),
+            'm_max': kwargs.get('m_max', None),
+        }
+        self.odometer = ZCDPOdometer(**odometer_kwargs)
     
     def finalize(self, stats: Dict[str, float], T_estimate: int) -> None:
         """Finalize using calibration statistics."""

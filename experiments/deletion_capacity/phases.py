@@ -141,6 +141,9 @@ def _create_extended_log_entry(base_entry: dict, state: PhaseState, model, cfg: 
         "delta_step_theory": odometer_metrics.get('delta_step_theory', None),
         "rho_step": odometer_metrics.get('rho_step', None),
         
+        # Add sigma_step from accountant metrics for test compatibility
+        "sigma_step": model_metrics.get("sigma_step", odometer_metrics.get('sigma_step_theory', None)),
+        
         # Comparator and drift fields (as specified in comment)
         "P_T": model_metrics.get("P_T", None),
         "comparator_type": model_metrics.get("comparator_type", "none"),
@@ -329,6 +332,31 @@ def finalize_accountant_phase(model, cfg: Config):
     """Finalize odometer and prepare for interleaving phase."""
     print("[Finalize] Finalizing odometer...")
     
+    # Check if model uses new accountant interface
+    if hasattr(model, "accountant") and model.accountant is not None:
+        # New accountant interface - finalization should already be done in MemoryPair
+        # during transition to INTERLEAVING phase, so this is a no-op
+        if hasattr(model, "phase") and hasattr(model, "Phase"):
+            if model.phase == model.Phase.INTERLEAVING:
+                print("[Finalize] Accountant already finalized during phase transition")
+                return
+        
+        # If not in INTERLEAVING phase yet, finalize accountant directly
+        if hasattr(model, "calibration_stats") and model.calibration_stats:
+            stats = {
+                "G": model.calibration_stats.get("G", 1.0),
+                "D": model.calibration_stats.get("D", 1.0),
+                "c": model.calibration_stats.get("c", 1.0),
+                "C": model.calibration_stats.get("C", 1.0),
+            }
+            model.accountant.finalize(stats, T_estimate=cfg.max_events)
+        return
+    
+    # Legacy odometer interface
+    if not hasattr(model, "odometer") or model.odometer is None:
+        print("[Finalize] No odometer to finalize")
+        return
+        
     # Use the proper finalization approach based on model type
     if hasattr(model, "calibration_stats") and model.calibration_stats:
         # MemoryPair model with calibration stats
@@ -345,6 +373,7 @@ def finalize_accountant_phase(model, cfg: Config):
         model.odometer.finalize_with(stats, T_estimate)
     else:
         # Fallback to simple finalize
+        model.odometer.finalize()
         model.odometer.finalize()
 
 

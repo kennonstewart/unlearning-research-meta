@@ -111,7 +111,6 @@ class MemoryPair:
             self.accountant = accountant
             self.odometer = None  # Keep for backward compatibility logging
         else:
-            self.odometer = odometer or RDPOdometer()
             # Create accountant adapter if config specifies it
             if cfg and hasattr(cfg, 'accountant'):
                 accountant_params = {
@@ -120,11 +119,13 @@ class MemoryPair:
                     'rho_total': getattr(cfg, 'rho_total', 1.0),
                     'T': getattr(cfg, 'T', 10000),
                     'gamma': getattr(cfg, 'gamma_delete', 0.5),
-                    'lambda_': getattr(cfg, 'lambda_reg', 0.1),
+                    'lambda_': getattr(cfg, 'lambda_', 0.1),  # Use the right lambda field
                     'delta_b': getattr(cfg, 'delta_b', 0.05),
                 }
                 self.accountant = get_adapter(cfg.accountant, **accountant_params)
+                self.odometer = None  # Use accountant instead
             else:
+                self.odometer = odometer or RDPOdometer()
                 self.accountant = None
 
         # Store config for feature flags (no behavior change yet)
