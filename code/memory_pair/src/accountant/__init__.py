@@ -1,5 +1,13 @@
+"""
+Unified accountant factory and adapter interface.
+
+Provides factory function for creating privacy accountant adapters that conform
+to the unified Accountant protocol, supporting eps-delta DP, zCDP, and future extensions.
+"""
 from typing import Any
 from .types import Accountant
+
+__all__ = ['get_adapter']
 
 def get_adapter(name: str, **kwargs) -> Accountant:
     """Get accountant adapter by name."""
@@ -14,8 +22,8 @@ def get_adapter(name: str, **kwargs) -> Accountant:
         from .zcdp import Adapter
         return Adapter(**kwargs)
     elif name == "relaxed":
-        # For now, map relaxed to eps_delta with modified parameters
-        # This could be a separate implementation in the future
+        # TODO: For now, map relaxed to eps_delta as a temporary shim.
+        # Future implementation will differ with altered regret gate or different bound constants.
         from .eps_delta import Adapter
         return Adapter(**kwargs)
     else:

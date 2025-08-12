@@ -1,3 +1,9 @@
+"""
+Zero-concentrated differential privacy (zCDP) accountant adapter.
+
+Wraps the existing ZCDPOdometer to conform to the unified Accountant interface,
+providing zCDP accounting with joint m-sigma optimization.
+"""
 from typing import Dict, Any, Tuple, Optional
 import numpy as np
 
@@ -32,7 +38,7 @@ class Adapter:
         """Check if odometer is ready for deletions."""
         return self.odometer.ready_to_delete
     
-    def pre_delete(self, sensitivity: float) -> Tuple[bool, float | None, str | None]:
+    def pre_delete(self, sensitivity: float) -> Tuple[bool, Optional[float], Optional[str]]:
         """Check if deletion is allowed and return noise scale."""
         if not self.ready():
             return False, None, "privacy_gate"
@@ -60,12 +66,16 @@ class Adapter:
     
     def metrics(self) -> Dict[str, Any]:
         """Get current privacy metrics."""
+        sigma = getattr(self.odometer, 'sigma_step', None)
         return {
             "accountant": "zcdp",
-            "m_capacity": self.odometer.deletion_capacity,
-            "m_used": self.odometer.deletions_count,
-            "rho_spent": self.odometer.rho_spent,
-            "rho_remaining": self.odometer.rho_total - self.odometer.rho_spent,
-            "delta_total": self.odometer.delta_total,
-            "sigma_step": getattr(self.odometer, 'sigma_step', None),
+            "m_capacity": int(self.odometer.deletion_capacity),
+            "m_used": int(self.odometer.deletions_count),
+            "rho_spent": float(self.odometer.rho_spent),
+            "rho_remaining": float(self.odometer.rho_total - self.odometer.rho_spent),
+            "delta_total": float(self.odometer.delta_total),
+            "sigma_step": float(sigma) if sigma is not None else None,
+            # Standard fields that don't apply to zCDP
+            "eps_spent": None,
+            "eps_remaining": None,
         }

@@ -1,3 +1,10 @@
+"""
+Centralized theory functions for memory pair deletion capacity analysis.
+
+Provides unified regret bound computations and sample complexity formulas
+that were previously scattered across the codebase. This eliminates duplicate
+algebra and serves as a single source of truth for theoretical calculations.
+"""
 import numpy as np
 import math
 
