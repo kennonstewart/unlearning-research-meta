@@ -20,7 +20,6 @@ except ModuleNotFoundError:
     from metrics import regret
     from calibrator import Calibrator
     from comparators import RollingOracle
-    from accountant_strategies import StrategyAccountantAdapter
     from accountant import get_adapter
     from accountant.types import Accountant
 
@@ -105,53 +104,57 @@ class MemoryPair:
         self.theta = np.zeros(dim)
         m_max = getattr(cfg, "m_max", 10) if cfg else 10
         self.lbfgs = LimitedMemoryBFGS(m_max=m_max, cfg=cfg)
-        
+
         # Handle accountant vs odometer parameters - always ensure we have an accountant
         if accountant is not None:
             self.accountant = accountant
             self.odometer = None  # Keep for backward compatibility logging
         else:
             # Create accountant adapter if config specifies it
-            if cfg and hasattr(cfg, 'accountant'):
+            if cfg and hasattr(cfg, "accountant"):
                 accountant_params = {
-                    'eps_total': getattr(cfg, 'eps_total', 1.0),
-                    'delta_total': getattr(cfg, 'delta_total', 1e-5),
-                    'rho_total': getattr(cfg, 'rho_total', 1.0),
-                    'T': getattr(cfg, 'T', 10000),
-                    'gamma': getattr(cfg, 'gamma_delete', 0.5),
-                    'lambda_': getattr(cfg, 'lambda_', 0.1),  # Use the right lambda field
-                    'delta_b': getattr(cfg, 'delta_b', 0.05),
+                    "eps_total": getattr(cfg, "eps_total", 1.0),
+                    "delta_total": getattr(cfg, "delta_total", 1e-5),
+                    "rho_total": getattr(cfg, "rho_total", 1.0),
+                    "T": getattr(cfg, "T", 10000),
+                    "gamma": getattr(cfg, "gamma_delete", 0.5),
+                    "lambda_": getattr(
+                        cfg, "lambda_", 0.1
+                    ),  # Use the right lambda field
+                    "delta_b": getattr(cfg, "delta_b", 0.05),
                 }
                 self.accountant = get_adapter(cfg.accountant, **accountant_params)
                 self.odometer = None  # Use accountant instead
             else:
                 # For backward compatibility: wrap provided or default odometer in adapter
                 actual_odometer = odometer or RDPOdometer()
-                self.odometer = actual_odometer  # Keep reference for legacy access patterns
-                
+                self.odometer = (
+                    actual_odometer  # Keep reference for legacy access patterns
+                )
+
                 # Create appropriate adapter based on odometer type
                 if isinstance(actual_odometer, PrivacyOdometer):
                     # Extract parameters for eps-delta adapter
                     adapter_params = {
-                        'eps_total': getattr(actual_odometer, 'eps_total', 1.0),
-                        'delta_total': getattr(actual_odometer, 'delta_total', 1e-5),
-                        'T': getattr(actual_odometer, 'T', 10000),
-                        'gamma': getattr(actual_odometer, 'gamma', 0.5),
-                        'lambda_': getattr(actual_odometer, 'lambda_', 0.1),
-                        'delta_b': getattr(actual_odometer, 'delta_b', 0.05),
+                        "eps_total": getattr(actual_odometer, "eps_total", 1.0),
+                        "delta_total": getattr(actual_odometer, "delta_total", 1e-5),
+                        "T": getattr(actual_odometer, "T", 10000),
+                        "gamma": getattr(actual_odometer, "gamma", 0.5),
+                        "lambda_": getattr(actual_odometer, "lambda_", 0.1),
+                        "delta_b": getattr(actual_odometer, "delta_b", 0.05),
                     }
-                    self.accountant = get_adapter('eps_delta', **adapter_params)
+                    self.accountant = get_adapter("eps_delta", **adapter_params)
                 else:
                     # Assume zCDP-compatible (RDPOdometer, ZCDPOdometer)
                     adapter_params = {
-                        'rho_total': getattr(actual_odometer, 'rho_total', 1.0),
-                        'delta_total': getattr(actual_odometer, 'delta_total', 1e-5),
-                        'T': getattr(actual_odometer, 'T', 10000),
-                        'gamma': getattr(actual_odometer, 'gamma', 0.5),
-                        'lambda_': getattr(actual_odometer, 'lambda_', 0.1),
-                        'delta_b': getattr(actual_odometer, 'delta_b', 0.05),
+                        "rho_total": getattr(actual_odometer, "rho_total", 1.0),
+                        "delta_total": getattr(actual_odometer, "delta_total", 1e-5),
+                        "T": getattr(actual_odometer, "T", 10000),
+                        "gamma": getattr(actual_odometer, "gamma", 0.5),
+                        "lambda_": getattr(actual_odometer, "lambda_", 0.1),
+                        "delta_b": getattr(actual_odometer, "delta_b", 0.05),
                     }
-                    self.accountant = get_adapter('zcdp', **adapter_params)
+                    self.accountant = get_adapter("zcdp", **adapter_params)
 
         # Store config for feature flags (no behavior change yet)
         self.cfg = cfg
@@ -209,10 +212,11 @@ class MemoryPair:
         self.oracle: Optional[Union[RollingOracle, "StaticOracle"]] = None
         if cfg and getattr(cfg, "enable_oracle", False):
             comparator_type = getattr(cfg, "comparator", "dynamic")
-            
+
             if comparator_type == "static":
                 # Import here to avoid circular imports
                 from .comparators import StaticOracle
+
                 lambda_reg = getattr(cfg, "lambda_reg", 0.0)
                 self.oracle = StaticOracle(dim=dim, lambda_reg=lambda_reg, cfg=cfg)
             else:
@@ -236,11 +240,17 @@ class MemoryPair:
                     lambda_reg=lambda_reg,
                     cfg=cfg,
                 )
-                
+
         # Drift-responsive rate adaptation
-        self.drift_adaptation_enabled = getattr(cfg, "drift_adaptation", False) if cfg else False
-        self.drift_kappa = getattr(cfg, "drift_kappa", 0.5) if cfg else 0.5  # (1 + kappa) factor
-        self.drift_window = getattr(cfg, "drift_window", 10) if cfg else 10  # Duration in steps
+        self.drift_adaptation_enabled = (
+            getattr(cfg, "drift_adaptation", False) if cfg else False
+        )
+        self.drift_kappa = (
+            getattr(cfg, "drift_kappa", 0.5) if cfg else 0.5
+        )  # (1 + kappa) factor
+        self.drift_window = (
+            getattr(cfg, "drift_window", 10) if cfg else 10
+        )  # Duration in steps
         self.drift_boost_remaining = 0  # Steps remaining for current boost
         self.base_eta_t = 0.0  # Store base learning rate for boost calculation
 
@@ -416,22 +426,24 @@ class MemoryPair:
 
         # Store stats for later access
         self.calibration_stats = stats
-        
+
         # Store frozen snapshot of calibrator stats
         self.calib_stats = CalibStats(
             G=stats["G"],
-            D=stats["D"], 
+            D=stats["D"],
             c=stats["c"],
             C=stats["C"],
-            N_star=stats["N_star"]
+            N_star=stats["N_star"],
         )
 
         # Calibrate static oracle if enabled
-        if self.oracle is not None and hasattr(self.oracle, 'calibrate_with_initial_data'):
+        if self.oracle is not None and hasattr(
+            self.oracle, "calibrate_with_initial_data"
+        ):
             # For static oracle, use calibration data collected during bootstrap
             # In a real implementation, we'd collect the calibration data
             # For now, we'll mark it as calibrated (the calibrator should provide this data)
-            if hasattr(self.calibrator, 'get_calibration_data'):
+            if hasattr(self.calibrator, "get_calibration_data"):
                 calibration_data = self.calibrator.get_calibration_data()
                 self.oracle.calibrate_with_initial_data(calibration_data)
             else:
@@ -560,13 +572,9 @@ class MemoryPair:
             Phase.INTERLEAVING,
         ]:
             # Handle dynamic oracle (RollingOracle)
-            if hasattr(self.oracle, 'maybe_update'):
+            if hasattr(self.oracle, "maybe_update"):
                 oracle_refreshed = self.oracle.maybe_update(x, y, self.theta)
-                if oracle_refreshed:
-                    print(
-                        f"[Oracle] Refreshed at event {self.events_seen}, P_T_est = {self.oracle.P_T_est:.4f}"
-                    )
-            
+
             # Update regret accounting for both static and dynamic oracles
             self.oracle.update_regret_accounting(x, y, self.theta)
 
@@ -582,22 +590,29 @@ class MemoryPair:
                 f"[MemoryPair] Reached N* = {self.N_star} inserts. Ready to predict, transitioning to INTERLEAVING phase."
             )
             print("[Finalize] Finalizing odometer...")
-            
+
             # Finalize accountant or odometer
             if self.accountant is not None:
                 self.accountant.finalize(
-                    {"G": self.calib_stats.G, "D": self.calib_stats.D, "c": self.calib_stats.c, "C": self.calib_stats.C},
-                    T_estimate=self.calib_stats.N_star or self.events_seen or 1
+                    {
+                        "G": self.calib_stats.G,
+                        "D": self.calib_stats.D,
+                        "c": self.calib_stats.c,
+                        "C": self.calib_stats.C,
+                    },
+                    T_estimate=self.calib_stats.N_star or self.events_seen or 1,
                 )
             elif self.odometer is not None:
                 # Backward compatibility - finalize legacy odometer
                 odometer_stats = {
                     "G": self.calib_stats.G,
-                    "D": self.calib_stats.D, 
+                    "D": self.calib_stats.D,
                     "c": self.calib_stats.c,
-                    "C": self.calib_stats.C
+                    "C": self.calib_stats.C,
                 }
-                self.odometer.finalize_with(odometer_stats, self.calib_stats.N_star or self.events_seen or 1)
+                self.odometer.finalize_with(
+                    odometer_stats, self.calib_stats.N_star or self.events_seen or 1
+                )
 
         if return_grad:
             return pred, g_old
@@ -608,7 +623,7 @@ class MemoryPair:
         Delete a data point using differentially private unlearning with gating.
 
         Computes the influence of the data point, checks both regret and privacy
-        gates, and applies the deletion update with appropriate noise injection 
+        gates, and applies the deletion update with appropriate noise injection
         if both gates pass.
 
         Args:
@@ -635,55 +650,59 @@ class MemoryPair:
         # Compute influence for gating checks
         pred = float(self.theta @ x)
         g = self._compute_regularized_gradient(x, pred, y)
-        
+
         # Get step size for deletion cost estimation
         self._update_step_size()
         influence = self.lbfgs.direction(g, calibrator=self.calibrator)
         sensitivity = np.linalg.norm(influence)
-        
+
         # Check privacy gate via accountant
         ok, sigma, reason = self.accountant.pre_delete(sensitivity)
         if not ok:
             return reason
-            
+
         # Check regret gate using new theory functions
-        if hasattr(self.cfg, 'gamma_delete') and self.cfg.gamma_delete is not None:
+        if hasattr(self.cfg, "gamma_delete") and self.cfg.gamma_delete is not None:
             from .theory import regret_insert_bound, regret_delete_bound
-            
+
             L = self.calib_stats.G
             ins_reg = regret_insert_bound(
-                self.S_scalar, self.calib_stats.G, self.calib_stats.D, 
-                self.calib_stats.c, self.calib_stats.C
+                self.S_scalar,
+                self.calib_stats.G,
+                self.calib_stats.D,
+                self.calib_stats.c,
+                self.calib_stats.C,
             )
-            
+
             # Projected avg regret with one more delete (m_used + 1)
             m_used = self.accountant.metrics().get("m_used", 0)
             del_reg = regret_delete_bound(
-                m_used + 1, L, 
-                getattr(self.cfg, "lambda_reg", 0.0) or 1e-12, 
-                sigma, 
-                getattr(self.cfg, "delta_b", 0.05)
+                m_used + 1,
+                L,
+                getattr(self.cfg, "lambda_reg", 0.0) or 1e-12,
+                sigma,
+                getattr(self.cfg, "delta_b", 0.05),
             )
             proj_avg = (ins_reg + del_reg) / max(self.events_seen or 1, 1)
             if proj_avg > getattr(self.cfg, "gamma_delete", float("inf")):
                 return "regret_gate"
 
         # Both gates passed - proceed with deletion
-        
+
         # Spend budget
         self.accountant.spend(sensitivity, sigma)
-        
+
         # Track diagnostics (no S_scalar update for deletes)
         self.S_delete += float(np.dot(g, g))
 
         # Apply noisy deletion with step-size
         noise = np.random.normal(0, sigma, self.theta.shape)
         self.theta = self.theta - self.eta_t * influence + noise
-        
+
         # Update counters
         self.events_seen += 1
         self.deletes_seen += 1
-        
+
         return None  # Success
 
     def _update_step_size(self) -> None:
@@ -707,25 +726,29 @@ class MemoryPair:
             self.sc_active = False
 
         self.base_eta_t = min(self.base_eta_t, eta_max)
-        
+
         # Check for drift detection and apply LR nudge
-        if (self.drift_adaptation_enabled and 
-            self.oracle is not None and 
-            hasattr(self.oracle, 'is_drift_detected') and
-            self.oracle.is_drift_detected()):
+        if (
+            self.drift_adaptation_enabled
+            and self.oracle is not None
+            and hasattr(self.oracle, "is_drift_detected")
+            and self.oracle.is_drift_detected()
+        ):
             # Start new drift boost: temporarily multiply η_t by (1 + κ) for K steps
             self.drift_boost_remaining = self.drift_window
             self.oracle.reset_drift_flag()
-            print(f"[MemoryPair] Drift detected at t={self.t}, applying LR boost: "
-                  f"η_t *= (1 + {self.drift_kappa}) for {self.drift_window} steps")
-        
+            print(
+                f"[MemoryPair] Drift detected at t={self.t}, applying LR boost: "
+                f"η_t *= (1 + {self.drift_kappa}) for {self.drift_window} steps"
+            )
+
         # Apply drift boost if active
         if self.drift_boost_remaining > 0:
             self.eta_t = self.base_eta_t * (1.0 + self.drift_kappa)
             self.drift_boost_remaining -= 1
         else:
             self.eta_t = self.base_eta_t
-            
+
         # Final cap to stability
         self.eta_t = min(self.eta_t, eta_max)
 
@@ -766,37 +789,41 @@ class MemoryPair:
             "eta_t": self.eta_t,
             "sc_active": self.sc_active,
             # Drift-responsive fields
-            "drift_boost_remaining": getattr(self, 'drift_boost_remaining', 0),
-            "base_eta_t": getattr(self, 'base_eta_t', self.eta_t),
+            "drift_boost_remaining": getattr(self, "drift_boost_remaining", 0),
+            "base_eta_t": getattr(self, "base_eta_t", self.eta_t),
         }
 
         # Add accountant metrics if accountant is available
         if self.accountant is not None:
             acc_metrics = self.accountant.metrics()
-            metrics.update({
-                "accountant": acc_metrics.get("accountant"),
-                "m_capacity": acc_metrics.get("m_capacity"),
-                "m_used": acc_metrics.get("m_used"),
-                "sigma_step": acc_metrics.get("sigma_step"),
-                "eps_spent": acc_metrics.get("eps_spent"),
-                "eps_remaining": acc_metrics.get("eps_remaining"),
-                "rho_spent": acc_metrics.get("rho_spent"),
-                "rho_remaining": acc_metrics.get("rho_remaining"),
-                "delta_total": acc_metrics.get("delta_total"),
-            })
+            metrics.update(
+                {
+                    "accountant": acc_metrics.get("accountant"),
+                    "m_capacity": acc_metrics.get("m_capacity"),
+                    "m_used": acc_metrics.get("m_used"),
+                    "sigma_step": acc_metrics.get("sigma_step"),
+                    "eps_spent": acc_metrics.get("eps_spent"),
+                    "eps_remaining": acc_metrics.get("eps_remaining"),
+                    "rho_spent": acc_metrics.get("rho_spent"),
+                    "rho_remaining": acc_metrics.get("rho_remaining"),
+                    "delta_total": acc_metrics.get("delta_total"),
+                }
+            )
         else:
             # Default values when accountant is not available
-            metrics.update({
-                "accountant": None,
-                "m_capacity": None,
-                "m_used": None,
-                "sigma_step": None,
-                "eps_spent": None,
-                "eps_remaining": None,
-                "rho_spent": None,
-                "rho_remaining": None,
-                "delta_total": None,
-            })
+            metrics.update(
+                {
+                    "accountant": None,
+                    "m_capacity": None,
+                    "m_used": None,
+                    "sigma_step": None,
+                    "eps_spent": None,
+                    "eps_remaining": None,
+                    "rho_spent": None,
+                    "rho_remaining": None,
+                    "delta_total": None,
+                }
+            )
 
         # Add oracle metrics if oracle is enabled
         if self.oracle is not None:
@@ -805,53 +832,68 @@ class MemoryPair:
             oracle_metrics["P_T"] = oracle_metrics.get("P_T_est", 0.0)
             oracle_metrics["drift_flag"] = oracle_metrics.get("drift_detected", False)
             if hasattr(self.oracle, "__class__"):
-                oracle_metrics["comparator_type"] = "static" if "Static" in self.oracle.__class__.__name__ else "dynamic"
+                oracle_metrics["comparator_type"] = (
+                    "static"
+                    if "Static" in self.oracle.__class__.__name__
+                    else "dynamic"
+                )
             metrics.update(oracle_metrics)
         else:
             # Default values when oracle is disabled
-            metrics.update({
-                "P_T": 0.0,
-                "drift_flag": False,
-                "comparator_type": "none",
-            })
+            metrics.update(
+                {
+                    "P_T": 0.0,
+                    "drift_flag": False,
+                    "comparator_type": "none",
+                }
+            )
 
         return metrics
-    
+
     def get_live_diagnostics(self) -> Dict[str, Any]:
         """Get live M9 diagnostics for deletion gating."""
         diagnostics = {}
-        
+
         # Get gamma values from config
-        if hasattr(self, 'cfg') and self.cfg is not None:
-            diagnostics["gamma_bar"] = getattr(self.cfg, 'gamma_bar', None)
-            diagnostics["gamma_split"] = getattr(self.cfg, 'gamma_split', None)
-            diagnostics["gamma_ins"] = getattr(self.cfg, 'gamma_insert', None)
-            diagnostics["gamma_del"] = getattr(self.cfg, 'gamma_delete', None)
-        
+        if hasattr(self, "cfg") and self.cfg is not None:
+            diagnostics["gamma_bar"] = getattr(self.cfg, "gamma_bar", None)
+            diagnostics["gamma_split"] = getattr(self.cfg, "gamma_split", None)
+            diagnostics["gamma_ins"] = getattr(self.cfg, "gamma_insert", None)
+            diagnostics["gamma_del"] = getattr(self.cfg, "gamma_delete", None)
+
         # Get live capacity estimates if odometer is available
-        if hasattr(self.odometer, 'G_hat') and hasattr(self.odometer, 'D_hat'):
-            G_hat = getattr(self.odometer, 'G_hat', None)
-            D_hat = getattr(self.odometer, 'D_hat', None)
-            c_hat = getattr(self.odometer, 'c_hat', None)
-            C_hat = getattr(self.odometer, 'C_hat', None)
+        if hasattr(self.odometer, "G_hat") and hasattr(self.odometer, "D_hat"):
+            G_hat = getattr(self.odometer, "G_hat", None)
+            D_hat = getattr(self.odometer, "D_hat", None)
+            c_hat = getattr(self.odometer, "c_hat", None)
+            C_hat = getattr(self.odometer, "C_hat", None)
             gamma_ins = diagnostics.get("gamma_ins", None)
             gamma_del = diagnostics.get("gamma_del", None)
-            
+
             if all(v is not None for v in [G_hat, D_hat, c_hat, C_hat, gamma_ins]):
                 diagnostics["N_star_live"] = N_star_live(
                     self.S_scalar, G_hat, D_hat, c_hat, C_hat, gamma_ins
                 )
-                
+
             if all(v is not None for v in [G_hat, D_hat, c_hat, C_hat, gamma_del]):
                 # Get noise scale estimate
-                sigma_step = getattr(self.odometer, 'sigma_step', 1.0)
-                delta_B = getattr(self.cfg, 'delta_b', 0.05) if hasattr(self, 'cfg') else 0.05
-                
-                diagnostics["m_theory_live"] = m_theory_live(
-                    self.S_scalar, self.inserts_seen, G_hat, D_hat, c_hat, C_hat,
-                    gamma_del, sigma_step, delta_B
+                sigma_step = getattr(self.odometer, "sigma_step", 1.0)
+                delta_B = (
+                    getattr(self.cfg, "delta_b", 0.05) if hasattr(self, "cfg") else 0.05
                 )
-        
+
+                diagnostics["m_theory_live"] = m_theory_live(
+                    self.S_scalar,
+                    self.inserts_seen,
+                    G_hat,
+                    D_hat,
+                    c_hat,
+                    C_hat,
+                    gamma_del,
+                    sigma_step,
+                    delta_B,
+                )
+
         return diagnostics
 
     def _check_recalibration_trigger(self) -> None:

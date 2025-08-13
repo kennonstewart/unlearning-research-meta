@@ -108,19 +108,6 @@ python agents/grid_runner.py \
 - `--bootstrap_steps`: Calibration phase length (default: 500)
 - `--seed`: Random seed for reproducibility
 
-### Advanced Configuration
-
-```bash
-# High-privacy, low-regret setting
-python run.py --algo memorypair --eps_total 0.1 --gamma 0.05 --T 20000
-
-# Burst deletion schedule with extended calibration
-python run.py --algo memorypair --schedule burst --bootstrap_steps 1000
-
-# Comparison across algorithms
-python run.py --algo baseline1 --schedule trickle --seed 42
-python run.py --algo memorypair --schedule trickle --seed 42
-```
 
 ## Implementation Details
 

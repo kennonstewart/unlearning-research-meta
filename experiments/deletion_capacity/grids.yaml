@@ -1,23 +1,37 @@
-# Default parameter grid for deletion capacity experiments
-# Based on the grid specified in AGENTS.md
+# grids.yaml (example excerpt)
+accountant: ["zcdp", "eps_delta"]
+gamma_bar: [1.0]
+gamma_split: [0.3, 0.5, 0.7]
+delete_ratio: [3, 5]
 
-# Unified gamma budget
-gamma_bar: [1.0, 1.0, 1.0, 1.0]
+# Oracle block (optional)
+enable_oracle: [true, false]
+comparator: ["dynamic", "static"]
+oracle_window_W: [2500, 5000]
+oracle_steps: [10, 15]
+oracle_stride: [null, 128]
+oracle_tol: [1e-6]
+oracle_warmstart: [true]
+path_length_norm: ["L2"]
+lambda_reg: [0.0, 1e-3]
 
-# Gamma split ratio (gamma_insert : gamma_delete)
-gamma_split: [0.9, 0.7, 0.5, 0.3]
+# L-BFGS / SC
+m_max: [10]
+d_max: [null, 5.0]
+lbfgs_pair_gate_m_t: [0.0, 1e-3]
+lbfgs_spectrum_clip: [[1e-6, 1e3]]
+ema_beta: [0.9]
+lambda_est_beta: [0.1]
+lambda_est_bounds: [[1e-8, 1e4]]
 
-# Calibrator conservativeness  
-quantile: [0.90]
+# Calib / N*
+bootstrap_iters: [500]
+quantile: [0.95]
+D_cap: [10.0]
+trim_quantile: [0.95]
 
-# Delete workload
-delete_ratio: [1, 5, 10, 100]
-
-# Accountant type - now supports all Milestone 5 accountant strategies
-accountant: ["eps_delta", "zcdp", "relaxed"]
-
-# Privacy budget (optional)
-eps_total: [1.0]
-
-# Relaxation factor for relaxed accountant
-relaxation_factor: [0.8]
+# Accountant specifics
+rho_total: [1.0]     # used if accountant=zcdp
+eps_total: [1.0]     # used if accountant=eps_delta
+delta_total: [1e-5]
+delta_b: [0.05]

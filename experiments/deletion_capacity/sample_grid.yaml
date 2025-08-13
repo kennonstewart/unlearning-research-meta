@@ -1,7 +1,0 @@
-# Sample grid with both accountant types for testing
-gamma_learn: [0.9, 0.7]
-gamma_priv: [0.1, 0.3]
-quantile: [0.95]
-delete_ratio: [10]
-accountant: ["legacy", "rdp"]
-eps_total: [1.0]

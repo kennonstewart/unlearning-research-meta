@@ -3,8 +3,9 @@ Configuration dataclass for deletion capacity experiments.
 Centralizes all CLI parameters and provides type safety.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import List, Optional
+from typing import get_origin, get_args, Union, Any
 
 
 @dataclass
@@ -35,7 +36,7 @@ class Config:
     alphas: List[float] = field(
         default_factory=lambda: [1.5, 2, 3, 4, 8, 16, 32, 64, float("inf")]
     )
-    
+
     # Relaxed accountant specific parameters
     relaxation_factor: float = 0.8  # Factor to reduce noise for relaxed mode
 
@@ -63,10 +64,12 @@ class Config:
     # Strong convexity parameters
     lambda_reg: float = 0.0  # L2 regularization parameter
     lambda_est_beta: float = 0.1  # EMA beta for lambda estimation
-    lambda_est_bounds: List[float] = field(default_factory=lambda: [1e-8, 1e6])  # bounds for lambda estimation
+    lambda_est_bounds: List[float] = field(
+        default_factory=lambda: [1e-8, 1e6]
+    )  # bounds for lambda estimation
     pair_admission_m: float = 1e-6  # threshold for curvature pair admission
     hessian_clamp_eps: float = 1e-12  # epsilon for spectrum clamping
-    d_max: float = float('inf')  # max direction norm (trust region style)
+    d_max: float = float("inf")  # max direction norm (trust region style)
     lambda_min_threshold: float = 1e-6  # threshold for lambda stability
     lambda_stability_K: int = 100  # steps required for stability
 
@@ -91,8 +94,8 @@ class Config:
     def gamma_insert(self) -> float:
         """Gamma budget allocated to insertions (learning)."""
         return self.gamma_bar * self.gamma_split
-    
-    @property 
+
+    @property
     def gamma_delete(self) -> float:
         """Gamma budget allocated to deletions (privacy)."""
         return self.gamma_bar * (1.0 - self.gamma_split)
@@ -100,7 +103,104 @@ class Config:
     @classmethod
     def from_cli_args(cls, **kwargs) -> "Config":
         """Create Config from CLI arguments, handling alphas parsing."""
-        # Parse alphas string if provided
+        # Helper functions for robust type coercion
+        import re
+
+        def _is_none_string(val):
+            return isinstance(val, str) and val.strip().lower() in ("none", "null")
+
+        def _to_bool(val):
+            if isinstance(val, bool):
+                return val
+            if isinstance(val, str):
+                v = val.strip().lower()
+                if v in ("true", "1", "yes", "y", "t"):
+                    return True
+                if v in ("false", "0", "no", "n", "f"):
+                    return False
+            raise ValueError(f"Cannot coerce {val!r} to bool")
+
+        def _to_number(val):
+            # Handle int/float, inf, scientific notation
+            if isinstance(val, (int, float)):
+                return val
+            if isinstance(val, str):
+                v = val.strip().lower()
+                if v in ("inf", "+inf", "infinity", "+infinity"):
+                    return float("inf")
+                if v in ("-inf", "-infinity"):
+                    return float("-inf")
+                # Try int, then float
+                try:
+                    if re.match(r"^-?\d+$", v):
+                        return int(v)
+                    return float(v)
+                except Exception:
+                    pass
+            raise ValueError(f"Cannot coerce {val!r} to number")
+
+        def _coerce_sequence(val, elem_type):
+            # Accept comma-separated string or list/tuple
+            if isinstance(val, str):
+                # Split on commas, strip whitespace
+                items = [s.strip() for s in val.split(",") if s.strip() != ""]
+                # Recursively coerce each element
+                return [_coerce_to_annotation(item, elem_type) for item in items]
+            elif isinstance(val, (list, tuple)):
+                return [_coerce_to_annotation(item, elem_type) for item in val]
+            else:
+                # Single element, wrap in list
+                return [_coerce_to_annotation(val, elem_type)]
+
+        def _coerce_to_annotation(val, annotation):
+            # Handle Optional[T], Union[T, NoneType]
+            origin = get_origin(annotation)
+            args = get_args(annotation)
+            if origin is Union and type(None) in args:
+                # Optional/Union: Try None, else try the other type
+                non_none_args = [a for a in args if a is not type(None)]
+                if _is_none_string(val) or val is None:
+                    return None
+                if len(non_none_args) == 1:
+                    return _coerce_to_annotation(val, non_none_args[0])
+                # Multiple non-None, try each
+                for a in non_none_args:
+                    try:
+                        return _coerce_to_annotation(val, a)
+                    except Exception:
+                        continue
+                raise ValueError(f"Cannot coerce {val!r} to {annotation}")
+            # Handle List[T], Tuple[T,...]
+            if origin in (list, List, tuple, Tuple):
+                elem_type = args[0] if args else Any
+                return _coerce_sequence(val, elem_type)
+            # Handle bool
+            if annotation is bool:
+                return _to_bool(val)
+            # Handle int/float
+            if annotation is int:
+                # Accept float if it's an integer value
+                try:
+                    n = _to_number(val)
+                    if isinstance(n, float) and n.is_integer():
+                        return int(n)
+                    return int(n)
+                except Exception:
+                    pass
+            if annotation is float:
+                return float(_to_number(val))
+            # Handle str
+            if annotation is str:
+                if val is None:
+                    return ""
+                return str(val)
+            # Handle Any
+            if annotation is Any:
+                return val
+            # Fallback: just return as is
+            return val
+
+        # Parse alphas string if provided (special-case, but still coerce recursively)
         if "alphas" in kwargs and isinstance(kwargs["alphas"], str):
             alphas_str = kwargs["alphas"]
             alphas = []
@@ -109,10 +209,26 @@ class Config:
                 if alpha_str.lower() in ("inf", "infinity"):
                     alphas.append(float("inf"))
                 else:
-                    alphas.append(float(alpha_str))
+                    alphas.append(alpha_str)
             kwargs["alphas"] = alphas
 
-        return cls(**kwargs)
+        # Filter kwargs to only include keys that are dataclass fields
+        valid_fields = {f.name for f in fields(cls)}
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in valid_fields}
+
+        # Coerce all filtered kwargs to the correct type
+        field_types = {f.name: f.type for f in fields(cls)}
+        for k in list(filtered_kwargs.keys()):
+            if k in field_types:
+                try:
+                    filtered_kwargs[k] = _coerce_to_annotation(
+                        filtered_kwargs[k], field_types[k]
+                    )
+                except Exception:
+                    # Fallback: leave as is for now, may raise at construction
+                    pass
+
+        return cls(**filtered_kwargs)
 
     def to_dict(self) -> dict:
         """Convert to dictionary for logging/serialization."""
