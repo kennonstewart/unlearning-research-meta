@@ -67,10 +67,10 @@ The aggregated `all_runs.csv` contains all per-event logs with additional grid m
 ## Example Usage
 
 ```bash
-# Full grid search with 10 seeds per combination
+# Full grid search with 3 seeds per combination
 python agents/grid_runner.py \
     --grid-file grids.yaml \
-    --seeds 10 \
+    --seeds 3 \
     --parallel 8 \
     --base-out results/grid_$(date +%Y_%m_%d)
 

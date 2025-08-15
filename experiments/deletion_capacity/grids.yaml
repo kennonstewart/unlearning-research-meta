@@ -7,7 +7,7 @@ delete_ratio: [3, 5]
 # Oracle block (optional)
 enable_oracle: [true, false]
 comparator: ["dynamic", "static"]
-oracle_window_W: [2500, 5000]
+oracle_window_W: [256, 512]
 oracle_steps: [10, 15]
 oracle_stride: [null, 128]
 oracle_tol: [1e-6]
