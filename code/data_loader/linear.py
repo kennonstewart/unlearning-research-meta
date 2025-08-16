@@ -34,17 +34,12 @@ class ParameterPathController:
         self.rotate_angle = rotate_angle
         self.drift_rate = drift_rate
         self.fix_w_norm = fix_w_norm
-        # Initialize parameter (optionally with controlled norm)
-        if w_scale is None:
-            # Backward-compatible: original random init
-            self.w_star = self.rng.normal(size=dim)
-            self.w_scale = np.linalg.norm(self.w_star)
-        else:
-            # Initialize on a sphere of radius w_scale
-            v = self.rng.normal(size=dim)
-            v /= np.linalg.norm(v) + 1e-12
-            self.w_star = v * w_scale
-            self.w_scale = float(w_scale)
+
+        # Initialize on a sphere of radius w_scale
+        v = self.rng.normal(size=dim)
+        v /= np.linalg.norm(v) + 1e-12
+        self.w_star = v * w_scale
+        self.w_scale = float(w_scale)
         self.t = 0
         self.P_T_cumulative = 0.0
 

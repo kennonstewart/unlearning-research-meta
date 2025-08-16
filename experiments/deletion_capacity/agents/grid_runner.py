@@ -123,25 +123,82 @@ def generate_combinations(grid: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
 
 def create_grid_id(params: Dict[str, Any]) -> str:
     """Create a unique identifier for this parameter combination."""
-    gamma_bar = params.get("gamma_bar", 1.0)
-    gamma_split = params.get("gamma_split", 0.5)
-    quantile = params.get("quantile", 0.95)
-    delete_ratio = params.get("delete_ratio", 10)
+
+    # Formatting helper that preserves differences for small floats and scientific-like strings
+    def _fmt(v):
+        if v is None:
+            return "none"
+        # numpy numeric types
+        try:
+            if isinstance(v, (int,)):
+                return str(v)
+            if isinstance(v, float):
+                # compact representation but preserves small differences
+                return f"{v:.6g}"
+        except Exception:
+            pass
+        # fallback to string (keeps things like '1e-3' intact)
+        return str(v)
+
+    gamma_bar = _fmt(params.get("gamma_bar", 1.0))
+    gamma_split = _fmt(params.get("gamma_split", 0.5))
+    quantile = _fmt(params.get("quantile", 0.95))
+    delete_ratio = _fmt(params.get("delete_ratio", 0))
     accountant = params.get("accountant", "default")
-    eps_total = params.get("eps_total", 1.0)
-    # Drift & scale knobs (optional)
-    path_type = params.get("path_type", "rotating")
-    rotate_angle = params.get("rotate_angle", 0.01)
-    drift_rate = params.get("drift_rate", 0.001)
-    feature_scale = params.get("feature_scale", 1.0)
-    # Shorten path_type for ID
-    p = {"static": "st", "rotating": "rot", "drift": "dr"}.get(
-        str(path_type), str(path_type)[:3]
-    )
-    return (
-        f"gamma_{gamma_bar:.1f}-split_{gamma_split:.1f}_q{quantile:.2f}_k{delete_ratio:.0f}_"
-        f"{accountant}_eps{eps_total:.1f}_p{p}_ang{rotate_angle:.3g}_dr{drift_rate:.3g}_fs{feature_scale:.3g}"
-    )
+    eps_total = _fmt(params.get("eps_total", params.get("rho_total", "")))
+
+    # Experiment knobs to include for better granularity
+    comparator = params.get("comparator", "")
+    drift_regime = params.get("drift_regime", params.get("path_type", ""))
+    lambda_reg = _fmt(params.get("lambda_reg", params.get("lambda", "")))
+    stream_len = _fmt(params.get("stream_len", params.get("max_events", "")))
+    dataset = params.get("dataset", "")
+    loss_name = params.get("loss_name", "")
+    m_max = _fmt(params.get("m_max", ""))
+    d_max = _fmt(params.get("d_max", ""))
+
+    # Keep legacy short fields (angle, drift_rate, feature_scale) if present
+    rotate_angle = _fmt(params.get("rotate_angle", ""))
+    drift_rate = _fmt(params.get("drift_rate", ""))
+    feature_scale = _fmt(params.get("feature_scale", ""))
+
+    parts = [
+        f"gamma_{gamma_bar}",
+        f"split_{gamma_split}",
+        f"q{quantile}",
+        f"k{delete_ratio}",
+        str(accountant),
+    ]
+
+    # Optional, only append when present/non-empty to avoid noisy IDs
+    if lambda_reg not in ("", "None"):
+        parts.append(f"lam{lambda_reg}")
+    if eps_total not in ("", "None"):
+        parts.append(f"eps{eps_total}")
+    if comparator:
+        parts.append(str(comparator))
+    if drift_regime:
+        parts.append(f"drreg_{drift_regime}")
+    if stream_len not in ("", "None"):
+        parts.append(f"sl{stream_len}")
+    if dataset:
+        parts.append(str(dataset))
+    if loss_name:
+        parts.append(f"loss{loss_name}")
+    if m_max not in ("", "None"):
+        parts.append(f"m{m_max}")
+    if d_max not in ("", "None"):
+        parts.append(f"d{d_max}")
+
+    # legacy small knobs
+    if rotate_angle not in ("", "None"):
+        parts.append(f"ang{rotate_angle}")
+    if drift_rate not in ("", "None"):
+        parts.append(f"dr{drift_rate}")
+    if feature_scale not in ("", "None"):
+        parts.append(f"fs{feature_scale}")
+
+    return "-".join(parts)
 
 
 def run_single_experiment(
@@ -157,6 +214,15 @@ def run_single_experiment(
     config_kwargs = params.copy()
     config_kwargs["seeds"] = 1  # Single seed per run
     config_kwargs["output_granularity"] = output_granularity  # Pass through granularity
+
+    # Safe defaults: some code paths multiply/step by these even if the oracle is disabled
+    if config_kwargs.get("oracle_stride") is None:
+        config_kwargs["oracle_stride"] = 1
+    if config_kwargs.get("oracle_steps") is None:
+        config_kwargs["oracle_steps"] = 1
+    # Ensure numeric for window as well
+    if config_kwargs.get("oracle_window_W") is None:
+        config_kwargs["oracle_window_W"] = 1
 
     # Set output directory for this specific run
     grid_id = create_grid_id(params)
@@ -187,9 +253,9 @@ def run_single_experiment(
         # Run for this specific seed
         runner.run_single_seed(seed)
 
-        # The runner should create a CSV file directly in the out_dir
-        # Look for files matching the expected pattern
-        csv_pattern = os.path.join(run_out_dir, f"*{seed}*.csv")
+        # The runner writes raw CSVs into a per-seed subdirectory
+        seed_dir = os.path.join(run_out_dir, f"seed_{seed:03d}")
+        csv_pattern = os.path.join(seed_dir, "*.csv")
         csv_files = glob.glob(csv_pattern)
 
         if csv_files:
@@ -421,7 +487,6 @@ def validate_schema(csv_path: str, expected_accountants: List[str]) -> bool:
         # Accountant-specific columns (canonical names)
         eps_delta_cols = {"eps_spent", "capacity_remaining"}
         zcdp_cols = {"eps_converted", "eps_remaining", "delta_total"}
-        relaxed_cols = {"eps_converted", "eps_remaining", "delta_total"}
 
         actual_cols = set(df.columns)
 

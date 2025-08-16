@@ -4,7 +4,7 @@ Centralizes all CLI parameters and provides type safety.
 """
 
 from dataclasses import dataclass, field, fields
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from typing import get_origin, get_args, Union, Any
 
 
@@ -18,7 +18,7 @@ class Config:
     gamma_split: float = 0.5  # Fraction of gamma_bar allocated to insertions
     bootstrap_iters: int = 500
     delete_ratio: float = 10.0
-    max_events: int = 10000
+    max_events: int = 5000
     seeds: int = 200
     out_dir: str = "results/"
     algo: str = "memorypair"
@@ -47,7 +47,7 @@ class Config:
     m_max: Optional[int] = 10
 
     # Sensitivity calibration
-    sens_calib: int = 50
+    sens_calib: int = 500
 
     # Output granularity for grid search
     output_granularity: str = "seed"
@@ -72,6 +72,15 @@ class Config:
     d_max: float = float("inf")  # max direction norm (trust region style)
     lambda_min_threshold: float = 1e-6  # threshold for lambda stability
     lambda_stability_K: int = 100  # steps required for stability
+
+    # --- Synthetic stream / drift controls ---
+    path_type: str = "rotating"  # parameter path: "static", "rotating", "drift"
+    rotate_angle: float = 0.01  # radians per event (for rotating path)
+    drift_rate: float = 0.001  # Gaussian drift magnitude per event
+    feature_scale: float = 1.0  # post-covariance feature scaling
+    w_scale: Optional[float] = None  # if set, fixes ||w*|| to this value
+    fix_w_norm: bool = True  # whether to renormalize w* each step
+    noise_std: float = 0.1  # label noise std for linear synthetic stream
 
     # Feature flags (all default False for no-op behavior)
     adaptive_geometry: bool = False
