@@ -238,7 +238,7 @@ class Config:
                     origin = get_origin(field.type)
                     args = get_args(field.type)
                     is_optional = origin is Union and type(None) in args
-                    
+
                     if not is_optional:
                         # Remove None value to let dataclass use its default
                         del filtered_kwargs[k]
