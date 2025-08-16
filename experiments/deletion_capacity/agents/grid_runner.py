@@ -123,15 +123,25 @@ def generate_combinations(grid: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
 
 def create_grid_id(params: Dict[str, Any]) -> str:
     """Create a unique identifier for this parameter combination."""
-    # Format: gamma_1.0-split_0.7_q0.95_k10_default_eps1.0
     gamma_bar = params.get("gamma_bar", 1.0)
     gamma_split = params.get("gamma_split", 0.5)
     quantile = params.get("quantile", 0.95)
     delete_ratio = params.get("delete_ratio", 10)
     accountant = params.get("accountant", "default")
     eps_total = params.get("eps_total", 1.0)
-
-    return f"gamma_{gamma_bar:.1f}-split_{gamma_split:.1f}_q{quantile:.2f}_k{delete_ratio:.0f}_{accountant}_eps{eps_total:.1f}"
+    # Drift & scale knobs (optional)
+    path_type = params.get("path_type", "rotating")
+    rotate_angle = params.get("rotate_angle", 0.01)
+    drift_rate = params.get("drift_rate", 0.001)
+    feature_scale = params.get("feature_scale", 1.0)
+    # Shorten path_type for ID
+    p = {"static": "st", "rotating": "rot", "drift": "dr"}.get(
+        str(path_type), str(path_type)[:3]
+    )
+    return (
+        f"gamma_{gamma_bar:.1f}-split_{gamma_split:.1f}_q{quantile:.2f}_k{delete_ratio:.0f}_"
+        f"{accountant}_eps{eps_total:.1f}_p{p}_ang{rotate_angle:.3g}_dr{drift_rate:.3g}_fs{feature_scale:.3g}"
+    )
 
 
 def run_single_experiment(
@@ -141,6 +151,8 @@ def run_single_experiment(
     output_granularity: str = "seed",
 ) -> str:
     """Run a single experiment with given parameters and seed."""
+    import re
+
     # Create config from parameters
     config_kwargs = params.copy()
     config_kwargs["seeds"] = 1  # Single seed per run
@@ -157,10 +169,11 @@ def run_single_experiment(
 
     try:
         config_kwargs = sanitize_params(config_kwargs)
+        numeric_pattern = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$")
         bad = {
             k: v
             for k, v in config_kwargs.items()
-            if isinstance(v, str) and any(ch.isdigit() for ch in v)
+            if isinstance(v, str) and numeric_pattern.match(v.strip())
         }
         if bad:
             print(
@@ -355,6 +368,14 @@ def aggregate_results(sweep_dir: str) -> str:
                 "eps_total",
                 "rho_total",
                 "delta_total",
+                # Drift/scale/feature controls
+                "path_type",
+                "rotate_angle",
+                "drift_rate",
+                "feature_scale",
+                "w_scale",
+                "fix_w_norm",
+                "noise_std",
             ]:
                 if k in params:
                     df[k] = params[k]
@@ -507,6 +528,14 @@ def process_seed_output(
                 "N_star_live",
                 "m_theory_live",
                 "blocked_reason",
+                # Drift/scale/feature controls
+                "path_type",
+                "rotate_angle",
+                "drift_rate",
+                "feature_scale",
+                "w_scale",
+                "fix_w_norm",
+                "noise_std",
             ]
 
             # Add mandatory fields from parameters first
@@ -600,6 +629,14 @@ def process_event_output(
                 "N_star_live",
                 "m_theory_live",
                 "blocked_reason",
+                # Drift/scale/feature controls
+                "path_type",
+                "rotate_angle",
+                "drift_rate",
+                "feature_scale",
+                "w_scale",
+                "fix_w_norm",
+                "noise_std",
             ]
 
             for field in mandatory_field_names:
@@ -731,6 +768,14 @@ def process_aggregate_output(
         "N_star_live",
         "m_theory_live",
         "blocked_reason",
+        # Drift/scale/feature controls
+        "path_type",
+        "rotate_angle",
+        "drift_rate",
+        "feature_scale",
+        "w_scale",
+        "fix_w_norm",
+        "noise_std",
     ]
 
     for field in mandatory_field_names:
