@@ -228,6 +228,21 @@ class Config:
                     # Fallback: leave as is for now, may raise at construction
                     pass
 
+        # Handle None values for non-Optional fields by removing them to use defaults
+        field_info = {f.name: f for f in fields(cls)}
+        for k in list(filtered_kwargs.keys()):
+            if filtered_kwargs[k] is None:
+                field = field_info.get(k)
+                if field and field.type is not type(None):
+                    # Check if it's Optional (Union with None)
+                    origin = get_origin(field.type)
+                    args = get_args(field.type)
+                    is_optional = origin is Union and type(None) in args
+
+                    if not is_optional:
+                        # Remove None value to let dataclass use its default
+                        del filtered_kwargs[k]
+
         return cls(**filtered_kwargs)
 
     def to_dict(self) -> dict:
