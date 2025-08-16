@@ -14,8 +14,8 @@ class Config:
 
     # Dataset and basic params
     dataset: str = "synthetic"
-    gamma_bar: float = 1.0
-    gamma_split: float = 0.5  # Fraction of gamma_bar allocated to insertions
+    gamma_bar: Optional[float] = 1.0
+    gamma_split: Optional[float] = 0.5  # Fraction of gamma_bar allocated to insertions
     bootstrap_iters: int = 500
     delete_ratio: float = 10.0
     max_events: int = 5000
@@ -102,11 +102,27 @@ class Config:
     @property
     def gamma_insert(self) -> float:
         """Gamma budget allocated to insertions (learning)."""
+        if self.gamma_bar is None or self.gamma_split is None:
+            import warnings
+            warnings.warn(
+                f"gamma_bar ({self.gamma_bar}) or gamma_split ({self.gamma_split}) is None. "
+                "Using fallback value of 0.0 for gamma_insert. Please check your grid configuration.",
+                UserWarning
+            )
+            return 0.0  # Default fallback when None values are present
         return self.gamma_bar * self.gamma_split
 
     @property
     def gamma_delete(self) -> float:
         """Gamma budget allocated to deletions (privacy)."""
+        if self.gamma_bar is None or self.gamma_split is None:
+            import warnings
+            warnings.warn(
+                f"gamma_bar ({self.gamma_bar}) or gamma_split ({self.gamma_split}) is None. "
+                "Using fallback value of 0.0 for gamma_delete. Please check your grid configuration.",
+                UserWarning
+            )
+            return 0.0  # Default fallback when None values are present
         return self.gamma_bar * (1.0 - self.gamma_split)
 
     @classmethod
