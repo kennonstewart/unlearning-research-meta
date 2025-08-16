@@ -18,7 +18,7 @@ class Config:
     gamma_split: float = 0.5  # Fraction of gamma_bar allocated to insertions
     bootstrap_iters: int = 500
     delete_ratio: float = 10.0
-    max_events: int = 100_000
+    max_events: int = 10000
     seeds: int = 200
     out_dir: str = "results/"
     algo: str = "memorypair"

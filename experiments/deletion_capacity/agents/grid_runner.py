@@ -153,7 +153,6 @@ def run_single_experiment(
     config_kwargs["out_dir"] = run_out_dir
 
     # Set some defaults for faster testing
-    config_kwargs.setdefault("max_events", 1000000)  # Reduced for testing
     config_kwargs.setdefault("bootstrap_iters", 500)  # Reduced for testing
 
     try:
