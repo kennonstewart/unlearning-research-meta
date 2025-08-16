@@ -1,0 +1,41 @@
+# === Targets & accounting ===
+gamma_bar:        [1.0]            # target average-regret level γ
+gamma_split:      [0.3]            # % of γ reserved for unlearning/noise vs learner
+accountant:       ["zcdp"]         # or add "legacy" to compare accountants in A/B runs
+rho_total:        [1.0]            # used when accountant=zcdp
+delta_total:      ["1e-5"]         # (for reporting / conversions)
+
+# === Stream & schedule ===
+stream_len:       [50000]          # total events T per run
+drift_regime:     ["stationary", "slow", "abrupt", "periodic"]  # your generator should read this
+delete_ratio:     [0.05, 0.2]      # deletes per insert (light/heavy)
+# Optional: use a string-coded schedule if your runner supports it
+# delete_schedule: ["poisson:lambda=0.005", "burst:k=5,B=500"]
+
+# === Comparator & oracle (A focuses on static, add dynamic if desired) ===
+comparator:       ["static"]       # add "dynamic" if you want both in one sweep
+enable_oracle:    [false]          # true only if your dynamic comparator needs an oracle path
+oracle_window_W:  [512]
+oracle_steps:     [10]
+oracle_stride:    [null]
+oracle_tol:       ["1e-6"]
+oracle_warmstart: [true]
+path_length_norm: ["L2"]
+
+# === Optimization / model stability ===
+lambda_reg:             ["1e-4", "1e-3"]  # weak → strong convexity sweep
+m_max:                  [1000]            # hard cap on deletes
+d_max:                  [null]
+lbfgs_pair_gate_m_t:    ["1e-3"]
+lbfgs_spectrum_clip:    [["1e-6", "1e3"]] # [c_hat_min, C_hat_max]
+ema_beta:               [0.9]
+lambda_est_beta:        [0.1]
+lambda_est_bounds:      [["1e-8", "1e4"]]
+
+# === Calibration ===
+bootstrap_iters:  [500]
+quantile:         [0.95]
+
+# === Dataset / generator (match your loaders) ===
+dataset:          ["synthetic"]       # swap/extend: ["linear","covtype","cifar10","mnist"]
+loss_name:        ["logistic"]     # or "squared" (must match what your runner expects)
