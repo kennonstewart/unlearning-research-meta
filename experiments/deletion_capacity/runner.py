@@ -227,7 +227,11 @@ class ExperimentRunner:
     def _save_seed_results(self, seed: int, logger: EventLogger, state: PhaseState, model) -> str:
         """Save CSV results for one seed."""
         os.makedirs(self.cfg.out_dir, exist_ok=True)
-        csv_path = os.path.join(self.cfg.out_dir, f"seed_{seed:03d}_{self.cfg.dataset}_{self.cfg.algo}.csv")
+        
+        # Create parameter-specific filename to prevent overwriting when different 
+        # parameter combinations use the same output directory
+        param_suffix = f"gamma{self.cfg.gamma_bar:.1f}-split{self.cfg.gamma_split:.1f}_{self.cfg.accountant}_eps{self.cfg.eps_total:.1f}"
+        csv_path = os.path.join(self.cfg.out_dir, f"seed_{seed:03d}_{self.cfg.dataset}_{self.cfg.algo}_{param_suffix}.csv")
         logger.to_csv(csv_path)
         return csv_path
     
