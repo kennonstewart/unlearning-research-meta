@@ -17,6 +17,7 @@ from functools import partial
 import pandas as pd
 import numpy as np
 import math
+import json
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
@@ -29,12 +30,28 @@ from plots import (
 )
 
 
-def load_grid(grid_file: str) -> Dict[str, List[Any]]:
-    """Load parameter grid from YAML file."""
-    with open(grid_file, "r") as f:
-        grid = yaml.safe_load(f)
+def load_grid(grid_file: str) -> Dict[str, Any]:
+    """Load parameter grid from YAML file.
 
-    return grid
+    Supports legacy flat format (treated as matrix) and structured format
+    with reserved keys: matrix, selectors, include, exclude, cases, limit, version.
+    """
+    with open(grid_file, "r") as f:
+        raw = yaml.safe_load(f) or {}
+
+    # Legacy mode: treat entire file as matrix if no structured keys present
+    if not isinstance(raw, dict):
+        return {"matrix": {}}
+    if (
+        "matrix" not in raw
+        and "selectors" not in raw
+        and "include" not in raw
+        and "exclude" not in raw
+        and "cases" not in raw
+    ):
+        return {"matrix": raw}
+
+    return raw
 
 
 def _coerce_numeric_like(v):
@@ -59,6 +76,90 @@ def _coerce_numeric_like(v):
 
 def sanitize_params(params):
     return {k: _coerce_numeric_like(v) for k, v in params.items()}
+
+
+# Selector/filter helpers for structured grids
+RESERVED_KEYS = {
+    "matrix",
+    "selectors",
+    "include",
+    "exclude",
+    "cases",
+    "limit",
+    "version",
+}
+
+
+def _as_list(x):
+    return x if isinstance(x, (list, tuple)) else [x]
+
+
+def _match_where(combo: Dict[str, Any], where: Dict[str, Any]) -> bool:
+    """Return True if all constraints in 'where' match the combo.
+
+    - Values can be scalars or lists (interpreted as membership).
+    - Uses _coerce_numeric_like for normalization.
+    """
+    if not where:
+        return True
+    for k, want in where.items():
+        want_list = _as_list(want)
+        want_list = [_coerce_numeric_like(v) for v in want_list]
+        have = _coerce_numeric_like(combo.get(k, None))
+        if have not in want_list:
+            return False
+    return True
+
+
+def _select_by_named_selectors(
+    combos: List[Dict[str, Any]],
+    selectors: List[Dict[str, Any]],
+    include_items: Optional[List[Any]],
+) -> List[Dict[str, Any]]:
+    name_to_where = {}
+    for s in selectors or []:
+        if isinstance(s, dict) and "name" in s:
+            name_to_where[s["name"]] = s.get("where", {})
+
+    selected: List[Dict[str, Any]] = []
+    seen = set()
+
+    for item in include_items or []:
+        if isinstance(item, dict) and "where" in item:
+            where = item["where"]
+        elif isinstance(item, str):
+            where = name_to_where.get(item, {})
+        else:
+            # ignore malformed include item
+            continue
+
+        for c in combos:
+            if _match_where(c, where):
+                key = json.dumps(
+                    sanitize_params(c), sort_keys=True, separators=(",", ":")
+                )
+                if key not in seen:
+                    seen.add(key)
+                    selected.append(c)
+    return selected
+
+
+def _apply_excludes(
+    combos: List[Dict[str, Any]], excludes: Optional[List[Any]]
+) -> List[Dict[str, Any]]:
+    if not excludes:
+        return list(combos)
+    out: List[Dict[str, Any]] = []
+    for c in combos:
+        drop = False
+        for ex in excludes or []:
+            where = ex.get("where", {}) if isinstance(ex, dict) else {}
+            if _match_where(c, where):
+                drop = True
+                break
+        if not drop:
+            out.append(c)
+    return out
 
 
 def generate_combinations(grid: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
@@ -926,12 +1027,47 @@ def main():
         print(f"Error: Grid file {args.grid_file} not found")
         return 1
 
-    grid = load_grid(args.grid_file)
-    print(f"Grid parameters: {list(grid.keys())}")
+    grid_raw = load_grid(args.grid_file)
 
-    # Generate parameter combinations
-    combinations = generate_combinations(grid)
-    print(f"Generated {len(combinations)} parameter combinations")
+    # Backwards compat: matrix is either explicit or the entire file
+    matrix = grid_raw.get("matrix", grid_raw)
+    selectors = grid_raw.get("selectors", [])
+    includes = grid_raw.get("include", None)
+    cases = grid_raw.get("cases", [])
+    excludes = grid_raw.get("exclude", [])
+    limit = grid_raw.get("limit", None)
+
+    print(f"Matrix parameters: {list(matrix.keys())}")
+
+    # Generate full combinations from matrix only
+    combinations_full = generate_combinations(matrix)
+    print(f"Generated {len(combinations_full)} parameter combinations (full product)")
+
+    # Determine selected subset
+    if includes or cases:
+        selected = _select_by_named_selectors(combinations_full, selectors, includes)
+        if cases:
+            case_includes = [{"where": c} for c in cases if isinstance(c, dict)]
+            selected += _select_by_named_selectors(
+                combinations_full, selectors, case_includes
+            )
+        # de-dup
+        seen = set()
+        combinations: List[Dict[str, Any]] = []
+        for c in selected:
+            key = json.dumps(sanitize_params(c), sort_keys=True, separators=(",", ":"))
+            if key not in seen:
+                seen.add(key)
+                combinations.append(c)
+    else:
+        combinations = list(combinations_full)
+
+    # Apply excludes and limit
+    combinations = _apply_excludes(combinations, excludes)
+    if isinstance(limit, int) and limit > 0:
+        combinations = combinations[:limit]
+
+    print(f"Selected {len(combinations)} parameter combinations after filters")
 
     if args.dry_run:
         print("\nDry run - parameter combinations:")
@@ -968,7 +1104,7 @@ def main():
         master_csv = aggregate_results(sweep_dir)
 
         # Validate schema
-        expected_accountants = grid.get("accountant", ["legacy"])
+        expected_accountants = matrix.get("accountant", ["legacy"])
         if master_csv:
             validate_schema(master_csv, expected_accountants)
 
@@ -1042,8 +1178,6 @@ def main():
         # Write manifest.json
         manifest_file = os.path.join(sweep_dir, "manifest.json")
         with open(manifest_file, "w") as f:
-            import json
-
             json.dump(manifest, f, indent=2)
 
         print(f"✅ Sweep manifest saved to: {manifest_file}")
