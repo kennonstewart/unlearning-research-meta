@@ -10,12 +10,13 @@ import os
 import sys
 import argparse
 import glob
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import multiprocessing as mp
 from functools import partial
 
 import pandas as pd
 import numpy as np
+import math
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
@@ -34,10 +35,6 @@ def load_grid(grid_file: str) -> Dict[str, List[Any]]:
         grid = yaml.safe_load(f)
 
     return grid
-
-
-# near imports
-import math
 
 
 def _coerce_numeric_like(v):
@@ -67,120 +64,165 @@ def sanitize_params(params):
 def generate_combinations(grid: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
     """Generate all parameter combinations from grid.
 
-    Special handling: gamma_bar and gamma_split are paired by index, not crossed.
-    Broadcasting: if one is length 1, repeat to match the other's length.
-    If both are length > 1 and unequal, raise ValueError.
-    Other parameters are crossed via Cartesian product.
-    If no gamma keys, all params are fully crossed.
+    Rules:
+    - gamma_bar and gamma_split are paired by index (with broadcasting), not crossed.
+    - Scalar values are treated as singletons (no expansion).
+    - List values are treated as options to cross, EXCEPT when the key indicates a
+      literal list parameter (e.g., keys ending with '_bounds', '_clip', '_range',
+      or known literal-list keys). Those are treated as a single literal value.
+    - Other parameters are crossed via Cartesian product.
     """
-    # Check if both gamma keys are present
-    if "gamma_bar" in grid and "gamma_split" in grid:
-        gamma_bar_list = grid["gamma_bar"]
-        gamma_split_list = grid["gamma_split"]
+
+    def is_literal_list_key(k: str) -> bool:
+        k_lower = k.lower()
+        if (
+            k_lower.endswith("_bounds")
+            or k_lower.endswith("_clip")
+            or k_lower.endswith("_range")
+        ):
+            return True
+        # Known literal list keys
+        known = {
+            "lbfgs_spectrum_clip",
+            "lambda_est_bounds",
+        }
+        return k in known
+
+    # Normalize grid into options dict: each key maps to a list of choices
+    options: Dict[str, List[Any]] = {}
+    for k, v in grid.items():
+        if k in ("gamma_bar", "gamma_split"):
+            # handled specially later; still ensure list form
+            if isinstance(v, (list, tuple)):
+                options[k] = list(v)
+            else:
+                options[k] = [v]
+            continue
+
+        if isinstance(v, (list, tuple)):
+            if is_literal_list_key(k):
+                # Literal list semantics:
+                # - If user provided [[...]] (list of one list), use the inner list as the single literal value
+                # - If user provided [[...], [...]] (multiple inner lists), treat each inner list as an option
+                # - Otherwise (list of scalars), treat entire list as the single literal value
+                if len(v) > 0 and all(isinstance(e, (list, tuple)) for e in v):
+                    if len(v) == 1:
+                        options[k] = [list(v[0])]
+                    else:
+                        options[k] = [list(e) for e in v]
+                else:
+                    options[k] = [list(v)]
+            else:
+                options[k] = list(v)
+        else:
+            options[k] = [v]
+
+    # Special handling for gamma pairing
+    has_gamma_pair = "gamma_bar" in options and "gamma_split" in options
+    if has_gamma_pair:
+        gamma_bar_list = options["gamma_bar"]
+        gamma_split_list = options["gamma_split"]
         len_bar = len(gamma_bar_list)
         len_split = len(gamma_split_list)
-        # Broadcasting if one of them is length 1
+
+        # Broadcasting
         if len_bar == 1 and len_split > 1:
-            # Broadcast gamma_bar
             gamma_bar_list = gamma_bar_list * len_split
         elif len_split == 1 and len_bar > 1:
-            # Broadcast gamma_split
             gamma_split_list = gamma_split_list * len_bar
         elif len_bar != len_split:
-            # Both >1 and unequal: raise error
             raise ValueError(
                 f"gamma_bar and gamma_split must be the same length, or one must be length 1. "
                 f"Got gamma_bar (len={len_bar}): {gamma_bar_list}, gamma_split (len={len_split}): {gamma_split_list}."
             )
-        # Now pair by index
+
         gamma_pairs = list(zip(gamma_bar_list, gamma_split_list))
-        # Remove gamma keys from other params
-        other_params = {
-            k: v for k, v in grid.items() if k not in ["gamma_bar", "gamma_split"]
-        }
-        # Cartesian product of other params (could be empty)
-        if other_params:
-            other_combos = list(itertools.product(*other_params.values()))
-            other_keys = list(other_params.keys())
-        else:
-            # No other params: single empty tuple
-            other_combos = [()]
-            other_keys = []
-        combinations = []
-        for gamma_bar, gamma_split in gamma_pairs:
+
+        # Remove gamma keys from options for the Cartesian product
+        other_keys = [
+            k for k in options.keys() if k not in ("gamma_bar", "gamma_split")
+        ]
+        other_option_lists = [options[k] for k in other_keys]
+        other_combos = (
+            list(itertools.product(*other_option_lists)) if other_option_lists else [()]
+        )
+
+        # Build raw combinations honoring gamma pairing
+        raw: List[Dict[str, Any]] = []
+        for gb, gs in gamma_pairs:
             for other_combo in other_combos:
-                combo_dict = {"gamma_bar": gamma_bar, "gamma_split": gamma_split}
-                combo_dict.update(dict(zip(other_keys, other_combo)))
-                combinations.append(combo_dict)
-        return combinations
+                combo = {"gamma_bar": gb, "gamma_split": gs}
+                combo.update(dict(zip(other_keys, other_combo)))
+                raw.append(combo)
     else:
-        # No gamma pair keys: full Cartesian product
-        combos = list(itertools.product(*grid.values()))
-        param_names = list(grid.keys())
-        combinations = [dict(zip(param_names, combo)) for combo in combos]
-        return combinations
+        # No special gamma pairing; regular Cartesian product across all options
+        keys = list(options.keys())
+        option_lists = [options[k] for k in keys]
+        combos = list(itertools.product(*option_lists)) if option_lists else [()]
+        raw = [dict(zip(keys, c)) for c in combos]
+
+    # Deduplicate combinations after normalizing values (e.g., numeric-like strings)
+    deduped: List[Dict[str, Any]] = []
+    seen = set()
+    import json as _json
+
+    for c in raw:
+        norm = sanitize_params(c)
+        key = _json.dumps(norm, sort_keys=True, separators=(",", ":"))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(c)
+    return deduped
 
 
 def create_grid_id(params: Dict[str, Any]) -> str:
     """Create a unique identifier for this parameter combination."""
+    import hashlib
+    import json
+
     gamma_bar = params.get("gamma_bar", 1.0)
     gamma_split = params.get("gamma_split", 0.5)
     quantile = params.get("quantile", 0.95)
     delete_ratio = params.get("delete_ratio", 10)
     accountant = params.get("accountant", "default")
     eps_total = params.get("eps_total", 1.0)
-    
-    # Oracle-related parameters
-    enable_oracle = params.get("enable_oracle", True)
-    comparator = params.get("comparator", "dynamic")
-    oracle_window_W = params.get("oracle_window_W", 256)
-    oracle_steps = params.get("oracle_steps", 10)
-    oracle_stride = params.get("oracle_stride", None)
-    
-    # Optimization parameters  
-    lambda_reg = params.get("lambda_reg", 0.0)
-    d_max = params.get("d_max", None)
-    lbfgs_pair_gate_m_t = params.get("lbfgs_pair_gate_m_t", 0.0)
-    
-    # Drift & scale knobs (optional, for backward compatibility)
+    # Drift & scale knobs (optional)
     path_type = params.get("path_type", "rotating")
     rotate_angle = params.get("rotate_angle", 0.01)
     drift_rate = params.get("drift_rate", 0.001)
     feature_scale = params.get("feature_scale", 1.0)
-    
-    # Convert parameters to safe string representations
-    def safe_format(val, fmt_spec=""):
-        """Safely format a value that might be a string or number."""
-        if val is None:
-            return "None"
-        if isinstance(val, str):
-            # For strings, use them directly or try to convert to float first
-            try:
-                return f"{float(val):{fmt_spec}}" if fmt_spec else val.replace('.', 'p').replace('-', 'n')
-            except (ValueError, TypeError):
-                return val.replace('.', 'p').replace('-', 'n')
-        else:
-            return f"{val:{fmt_spec}}" if fmt_spec else str(val)
-    
     # Shorten path_type for ID
     p = {"static": "st", "rotating": "rot", "drift": "dr"}.get(
         str(path_type), str(path_type)[:3]
     )
-    
-    # Create shortened representations
-    oracle_str = "T" if enable_oracle else "F"
-    comp_str = "dyn" if comparator == "dynamic" else "sta"
-    stride_str = safe_format(oracle_stride)
-    dmax_str = safe_format(d_max)
-    lambda_str = safe_format(lambda_reg, ".3g")
-    gate_str = safe_format(lbfgs_pair_gate_m_t, ".3g")
-    
+
+    # Create a short, stable hash that reflects ALL parameters, so that grid ids are unique
+    # across combinations even when not explicitly encoded in the human-readable prefix.
+    def _normalize(x):
+        # Make params JSON-serializable and order-stable
+        if isinstance(x, dict):
+            return {k: _normalize(v) for k, v in sorted(x.items())}
+        if isinstance(x, (list, tuple)):
+            return [_normalize(v) for v in x]
+        # Convert numpy scalars to Python scalars if present
+        try:
+            import numpy as _np  # local import to avoid top-level dependency
+
+            if isinstance(x, _np.generic):
+                return x.item()
+        except Exception:
+            pass
+        return x
+
+    norm = _normalize(params)
+    hash_src = json.dumps(
+        norm, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+    short_h = hashlib.md5(hash_src.encode("utf-8")).hexdigest()[:8]
+
     return (
         f"gamma_{gamma_bar:.1f}-split_{gamma_split:.1f}_q{quantile:.2f}_k{delete_ratio:.0f}_"
-        f"{accountant}_eps{eps_total:.1f}_or{oracle_str}_{comp_str}_"
-        f"W{oracle_window_W}_st{oracle_steps}_str{stride_str}_"
-        f"lr{lambda_str}_dm{dmax_str}_gt{gate_str}_"
-        f"p{p}_ang{rotate_angle:.3g}_dr{drift_rate:.3g}_fs{feature_scale:.3g}"
+        f"{accountant}_eps{eps_total:.1f}_p{p}_ang{rotate_angle:.3g}_dr{drift_rate:.3g}_fs{feature_scale:.3g}_h{short_h}"
     )
 
 
@@ -189,7 +231,7 @@ def run_single_experiment(
     seed: int,
     base_out_dir: str,
     output_granularity: str = "seed",
-) -> str:
+) -> Optional[str]:
     """Run a single experiment with given parameters and seed."""
     import re
 
@@ -364,7 +406,7 @@ def run_parameter_combination(
     return processed_files
 
 
-def aggregate_results(sweep_dir: str) -> str:
+def aggregate_results(sweep_dir: str) -> Optional[str]:
     """Aggregate all CSV results into a master file."""
     print("\n=== Aggregating results ===")
 
@@ -461,7 +503,7 @@ def validate_schema(csv_path: str, expected_accountants: List[str]) -> bool:
         # Accountant-specific columns (canonical names)
         eps_delta_cols = {"eps_spent", "capacity_remaining"}
         zcdp_cols = {"eps_converted", "eps_remaining", "delta_total"}
-        relaxed_cols = {"eps_converted", "eps_remaining", "delta_total"}
+        # relaxed accountant shares the same required columns as zcdp in the current schema
 
         actual_cols = set(df.columns)
 
@@ -714,7 +756,7 @@ def process_aggregate_output(
     grid_id: str,
     output_dir: str,
     mandatory_fields: Dict[str, Any],
-) -> str:
+) -> Optional[str]:
     """Process CSV files for aggregate granularity output."""
     if not csv_files:
         return None

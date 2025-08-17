@@ -26,9 +26,9 @@ lambda_est_bounds: [[1e-8, 1e4]]
 
 # Calib / N*
 bootstrap_iters: [500]
-quantile: [0.95]
+quantile: [0.9]
 D_cap: [10.0]
-trim_quantile: [0.95]
+trim_quantile: [0.9]
 
 # Accountant specifics
 rho_total: [1.0]     # used if accountant=zcdp
