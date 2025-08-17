@@ -129,18 +129,58 @@ def create_grid_id(params: Dict[str, Any]) -> str:
     delete_ratio = params.get("delete_ratio", 10)
     accountant = params.get("accountant", "default")
     eps_total = params.get("eps_total", 1.0)
-    # Drift & scale knobs (optional)
+    
+    # Oracle-related parameters
+    enable_oracle = params.get("enable_oracle", True)
+    comparator = params.get("comparator", "dynamic")
+    oracle_window_W = params.get("oracle_window_W", 256)
+    oracle_steps = params.get("oracle_steps", 10)
+    oracle_stride = params.get("oracle_stride", None)
+    
+    # Optimization parameters  
+    lambda_reg = params.get("lambda_reg", 0.0)
+    d_max = params.get("d_max", None)
+    lbfgs_pair_gate_m_t = params.get("lbfgs_pair_gate_m_t", 0.0)
+    
+    # Drift & scale knobs (optional, for backward compatibility)
     path_type = params.get("path_type", "rotating")
     rotate_angle = params.get("rotate_angle", 0.01)
     drift_rate = params.get("drift_rate", 0.001)
     feature_scale = params.get("feature_scale", 1.0)
+    
+    # Convert parameters to safe string representations
+    def safe_format(val, fmt_spec=""):
+        """Safely format a value that might be a string or number."""
+        if val is None:
+            return "None"
+        if isinstance(val, str):
+            # For strings, use them directly or try to convert to float first
+            try:
+                return f"{float(val):{fmt_spec}}" if fmt_spec else val.replace('.', 'p').replace('-', 'n')
+            except (ValueError, TypeError):
+                return val.replace('.', 'p').replace('-', 'n')
+        else:
+            return f"{val:{fmt_spec}}" if fmt_spec else str(val)
+    
     # Shorten path_type for ID
     p = {"static": "st", "rotating": "rot", "drift": "dr"}.get(
         str(path_type), str(path_type)[:3]
     )
+    
+    # Create shortened representations
+    oracle_str = "T" if enable_oracle else "F"
+    comp_str = "dyn" if comparator == "dynamic" else "sta"
+    stride_str = safe_format(oracle_stride)
+    dmax_str = safe_format(d_max)
+    lambda_str = safe_format(lambda_reg, ".3g")
+    gate_str = safe_format(lbfgs_pair_gate_m_t, ".3g")
+    
     return (
         f"gamma_{gamma_bar:.1f}-split_{gamma_split:.1f}_q{quantile:.2f}_k{delete_ratio:.0f}_"
-        f"{accountant}_eps{eps_total:.1f}_p{p}_ang{rotate_angle:.3g}_dr{drift_rate:.3g}_fs{feature_scale:.3g}"
+        f"{accountant}_eps{eps_total:.1f}_or{oracle_str}_{comp_str}_"
+        f"W{oracle_window_W}_st{oracle_steps}_str{stride_str}_"
+        f"lr{lambda_str}_dm{dmax_str}_gt{gate_str}_"
+        f"p{p}_ang{rotate_angle:.3g}_dr{drift_rate:.3g}_fs{feature_scale:.3g}"
     )
 
 
