@@ -157,7 +157,21 @@ def _create_extended_log_entry(base_entry: dict, state: PhaseState, model, cfg: 
         "drift_boost_remaining": model_metrics.get("drift_boost_remaining", 0),
         "base_eta_t": model_metrics.get("base_eta_t", None),
     })
-    
+
+    # Add regret metrics
+    entry.update(
+        {
+            "regret_increment": model_metrics.get("regret_increment"),
+            "cum_regret": model_metrics.get(
+                "cum_regret", getattr(model, "cumulative_regret", None)
+            ),
+            "avg_regret": model_metrics.get(
+                "avg_regret",
+                getattr(model, "get_average_regret", lambda: None)(),
+            ),
+        }
+    )
+
     return entry
 
 

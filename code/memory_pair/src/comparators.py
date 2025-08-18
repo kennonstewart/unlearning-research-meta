@@ -216,30 +216,37 @@ class StaticOracle(Comparator):
         
     def update_regret_accounting(
         self, x: np.ndarray, y: float, current_theta: np.ndarray
-    ) -> None:
+    ) -> Dict[str, float]:
         """
-        Update static regret accounting against fixed oracle.
-        
+        Update static regret accounting against fixed oracle and return the
+        per-event increment.
+
         Args:
             x: Feature vector
             y: Target value
             current_theta: Current model parameters
+
+        Returns:
+            dict: Contains ``regret_increment`` for this event. If the oracle
+            has not been calibrated, all increments default to ``0.0``.
         """
         if not self.is_calibrated:
-            return
-            
+            return {"regret_increment": 0.0}
+
         # Compute current loss with regularization
         pred_current = float(current_theta @ x)
         loss_current = self._compute_regularized_loss(pred_current, y, current_theta)
-        
+
         # Compute static oracle loss
         pred_oracle = float(self.w_star_fixed @ x)
         loss_oracle = self._compute_regularized_loss(pred_oracle, y, self.w_star_fixed)
-        
+
         # Update static regret
         regret_increment = loss_current - loss_oracle
         self.regret_static += regret_increment
         self.events_seen += 1
+
+        return {"regret_increment": regret_increment}
         
     def _compute_regularized_loss(self, pred: float, y: float, w: np.ndarray) -> float:
         """Compute regularized loss for single point."""
@@ -652,17 +659,28 @@ class RollingOracle(Comparator):
 
     def update_regret_accounting(
         self, x: np.ndarray, y: float, current_theta: np.ndarray
-    ) -> None:
+    ) -> Dict[str, float]:
         """
-        Update dynamic regret accounting after each event.
+        Update dynamic regret accounting after each event and return the
+        per-event increments for logging.
 
         Args:
             x: Feature vector
             y: Target value
             current_theta: Current model parameters
+
+        Returns:
+            dict: Contains ``regret_increment`` (dynamic term),
+            ``static_increment`` (vs. first-window oracle) and
+            ``path_increment`` (dynamic minus static). If the oracle state is
+            unavailable, all increments default to ``0.0``.
         """
         if self.oracle_state is None:
-            return
+            return {
+                "regret_increment": 0.0,
+                "static_increment": 0.0,
+                "path_increment": 0.0,
+            }
 
         # Compute current loss with regularization
         pred_current = float(current_theta @ x)
@@ -678,7 +696,7 @@ class RollingOracle(Comparator):
         regret_increment = loss_current - loss_oracle
         self.regret_dynamic += regret_increment
 
-        # Update static term (vs first window oracle)
+        static_increment = 0.0
         if self.w_star_first is not None:
             pred_first = float(self.w_star_first @ x)
             loss_first = self._compute_regularized_loss(
@@ -688,7 +706,14 @@ class RollingOracle(Comparator):
             self.regret_static_term += static_increment
 
         # Path term is difference
+        path_increment = regret_increment - static_increment
         self.regret_path_term = self.regret_dynamic - self.regret_static_term
+
+        return {
+            "regret_increment": regret_increment,
+            "static_increment": static_increment,
+            "path_increment": path_increment,
+        }
 
     def _compute_regularized_loss(self, pred: float, y: float, w: np.ndarray) -> float:
         """Compute regularized loss for single point."""

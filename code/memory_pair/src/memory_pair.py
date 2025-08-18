@@ -165,6 +165,11 @@ class MemoryPair:
 
         # Tracking attributes
         self.cumulative_regret = 0.0
+        # Last-step regret increments (from comparator accounting)
+        self.regret_increment = 0.0
+        self.static_regret_increment = 0.0
+        self.path_regret_increment = 0.0
+
         self.events_seen = 0
         self.inserts_seen = 0
         self.deletes_seen = 0
@@ -576,7 +581,11 @@ class MemoryPair:
                 oracle_refreshed = self.oracle.maybe_update(x, y, self.theta)
 
             # Update regret accounting for both static and dynamic oracles
-            self.oracle.update_regret_accounting(x, y, self.theta)
+            incs = self.oracle.update_regret_accounting(x, y, self.theta)
+            if isinstance(incs, dict):
+                self.regret_increment = incs.get("regret_increment", 0.0)
+                self.static_regret_increment = incs.get("static_increment", 0.0)
+                self.path_regret_increment = incs.get("path_increment", 0.0)
 
         # 4. Handle state transitions
         if (
@@ -792,6 +801,17 @@ class MemoryPair:
             "drift_boost_remaining": getattr(self, "drift_boost_remaining", 0),
             "base_eta_t": getattr(self, "base_eta_t", self.eta_t),
         }
+
+        # Regret tracking fields
+        metrics.update(
+            {
+                "regret_increment": self.regret_increment,
+                "static_regret_increment": self.static_regret_increment,
+                "path_regret_increment": self.path_regret_increment,
+                "cum_regret": self.cumulative_regret,
+                "avg_regret": self.get_average_regret(),
+            }
+        )
 
         # Add accountant metrics if accountant is available
         if self.accountant is not None:
