@@ -58,7 +58,8 @@ def plot_regret(
 
     prefix = "cum_regret" if regret_type == "cumulative" else "avg_regret"
 
-    emp_curves: List[np.ndarray] = []
+    plain_curves: List[np.ndarray] = []
+    noise_curves: List[np.ndarray] = []
     th_curves: List[np.ndarray] = []
     max_len = 0
 
@@ -66,15 +67,21 @@ def plot_regret(
         df = pd.read_csv(p)
 
         emp_col = next(
-            (c for c in df.columns if c.startswith(prefix) and "emp" in c),
+            (c for c in df.columns if c.startswith(prefix + "_with_noise")),
             None,
         )
-        if emp_col is None:
-            continue
-
-        emp_vals = df[emp_col].to_numpy()
-        emp_curves.append(emp_vals)
-        max_len = max(max_len, len(emp_vals))
+        plain_col = next(
+            (c for c in df.columns if c.startswith(prefix) and "with_noise" not in c),
+            None,
+        )
+        if plain_col is not None:
+            vals = df[plain_col].to_numpy()
+            plain_curves.append(vals)
+            max_len = max(max_len, len(vals))
+        if emp_col is not None:
+            nvals = df[emp_col].to_numpy()
+            noise_curves.append(nvals)
+            max_len = max(max_len, len(nvals))
 
         th_col = next(
             (c for c in df.columns if c.startswith(prefix) and "theory" in c),
@@ -83,17 +90,24 @@ def plot_regret(
         if th_col is not None:
             th_curves.append(df[th_col].to_numpy())
 
-    if not emp_curves:
+    if not plain_curves:
         print("Warning: No regret columns found for plotting")
         return
 
-    data_emp = np.full((len(emp_curves), max_len), np.nan)
-    for i, arr in enumerate(emp_curves):
-        data_emp[i, : len(arr)] = arr
-    avg_emp = np.nanmean(data_emp, axis=0)
+    data_plain = np.full((len(plain_curves), max_len), np.nan)
+    for i, arr in enumerate(plain_curves):
+        data_plain[i, : len(arr)] = arr
+    avg_plain = np.nanmean(data_plain, axis=0)
 
     plt.figure()
-    plt.plot(avg_emp, label="empirical")
+    plt.plot(avg_plain, label="regret")
+
+    if noise_curves:
+        data_noise = np.full((len(noise_curves), max_len), np.nan)
+        for i, arr in enumerate(noise_curves):
+            data_noise[i, : len(arr)] = arr
+        avg_noise = np.nanmean(data_noise, axis=0)
+        plt.plot(avg_noise, label="regret + noise")
 
     if th_curves:
         data_th = np.full((len(th_curves), max_len), np.nan)
