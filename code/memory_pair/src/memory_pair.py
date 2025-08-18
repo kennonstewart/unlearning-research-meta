@@ -8,7 +8,7 @@ from dataclasses import dataclass
 try:
     from .odometer import PrivacyOdometer, RDPOdometer, N_star_live, m_theory_live
     from .lbfgs import LimitedMemoryBFGS
-    from .metrics import regret
+    from .metrics import loss_half_mse
     from .calibrator import Calibrator
     from .comparators import RollingOracle
     from .accountant_strategies import StrategyAccountantAdapter
@@ -17,7 +17,7 @@ try:
 except ModuleNotFoundError:
     from odometer import PrivacyOdometer, RDPOdometer, N_star_live, m_theory_live
     from lbfgs import LimitedMemoryBFGS
-    from metrics import regret
+    from metrics import loss_half_mse
     from calibrator import Calibrator
     from comparators import RollingOracle
     from accountant import get_adapter
@@ -261,7 +261,7 @@ class MemoryPair:
 
     def _compute_regularized_loss(self, pred: float, y: float) -> float:
         """Compute regularized loss: l(pred, y) + (lambda_reg/2) * ||theta||^2"""
-        base_loss = 0.5 * (pred - y) ** 2  # squared loss
+        base_loss = loss_half_mse(pred, y)  # squared loss
         lambda_reg = getattr(self.cfg, "lambda_reg", 0.0) if self.cfg else 0.0
         reg_term = 0.5 * lambda_reg * float(np.dot(self.theta, self.theta))
         return base_loss + reg_term
@@ -514,7 +514,7 @@ class MemoryPair:
         pred = float(self.theta @ x)
 
         # 2. Update regret counters
-        self.cumulative_regret += regret(pred, y)
+        self.cumulative_regret += loss_half_mse(pred, y)
         self.events_seen += 1
         self.inserts_seen += 1
 
