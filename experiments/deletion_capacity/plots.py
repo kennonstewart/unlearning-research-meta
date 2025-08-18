@@ -323,67 +323,51 @@ def plot_nstar_m_live(csv_paths: List[str], out_path: str) -> None:
 
 
 def plot_regret_decomp(csv_paths: List[str], out_path: str) -> None:
-    """Plot regret decomposition into static, adaptive, and path components."""
+    """Plot regret decomposition using logged oracle metrics."""
     try:
-        plt.figure(figsize=(12, 8))
-        
-        all_components = {'R_static': [], 'R_adaptive': [], 'R_path': [], 'R_empirical': []}
-        
+        static_curves = []
+        path_curves = []
+        dyn_curves = []
+        max_len = 0
+
         for p in csv_paths:
             df = pd.read_csv(p)
-            
-            # Compute regret decomposition if we have the necessary fields
-            if all(col in df.columns for col in ['G_hat', 'D_hat', 'c_hat', 'C_hat', 'lambda_est']):
-                events = np.arange(len(df))
-                
-                # Approximate S_T and P_T if not available
-                S_T = getattr(df, 'S_scalar', events * 1.0)  # Fallback
-                P_T = getattr(df, 'P_T', events * 0.01)  # Fallback
-                
-                for i in range(len(df)):
-                    if i % 100 == 0:  # Sample every 100 events to avoid clutter
-                        G_hat = df.iloc[i]['G_hat']
-                        D_hat = df.iloc[i]['D_hat'] 
-                        c_hat = df.iloc[i]['c_hat']
-                        C_hat = df.iloc[i]['C_hat']
-                        lambda_est = df.iloc[i]['lambda_est']
-                        regret_emp = df.iloc[i].get('regret', 0)
-                        
-                        # Static component
-                        if lambda_est > 0:
-                            R_static = (G_hat ** 2) / (lambda_est * c_hat) * (1 + np.log(i + 1))
-                        else:
-                            R_static = 0.0
-                            
-                        # Adaptive component
-                        R_adaptive = G_hat * D_hat * np.sqrt(c_hat * C_hat * S_T[i] if hasattr(S_T, '__getitem__') else S_T)
-                        
-                        # Path component  
-                        R_path = G_hat * P_T[i] if hasattr(P_T, '__getitem__') else G_hat * P_T
-                        
-                        all_components['R_static'].append(R_static)
-                        all_components['R_adaptive'].append(R_adaptive)
-                        all_components['R_path'].append(R_path)
-                        all_components['R_empirical'].append(regret_emp)
-        
-        # Plot average components
-        if all_components['R_static']:
-            events_sampled = np.arange(len(all_components['R_static'])) * 100
-            plt.plot(events_sampled, all_components['R_static'], label='Static', alpha=0.8)
-            plt.plot(events_sampled, all_components['R_adaptive'], label='Adaptive', alpha=0.8)
-            plt.plot(events_sampled, all_components['R_path'], label='Path', alpha=0.8)
-            plt.plot(events_sampled, all_components['R_empirical'], label='Empirical', alpha=0.8, linestyle='--')
-            
-        plt.xlabel('Event')
-        plt.ylabel('Regret')
-        plt.title('Regret Decomposition')
+            if all(col in df.columns for col in ["regret_static_term", "regret_path_term", "regret_dynamic"]):
+                static_vals = df["regret_static_term"].to_numpy()
+                path_vals = df["regret_path_term"].to_numpy()
+                dyn_vals = df["regret_dynamic"].to_numpy()
+
+                static_curves.append(static_vals)
+                path_curves.append(path_vals)
+                dyn_curves.append(dyn_vals)
+                max_len = max(max_len, len(dyn_vals))
+
+        if not dyn_curves:
+            print("Warning: No regret decomposition columns found.")
+            return
+
+        def pad_and_mean(curves):
+            data = np.full((len(curves), max_len), np.nan)
+            for i, arr in enumerate(curves):
+                data[i, : len(arr)] = arr
+            return np.nanmean(data, axis=0)
+
+        events = np.arange(max_len)
+        plt.figure(figsize=(12, 8))
+        plt.plot(events, pad_and_mean(static_curves), label="Static Term", alpha=0.8)
+        plt.plot(events, pad_and_mean(path_curves), label="Path Term", alpha=0.8)
+        plt.plot(events, pad_and_mean(dyn_curves), label="Dynamic Regret", alpha=0.8, linestyle="--")
+
+        plt.xlabel("Event")
+        plt.ylabel("Regret")
+        plt.title("Regret Decomposition")
         plt.legend()
         plt.grid(True, alpha=0.3)
-        plt.yscale('log')
-        
+        plt.yscale("log")
+
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         plt.tight_layout()
-        plt.savefig(out_path, dpi=300, bbox_inches='tight')
+        plt.savefig(out_path, dpi=300, bbox_inches="tight")
         plt.close()
         
     except Exception as e:
