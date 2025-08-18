@@ -14,7 +14,7 @@ try:
     from .accountant_strategies import StrategyAccountantAdapter
     from .accountant import get_adapter
     from .accountant.types import Accountant
-except ModuleNotFoundError:
+except (ModuleNotFoundError, ImportError):
     from odometer import PrivacyOdometer, RDPOdometer, N_star_live, m_theory_live
     from lbfgs import LimitedMemoryBFGS
     from metrics import loss_half_mse
@@ -170,11 +170,15 @@ class MemoryPair:
         self.regret_increment = 0.0
         self.static_regret_increment = 0.0
         self.path_regret_increment = 0.0
+        # Noise-induced regret tracking
+        self.noise_regret_cum = 0.0
+        self.noise_regret_inc = 0.0
 
         self.events_seen = 0
         self.inserts_seen = 0
         self.deletes_seen = 0
         self.N_star: Optional[int] = None
+        self.N_gamma: Optional[int] = None
         self.ready_to_predict = False
         self.calibration_stats: Optional[dict] = None
 
@@ -591,11 +595,11 @@ class MemoryPair:
             self.phase == Phase.LEARNING
             and self.N_star is not None
             and self.inserts_seen >= self.N_star
+            and self.N_gamma is None
         ):
-            self.ready_to_predict = True
             self.phase = Phase.INTERLEAVING
             print(
-                f"[MemoryPair] Reached N* = {self.N_star} inserts. Ready to predict, transitioning to INTERLEAVING phase."
+                f"[MemoryPair] Reached N* = {self.N_star} inserts. Transitioning to INTERLEAVING phase."
             )
             print("[Finalize] Finalizing odometer...")
 
@@ -621,6 +625,32 @@ class MemoryPair:
                 self.odometer.finalize_with(
                     odometer_stats, self.calib_stats.N_star or self.events_seen or 1
                 )
+
+            # Compute deferred inference threshold N_gamma
+            try:
+                from .theory import N_gamma
+            except (ModuleNotFoundError, ImportError):
+                from theory import N_gamma
+
+            m_cap = 0
+            if self.accountant is not None:
+                m_cap = self.accountant.metrics().get("m_capacity", 0)
+            gamma = getattr(self.cfg, "gamma", 0.5)
+            self.N_gamma = N_gamma(
+                self.calib_stats.G,
+                self.calib_stats.D,
+                self.calib_stats.c,
+                self.calib_stats.C,
+                m_cap,
+                gamma,
+            )
+            print(
+                f"[MemoryPair] N_gamma = {self.N_gamma} events required before predictions."
+            )
+            self._maybe_enable_predictions()
+
+        # Check if predictions can be enabled
+        self._maybe_enable_predictions()
 
         if return_grad:
             return pred, g_old
@@ -671,7 +701,10 @@ class MemoryPair:
 
         # Check regret gate using new theory functions
         if hasattr(self.cfg, "gamma_delete") and self.cfg.gamma_delete is not None:
-            from .theory import regret_insert_bound, regret_delete_bound
+            try:
+                from .theory import regret_insert_bound, regret_delete_bound
+            except (ModuleNotFoundError, ImportError):
+                from theory import regret_insert_bound, regret_delete_bound
 
             L = self.calib_stats.G
             ins_reg = regret_insert_bound(
@@ -707,9 +740,23 @@ class MemoryPair:
         noise = np.random.normal(0, sigma, self.theta.shape)
         self.theta = self.theta - self.eta_t * influence + noise
 
+        # Track noise-induced regret bound
+        delta_b = getattr(self.cfg, "delta_b", 0.05)
+        lambda_safe = max(self.lambda_reg, 1e-12)
+        delta_reg = (
+            (self.calib_stats.G / lambda_safe)
+            * sigma
+            * np.sqrt(2 * np.log(1 / max(delta_b, 1e-12)))
+        )
+        self.noise_regret_inc = float(delta_reg)
+        self.noise_regret_cum += float(delta_reg)
+
         # Update counters
         self.events_seen += 1
         self.deletes_seen += 1
+
+        # Check if predictions can be enabled after deletion
+        self._maybe_enable_predictions()
 
         return None  # Success
 
@@ -774,6 +821,18 @@ class MemoryPair:
             and self.sc_stable >= K
         )
 
+    def _maybe_enable_predictions(self) -> None:
+        """Enable predictions once theoretical sample complexity is met."""
+        if (
+            not self.ready_to_predict
+            and self.N_gamma is not None
+            and self.events_seen >= self.N_gamma
+        ):
+            self.ready_to_predict = True
+            print(
+                f"[MemoryPair] Reached N_gamma = {self.N_gamma} events. Predictions enabled."
+            )
+
     def get_average_regret(self) -> float:
         """Calculates the average regret over all seen events."""
         if self.events_seen == 0:
@@ -809,6 +868,15 @@ class MemoryPair:
                 "path_regret_increment": self.path_regret_increment,
                 "cum_regret": self.cumulative_regret,
                 "avg_regret": self.get_average_regret(),
+                "noise_regret_increment": self.noise_regret_inc,
+                "noise_regret_cum": self.noise_regret_cum,
+                "cum_regret_with_noise": self.cumulative_regret
+                + self.noise_regret_cum,
+                "avg_regret_with_noise": (
+                    self.cumulative_regret + self.noise_regret_cum
+                )
+                / max(self.events_seen, 1),
+                "N_gamma": self.N_gamma,
             }
         )
 

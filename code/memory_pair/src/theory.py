@@ -23,3 +23,13 @@ def regret_delete_bound(m: int, L: float, lambda_: float, sigma: float, delta_b:
     # High-probability norm bound for Gaussian noise
     noise_norm_bound = sigma * math.sqrt(2 * math.log(1 / max(delta_b, 1e-12)))
     return m * (L / max(lambda_, 1e-12)) * noise_norm_bound
+
+
+def N_gamma(G: float, D: float, c: float, C: float, m: int, gamma: float) -> int:
+    """Sample complexity threshold ensuring average regret ≤ gamma.
+
+    Combines calibration sample complexity with a linear term for ``m`` deletes.
+    """
+    base = N_star(G, D, c, C, gamma)
+    return int(np.ceil(base + m))
+

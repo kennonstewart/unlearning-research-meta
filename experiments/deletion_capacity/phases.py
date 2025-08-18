@@ -174,6 +174,11 @@ def _create_extended_log_entry(base_entry: dict, state: PhaseState, model, cfg: 
                 "avg_regret",
                 getattr(model, "get_average_regret", lambda: None)(),
             ),
+            "noise_regret_increment": model_metrics.get("noise_regret_increment"),
+            "noise_regret_cum": model_metrics.get("noise_regret_cum"),
+            "cum_regret_with_noise": model_metrics.get("cum_regret_with_noise"),
+            "avg_regret_with_noise": model_metrics.get("avg_regret_with_noise"),
+            "N_gamma": model_metrics.get("N_gamma", getattr(model, "N_gamma", None)),
         }
     )
 
