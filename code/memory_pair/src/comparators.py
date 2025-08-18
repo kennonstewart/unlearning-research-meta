@@ -14,8 +14,10 @@ from abc import ABC, abstractmethod
 
 try:
     from .lbfgs import LimitedMemoryBFGS
+    from .metrics import loss_half_mse
 except ImportError:
     from lbfgs import LimitedMemoryBFGS
+    from metrics import loss_half_mse
 
 
 class Comparator(ABC):
@@ -250,7 +252,7 @@ class StaticOracle(Comparator):
         
     def _compute_regularized_loss(self, pred: float, y: float, w: np.ndarray) -> float:
         """Compute regularized loss for single point."""
-        base_loss = 0.5 * (pred - y) ** 2
+        base_loss = loss_half_mse(pred, y)
         reg_term = 0.5 * self.lambda_reg * float(np.dot(w, w))
         return base_loss + reg_term
         
@@ -583,7 +585,7 @@ class RollingOracle(Comparator):
 
         for x, y in self.window_buffer:
             pred = float(w @ x)
-            loss = 0.5 * (pred - y) ** 2
+            loss = loss_half_mse(pred, y)
             total_loss += loss
 
         # Average loss
@@ -717,7 +719,7 @@ class RollingOracle(Comparator):
 
     def _compute_regularized_loss(self, pred: float, y: float, w: np.ndarray) -> float:
         """Compute regularized loss for single point."""
-        base_loss = 0.5 * (pred - y) ** 2
+        base_loss = loss_half_mse(pred, y)
         reg_term = 0.5 * self.lambda_reg * float(np.dot(w, w))
         return base_loss + reg_term
 

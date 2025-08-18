@@ -1,4 +1,5 @@
 import numpy as np
+from memory_pair.src.metrics import loss_half_mse
 
 
 class OnlineSGD:
@@ -10,7 +11,7 @@ class OnlineSGD:
         pred = self.theta @ x
         grad = (pred - y) * x
         self.theta -= self.lr * grad
-        return 0.5 * (pred - y) ** 2
+        return loss_half_mse(pred, y)
 
 
 class AdaGrad:
@@ -26,7 +27,7 @@ class AdaGrad:
         self.G += grad**2
         adjusted_lr = self.lr / (np.sqrt(self.G) + self.eps)
         self.theta -= adjusted_lr * grad
-        return 0.5 * (pred - y) ** 2
+        return loss_half_mse(pred, y)
 
 
 class OnlineNewtonStep:
@@ -39,7 +40,7 @@ class OnlineNewtonStep:
         grad = (pred - y) * x
         self.H += np.outer(x, x)
         self.theta -= np.linalg.inv(self.H) @ grad
-        return 0.5 * (pred - y) ** 2
+        return loss_half_mse(pred, y)
 
 
 class SekhariBatchUnlearning:

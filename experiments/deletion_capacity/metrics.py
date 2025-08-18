@@ -1,12 +1,10 @@
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 
-def regret(pred: float, y: float) -> float:
-    """Calculate the regret as the squared difference between prediction and true value."""
-    # Convert to scalar values to handle numpy arrays/tensors
-    pred_scalar = float(pred.item() if hasattr(pred, 'item') else pred)
-    y_scalar = float(y.item() if hasattr(y, 'item') else y)
-    return 0.5 * float((pred_scalar - y_scalar) ** 2)
+from memory_pair.src.metrics import loss_half_mse
+
+# Backwards compatibility alias
+regret = loss_half_mse
 
 
 def abs_error(pred: float, y: float) -> float:

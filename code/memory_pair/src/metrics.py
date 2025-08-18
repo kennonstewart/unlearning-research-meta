@@ -1,14 +1,24 @@
-# /code/memory_pair/src/metrics.py
-# Metrics for evaluating regret in prediction tasks.
+"""Utility metrics for loss and regret calculations."""
+
+from typing import Any
 
 
-def regret(prediction: float, target: float) -> float:
+def _to_scalar(val: Any) -> float:
+    """Convert tensors/arrays to plain Python floats."""
+    return float(val.item() if hasattr(val, "item") else val)
+
+
+def loss_half_mse(pred: Any, y: Any) -> float:
+    """Half mean squared error loss.
+
+    Converts inputs to scalars to remain agnostic to the array/tensor type.
     """
-    Calculates the squared error regret for a single prediction.
-    Args:
-        prediction (float): The predicted value.
-        target (float): The true value.
-    Returns:
-        float: The regret (squared error).
-    """
-    return (prediction - target) ** 2
+    pred_scalar = _to_scalar(pred)
+    y_scalar = _to_scalar(y)
+    return 0.5 * (pred_scalar - y_scalar) ** 2
+
+
+def regret(prediction: Any, target: Any) -> float:
+    """Alias for :func:`loss_half_mse` for backward compatibility."""
+    return loss_half_mse(prediction, target)
+
