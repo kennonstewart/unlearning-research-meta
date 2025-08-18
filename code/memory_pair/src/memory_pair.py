@@ -158,6 +158,7 @@ class MemoryPair:
 
         # Store config for feature flags (no behavior change yet)
         self.cfg = cfg
+        self.lambda_reg = getattr(cfg, "lambda_reg", 0.0) if cfg else 0.0
 
         # State machine attributes
         self.phase = Phase.CALIBRATION
@@ -262,8 +263,7 @@ class MemoryPair:
     def _compute_regularized_loss(self, pred: float, y: float) -> float:
         """Compute regularized loss: l(pred, y) + (lambda_reg/2) * ||theta||^2"""
         base_loss = loss_half_mse(pred, y)  # squared loss
-        lambda_reg = getattr(self.cfg, "lambda_reg", 0.0) if self.cfg else 0.0
-        reg_term = 0.5 * lambda_reg * float(np.dot(self.theta, self.theta))
+        reg_term = 0.5 * self.lambda_reg * float(np.dot(self.theta, self.theta))
         return base_loss + reg_term
 
     def _compute_regularized_gradient(
@@ -271,8 +271,7 @@ class MemoryPair:
     ) -> np.ndarray:
         """Compute regularized gradient: grad_l + lambda_reg * theta"""
         base_grad = (pred - y) * x  # gradient of squared loss
-        lambda_reg = getattr(self.cfg, "lambda_reg", 0.0) if self.cfg else 0.0
-        reg_grad = lambda_reg * self.theta
+        reg_grad = self.lambda_reg * self.theta
 
         # Add bounds to prevent extreme gradients
         total_grad = base_grad + reg_grad
@@ -514,7 +513,7 @@ class MemoryPair:
         pred = float(self.theta @ x)
 
         # 2. Update regret counters
-        self.cumulative_regret += loss_half_mse(pred, y)
+        self.cumulative_regret += self._compute_regularized_loss(pred, y)
         self.events_seen += 1
         self.inserts_seen += 1
 
@@ -688,7 +687,7 @@ class MemoryPair:
             del_reg = regret_delete_bound(
                 m_used + 1,
                 L,
-                getattr(self.cfg, "lambda_reg", 0.0) or 1e-12,
+                self.lambda_reg or 1e-12,
                 sigma,
                 getattr(self.cfg, "delta_b", 0.05),
             )
