@@ -3,6 +3,14 @@
 This directory contains a minimal implementation of the Memory-Pair online learner used by the experiments.
 The algorithm maintains L-BFGS curvature pairs and supports deletion with Gaussian noise calibrated by a privacy odometer.
 
+## L2 Regularization
+
+The learner accepts an optional `lambda_reg` parameter controlling ℓ2 regularization of the weights. It defaults to `0.0`, giving an unregularized objective. For `lambda_reg > 0`, the per-example loss becomes
+
+\[\ell(x, y; w) = \tfrac{1}{2}(w^\top x - y)^2 + \tfrac{\lambda_{\text{reg}}}{2} \lVert w \rVert^2,\]
+
+and gradients include the additional `lambda_reg * w` term. A positive `lambda_reg` makes the objective `lambda_reg`-strongly convex, tightening regret bounds by reducing the optimization term.
+
 ## Privacy Odometers
 
 The library now supports **zCDP (zero-Concentrated Differential Privacy)** accounting via the `ZCDPOdometer` class:
