@@ -1,9 +1,11 @@
 import os
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+from code.memory_pair.src import theory
 
 
 def plot_capacity_curve(csv_paths: List[str], out_path: str) -> None:
@@ -37,36 +39,104 @@ def plot_capacity_curve(csv_paths: List[str], out_path: str) -> None:
     plt.close()
 
 
-def plot_regret(csv_paths: List[str], out_path: str) -> None:
-    curves = []
+def plot_regret(
+    csv_paths: List[str],
+    out_path: str,
+    regret_type: str = "cumulative",
+    theory_kwargs: Optional[Dict[str, float]] = None,
+) -> None:
+    """Plot mean cumulative or average regret across multiple CSVs.
+
+    Args:
+        csv_paths: List of CSV file paths containing regret columns.
+        out_path: Where to save the resulting figure.
+        regret_type: "cumulative" or "average" to select column prefix.
+        theory_kwargs: Optional parameters to overlay theoretical bound using
+            :mod:`code.memory_pair.src.theory` functions. Expected keys are
+            ``G``, ``D``, ``c``, ``C`` and optionally ``S`` (array of S_T).
+    """
+
+    prefix = "cum_regret" if regret_type == "cumulative" else "avg_regret"
+
+    emp_curves: List[np.ndarray] = []
+    th_curves: List[np.ndarray] = []
     max_len = 0
+
     for p in csv_paths:
         df = pd.read_csv(p)
-        vals = df['regret'].to_numpy()
-        curves.append(vals)
-        max_len = max(max_len, len(vals))
-    data = np.full((len(curves), max_len), np.nan)
-    for i, arr in enumerate(curves):
-        data[i, : len(arr)] = arr
-    avg = np.nanmean(data, axis=0)
+
+        emp_col = next(
+            (c for c in df.columns if c.startswith(prefix) and "emp" in c),
+            None,
+        )
+        if emp_col is None:
+            continue
+
+        emp_vals = df[emp_col].to_numpy()
+        emp_curves.append(emp_vals)
+        max_len = max(max_len, len(emp_vals))
+
+        th_col = next(
+            (c for c in df.columns if c.startswith(prefix) and "theory" in c),
+            None,
+        )
+        if th_col is not None:
+            th_curves.append(df[th_col].to_numpy())
+
+    if not emp_curves:
+        print("Warning: No regret columns found for plotting")
+        return
+
+    data_emp = np.full((len(emp_curves), max_len), np.nan)
+    for i, arr in enumerate(emp_curves):
+        data_emp[i, : len(arr)] = arr
+    avg_emp = np.nanmean(data_emp, axis=0)
+
     plt.figure()
-    plt.plot(avg)
-    plt.xlabel('event')
-    plt.ylabel('cumulative_regret')
+    plt.plot(avg_emp, label="empirical")
+
+    if th_curves:
+        data_th = np.full((len(th_curves), max_len), np.nan)
+        for i, arr in enumerate(th_curves):
+            data_th[i, : len(arr)] = arr
+        avg_th = np.nanmean(data_th, axis=0)
+        plt.plot(avg_th, label="theory")
+    elif theory_kwargs is not None:
+        t = np.arange(1, max_len + 1)
+        G = theory_kwargs.get("G", 1.0)
+        D = theory_kwargs.get("D", 1.0)
+        c_val = theory_kwargs.get("c", 1.0)
+        C_val = theory_kwargs.get("C", 1.0)
+        S = theory_kwargs.get("S")
+        if S is None:
+            S = t * (G ** 2)
+        bound = theory.regret_insert_bound(S, G, D, c_val, C_val)
+        if regret_type == "average":
+            bound = bound / t
+        plt.plot(bound, linestyle="--", label="theory")
+
+    plt.xlabel("event")
+    plt.ylabel("cumulative regret" if prefix == "cum_regret" else "average regret")
+    if th_curves or theory_kwargs is not None:
+        plt.legend()
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     plt.tight_layout()
     plt.savefig(out_path)
     plt.close()
 
 
-def plot_accountant_comparison(data_dir: str, out_path: str, metric: str = "regret") -> None:
-    """
-    Plot comparison of different accountant types for Milestone 5.
-    
+def plot_accountant_comparison(
+    data_dir: str,
+    out_path: str,
+    metric: str = "avg_regret_empirical",
+) -> None:
+    """Plot comparison of different accountant types.
+
     Args:
-        data_dir: Directory containing CSV files organized by accountant type
-        out_path: Output path for the plot
-        metric: Metric to compare ("regret", "capacity", "noise")
+        data_dir: Directory containing CSV files organized by accountant type.
+        out_path: Output path for the plot.
+        metric: Column name to compare (e.g. "avg_regret_empirical",
+            "cum_regret_empirical", "capacity_remaining", "sigma_step_theory").
     """
     accountant_types = ["eps_delta", "zcdp", "relaxed"]
     colors = {"eps_delta": "blue", "zcdp": "red", "relaxed": "green"}
@@ -93,12 +163,8 @@ def plot_accountant_comparison(data_dir: str, out_path: str, metric: str = "regr
             try:
                 df = pd.read_csv(csv_file)
                 
-                if metric == "regret" and "regret" in df.columns:
-                    vals = df["regret"].to_numpy()
-                elif metric == "capacity" and "capacity_remaining" in df.columns:
-                    vals = df["capacity_remaining"].to_numpy()
-                elif metric == "noise" and "sigma_step_theory" in df.columns:
-                    vals = df["sigma_step_theory"].to_numpy()
+                if metric in df.columns:
+                    vals = df[metric].to_numpy()
                 else:
                     print(f"Warning: Metric {metric} not found in {csv_file}")
                     continue
@@ -132,8 +198,14 @@ def plot_accountant_comparison(data_dir: str, out_path: str, metric: str = "regr
                         color=colors.get(acc_type, "black"), alpha=0.2)
     
     plt.xlabel("Event")
-    plt.ylabel(metric.replace("_", " ").title())
-    plt.title(f"Accountant Comparison: {metric.replace('_', ' ').title()}")
+    if metric.startswith("avg_regret"):
+        ylabel = "Average Regret"
+    elif metric.startswith("cum_regret"):
+        ylabel = "Cumulative Regret"
+    else:
+        ylabel = metric.replace("_", " ").title()
+    plt.ylabel(ylabel)
+    plt.title(f"Accountant Comparison: {ylabel}")
     plt.legend()
     plt.grid(True, alpha=0.3)
     
@@ -442,15 +514,30 @@ def plot_drift_overlay(csv_paths: List[str], out_path: str) -> None:
     """Plot metrics with segment_id shading to show drift periods."""
     try:
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
-        
+        regret_label = None
+
         for p in csv_paths:
             df = pd.read_csv(p)
             events = np.arange(len(df))
-            
-            # Plot regret
-            if 'regret' in df.columns:
-                ax1.plot(events, df['regret'], alpha=0.7, label=os.path.basename(p))
-                
+
+            regret_col = next(
+                (c for c in df.columns if c.startswith("cum_regret")),
+                None,
+            )
+            if regret_col is None:
+                regret_col = next(
+                    (c for c in df.columns if c.startswith("avg_regret")),
+                    None,
+                )
+            if regret_col is not None:
+                ax1.plot(events, df[regret_col], alpha=0.7, label=os.path.basename(p))
+                if regret_label is None:
+                    regret_label = (
+                        "cumulative regret"
+                        if regret_col.startswith("cum_regret")
+                        else "average regret"
+                    )
+
             # Plot accuracy or other metric
             metric_col = 'acc' if 'acc' in df.columns else 'abs_error' if 'abs_error' in df.columns else None
             if metric_col:
@@ -468,8 +555,10 @@ def plot_drift_overlay(csv_paths: List[str], out_path: str) -> None:
                         ax1.axvspan(seg_events.min(), seg_events.max(), alpha=0.2, color=colors[i])
                         ax2.axvspan(seg_events.min(), seg_events.max(), alpha=0.2, color=colors[i])
         
-        ax1.set_ylabel('Regret')
-        ax1.set_title('Regret with Drift Segments')
+        if regret_label is None:
+            regret_label = "regret"
+        ax1.set_ylabel(regret_label.title())
+        ax1.set_title(f"{regret_label.title()} with Drift Segments")
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         ax1.set_yscale('log')
