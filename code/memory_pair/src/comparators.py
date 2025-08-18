@@ -107,15 +107,19 @@ class StaticOracle(Comparator):
         self.dim = dim
         self.lambda_reg = lambda_reg
         self.cfg = cfg
-        
+
         # Static oracle state (set during calibration)
         self.w_star_fixed: Optional[np.ndarray] = None
         self.is_calibrated = False
-        
+
+        # Cumulative sufficient statistics
+        self.xtx = np.zeros((dim, dim))
+        self.xty = np.zeros(dim)
+
         # Regret tracking against fixed oracle
         self.regret_static = 0.0
         self.events_seen = 0
-        
+
         # Path-length tracking (always 0 for static oracle)
         self._P_T = 0.0
         
@@ -126,6 +130,8 @@ class StaticOracle(Comparator):
         self.regret_static = 0.0
         self.events_seen = 0
         self._P_T = 0.0
+        self.xtx = np.zeros((self.dim, self.dim))
+        self.xty = np.zeros(self.dim)
     
     def update_target(self, t: int, *, x: Optional[np.ndarray] = None, 
                      y: Optional[float] = None, model: Optional[np.ndarray] = None) -> np.ndarray:
@@ -164,57 +170,26 @@ class StaticOracle(Comparator):
     def P_T(self) -> float:
         """Current accumulated path length (always 0 for static oracle)."""
         return self._P_T
-        """
-        Calibrate static oracle using initial data from calibration phase.
-        
-        Args:
-            data_buffer: List of (x, y) training examples from calibration
-        """
+
+    def calibrate_with_initial_data(self, data_buffer: List[Tuple[np.ndarray, float]]) -> None:
+        """Calibrate static oracle using initial data from calibration phase."""
+        self.xtx = np.zeros((self.dim, self.dim))
+        self.xty = np.zeros(self.dim)
+
+        for x, y in data_buffer:
+            self.xtx += np.outer(x, x)
+            self.xty += x * y
+
         if len(data_buffer) == 0:
             self.w_star_fixed = np.zeros(self.dim)
-            self.is_calibrated = True
-            return
-            
-        # Solve ERM on calibration data to get fixed oracle
-        self.w_star_fixed = self._solve_erm_on_data(data_buffer)
+        else:
+            A = self.xtx + self.lambda_reg * np.eye(self.dim)
+            try:
+                self.w_star_fixed = np.linalg.solve(A, self.xty)
+            except np.linalg.LinAlgError:
+                self.w_star_fixed = np.linalg.pinv(A) @ self.xty
+
         self.is_calibrated = True
-        
-    def _solve_erm_on_data(self, data: List[Tuple[np.ndarray, float]]) -> np.ndarray:
-        """
-        Solve ERM on given data using simple gradient descent.
-        
-        Args:
-            data: List of (x, y) training examples
-            
-        Returns:
-            Optimized parameters
-        """
-        if len(data) == 0:
-            return np.zeros(self.dim)
-            
-        w = np.zeros(self.dim)
-        
-        # Simple gradient descent
-        learning_rate = 0.01
-        num_steps = 20
-        
-        for step in range(num_steps):
-            grad = np.zeros(self.dim)
-            
-            # Compute batch gradient
-            for x, y in data:
-                pred = float(w @ x)
-                residual = pred - y
-                grad += residual * x
-                
-            # Average gradient and add regularization
-            grad /= len(data)
-            grad += self.lambda_reg * w
-            
-            # Gradient descent step
-            w = w - learning_rate * grad
-            
-        return w
         
     def update_regret_accounting(
         self, x: np.ndarray, y: float, current_theta: np.ndarray
@@ -234,6 +209,17 @@ class StaticOracle(Comparator):
         """
         if not self.is_calibrated:
             return {"regret_increment": 0.0}
+
+        # Update cumulative statistics
+        self.xtx += np.outer(x, x)
+        self.xty += x * y
+
+        # Recompute oracle using ridge closed form
+        A = self.xtx + self.lambda_reg * np.eye(self.dim)
+        try:
+            self.w_star_fixed = np.linalg.solve(A, self.xty)
+        except np.linalg.LinAlgError:
+            self.w_star_fixed = np.linalg.pinv(A) @ self.xty
 
         # Compute current loss with regularization
         pred_current = float(current_theta @ x)
