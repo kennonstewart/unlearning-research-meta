@@ -200,8 +200,11 @@ def create_regret_decomposition_from_csv(
     """
     df = pd.read_csv(csv_path)
 
+    # Determine path-length column name
+    P_col = "P_T" if "P_T" in df.columns else "P_T_est"
+
     # Check for required columns
-    required_cols = ["event", "regret_static_term", "regret_path_term", "P_T_est"]
+    required_cols = ["event", "regret_static_term", "regret_path_term", P_col]
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
         print(f"Warning: Missing required columns: {missing_cols}")
@@ -211,7 +214,7 @@ def create_regret_decomposition_from_csv(
     events = df["event"].tolist()
     regret_static = df["regret_static_term"].tolist()
     regret_path = df["regret_path_term"].tolist()
-    P_T_values = df["P_T_est"].tolist()
+    P_T_values = df[P_col].tolist()
 
     # Find oracle refresh events (where P_T increases)
     oracle_refreshes = []

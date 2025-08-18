@@ -247,6 +247,18 @@ class ExperimentRunner:
             "D_cap": self.cfg.D_cap,
             "accountant_type": self.cfg.accountant,
         }
+
+        # Oracle metrics if available
+        if hasattr(model, "get_metrics_dict"):
+            m_metrics = model.get_metrics_dict()
+            summary.update(
+                {
+                    "regret_dynamic": m_metrics.get("regret_dynamic"),
+                    "regret_static_term": m_metrics.get("regret_static_term"),
+                    "regret_path_term": m_metrics.get("regret_path_term"),
+                    "P_T": m_metrics.get("P_T"),
+                }
+            )
         
         # Add calibration results
         if hasattr(model, "calibration_stats") and model.calibration_stats:

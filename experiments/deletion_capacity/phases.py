@@ -148,6 +148,11 @@ def _create_extended_log_entry(base_entry: dict, state: PhaseState, model, cfg: 
         "P_T": model_metrics.get("P_T", None),
         "comparator_type": model_metrics.get("comparator_type", "none"),
         "drift_flag": model_metrics.get("drift_flag", False),
+
+        # Oracle regret decomposition fields
+        "regret_dynamic": model_metrics.get("regret_dynamic", None),
+        "regret_static_term": model_metrics.get("regret_static_term", None),
+        "regret_path_term": model_metrics.get("regret_path_term", None),
         
         # Additional useful fields
         "sens_delete": None,  # Will be populated during actual deletions

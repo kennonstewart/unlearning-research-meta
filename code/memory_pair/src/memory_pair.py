@@ -848,21 +848,45 @@ class MemoryPair:
         # Add oracle metrics if oracle is enabled
         if self.oracle is not None:
             oracle_metrics = self.oracle.get_oracle_metrics()
-            # Map oracle metrics to expected field names from comment feedback
-            oracle_metrics["P_T"] = oracle_metrics.get("P_T_est", 0.0)
-            oracle_metrics["drift_flag"] = oracle_metrics.get("drift_detected", False)
+            # Map oracle metrics to expected field names
+            oracle_metrics["P_T"] = oracle_metrics.get(
+                "P_T", oracle_metrics.get("P_T_est", 0.0)
+            )
+            oracle_metrics["P_T_est"] = oracle_metrics.get(
+                "P_T_est", oracle_metrics["P_T"]
+            )
+            oracle_metrics["drift_flag"] = oracle_metrics.get(
+                "drift_detected", False
+            )
+
+            # Normalize regret field names
+            if "regret_static" in oracle_metrics and "regret_static_term" not in oracle_metrics:
+                oracle_metrics["regret_static_term"] = oracle_metrics.pop("regret_static")
+            oracle_metrics.setdefault(
+                "regret_path_term", oracle_metrics.get("regret_path", 0.0)
+            )
+            oracle_metrics.setdefault(
+                "regret_dynamic",
+                oracle_metrics.get("regret_static_term", 0.0)
+                + oracle_metrics.get("regret_path_term", 0.0),
+            )
+
             if hasattr(self.oracle, "__class__"):
                 oracle_metrics["comparator_type"] = (
                     "static"
                     if "Static" in self.oracle.__class__.__name__
                     else "dynamic"
                 )
+
             metrics.update(oracle_metrics)
         else:
             # Default values when oracle is disabled
             metrics.update(
                 {
                     "P_T": 0.0,
+                    "regret_dynamic": 0.0,
+                    "regret_static_term": 0.0,
+                    "regret_path_term": 0.0,
                     "drift_flag": False,
                     "comparator_type": "none",
                 }
