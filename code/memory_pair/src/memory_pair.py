@@ -61,8 +61,11 @@ class MemoryPair:
        with privacy accounting
 
     The algorithm uses L-BFGS for second-order optimization and maintains cumulative
-    regret tracking. Deletions are performed with differential privacy guarantees
-    managed by the unified Accountant interface.
+    regret tracking. When an oracle/comparator is enabled, regret is computed against
+    the oracle's optimal solution. When no oracle is available, regret is computed
+    against a zero prediction baseline to enable basic regret tracking. Deletions 
+    are performed with differential privacy guarantees managed by the unified 
+    Accountant interface.
 
     Attributes:
         theta (np.ndarray): Current parameter vector
@@ -594,6 +597,13 @@ class MemoryPair:
                 self.regret_increment = incs.get("regret_increment", 0.0)
                 self.static_regret_increment = incs.get("static_increment", 0.0)
                 self.path_regret_increment = incs.get("path_increment", 0.0)
+        else:
+            # Fallback regret tracking when oracle is disabled
+            # Compute simple regret against zero prediction for basic tracking
+            pred = float(self.theta @ x)
+            zero_pred_loss = loss_half_mse(0.0, y)
+            current_loss = loss_half_mse(pred, y)
+            self.regret_increment = current_loss - zero_pred_loss
 
         # 7b. Accumulate comparator-based regret if present; otherwise do not change cumulative_regret
         if self.regret_increment is not None:
