@@ -46,6 +46,13 @@ selectors:
       accountant: ["zcdp", "eps_delta"]
       gamma_split: [0.3, 0.5]
       enable_oracle: [false]
+  - name: experiment_a
+    where:
+      # Experiment A requires oracle for regret tracking/bound adherence analysis
+      accountant: ["zcdp", "eps_delta"]
+      gamma_split: [0.3, 0.5, 0.7]
+      enable_oracle: [true]
+      comparator: ["dynamic", "static"]
   - name: lbfgs_ablation
     where:
       lbfgs_pair_gate_m_t: [0.0, 1e-3]
@@ -57,6 +64,7 @@ selectors:
 # 3) Include subset to run
 include:
   - baseline
+  - experiment_a  # Enable oracle for regret tracking in Experiment A
   - lbfgs_ablation
   - { where: { accountant: "zcdp", gamma_split: [0.7] } }
 
