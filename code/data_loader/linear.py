@@ -67,8 +67,8 @@ class ParameterPathController:
         delta_P = np.linalg.norm(w_new - self.w_star)
         self.P_T_cumulative += delta_P
 
-    self.w_star = w_new
-    return self.w_star.copy(), float(delta_P)
+        self.w_star = w_new
+        return self.w_star.copy(), float(delta_P)
 
     def _rotate_parameter(self) -> np.ndarray:
         """Apply controlled rotation to parameter."""

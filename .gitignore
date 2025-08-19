@@ -28,3 +28,7 @@ experiments/*/figs/
 # Test files
 test_*.py
 *.yaml
+
+
+# cache files
+__pycache__/
