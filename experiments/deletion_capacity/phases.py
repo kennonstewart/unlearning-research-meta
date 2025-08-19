@@ -149,6 +149,13 @@ def _create_extended_log_entry(
         except Exception:
             pass  # Fallback to None if error
 
+    # Collect additional privacy/accountant diagnostics
+    privacy_metrics = {}
+    try:
+        privacy_metrics = get_privacy_metrics(model)
+    except Exception:
+        pass
+
     # Decide comparator type with robust fallback
     comp_type = model_metrics.get("comparator_type")
     if comp_type in (None, "none", "", np.nan):
@@ -215,6 +222,18 @@ def _create_extended_log_entry(
             "N_gamma": model_metrics.get("N_gamma", getattr(model, "N_gamma", None)),
         }
     )
+
+    # Finally, merge in any remaining metrics from model_metrics and
+    # privacy_metrics that weren't explicitly copied above. This ensures
+    # accountant outputs (m_capacity, eps_spent, etc.) and curvature
+    # diagnostics (C_hat, D_hat, G_hat, c_hat, ...) are propagated to the
+    # log entry rather than being dropped.
+    combined_metrics = {**privacy_metrics, **model_metrics}
+    for key, val in combined_metrics.items():
+        if key not in entry or entry[key] is None or (
+            isinstance(entry[key], float) and np.isnan(entry[key])
+        ):
+            entry[key] = val
 
     # Ensure legacy 'regret' column reflects instantaneous comparator regret
     try:
