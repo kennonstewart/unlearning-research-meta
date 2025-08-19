@@ -2,8 +2,8 @@
 """
 Dynamic and static comparators for measuring regret decomposition.
 
-Implements both rolling oracle w_t* (dynamic) and fixed oracle w_0* (static) 
-for regret decomposition as per Definition 5.8. Dynamic mode tracks 
+Implements both rolling oracle w_t* (dynamic) and fixed oracle w_0* (static)
+for regret decomposition as per Definition 5.8. Dynamic mode tracks
 path-length P_T for decomposition: R_T^{dyn} ≤ G²/(λc)(1+ln T) + G P_T.
 """
 
@@ -23,47 +23,53 @@ except ImportError:
 class Comparator(ABC):
     """
     Base comparator interface following Definition 5.8.
-    
+
     Provides a unified API for both static and dynamic comparators
     with path-length tracking P_T.
     """
-    
+
     @abstractmethod
     def reset(self) -> None:
         """Reset comparator state."""
         pass
-    
+
     @abstractmethod
-    def update_target(self, t: int, *, x: Optional[np.ndarray] = None, 
-                     y: Optional[float] = None, model: Optional[np.ndarray] = None) -> np.ndarray:
+    def update_target(
+        self,
+        t: int,
+        *,
+        x: Optional[np.ndarray] = None,
+        y: Optional[float] = None,
+        model: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         """
         Update and return target w_t*.
-        
+
         Args:
             t: Time step
             x: Feature vector (for dynamic oracle)
-            y: Target value (for dynamic oracle) 
+            y: Target value (for dynamic oracle)
             model: Current model parameters
-            
+
         Returns:
             Target comparator w_t*
         """
         pass
-    
-    @abstractmethod 
+
+    @abstractmethod
     def path_increment(self, w_star_prev: np.ndarray, w_star_now: np.ndarray) -> float:
         """
         Compute path increment ||w_t* - w_{t-1}*||.
-        
+
         Args:
             w_star_prev: Previous comparator w_{t-1}*
             w_star_now: Current comparator w_t*
-            
+
         Returns:
             Path increment (scalar)
         """
         pass
-    
+
     @property
     @abstractmethod
     def P_T(self) -> float:
@@ -85,11 +91,11 @@ class OracleState:
 class StaticOracle(Comparator):
     """
     Static oracle that uses a fixed comparator w_0* from calibration phase.
-    
+
     Implements static regret decomposition where the comparator does not change
     over time, providing a baseline for measuring adaptation vs optimization error.
     """
-    
+
     def __init__(
         self,
         dim: int,
@@ -98,7 +104,7 @@ class StaticOracle(Comparator):
     ):
         """
         Initialize static oracle.
-        
+
         Args:
             dim: Parameter dimension
             lambda_reg: Regularization parameter
@@ -122,7 +128,19 @@ class StaticOracle(Comparator):
 
         # Path-length tracking (always 0 for static oracle)
         self._P_T = 0.0
-        
+
+        # Frozen flag (for finalized static oracle)
+        self._frozen = False
+
+    def finalize(self, w_star: Optional[np.ndarray] = None) -> None:
+        """Freeze the oracle at provided w_star or current estimate."""
+        if w_star is not None:
+            self.w_star_fixed = np.asarray(w_star).copy()
+        elif self.w_star_fixed is None:
+            self.w_star_fixed = np.zeros(self.dim)
+        self.is_calibrated = True
+        self._frozen = True
+
     def reset(self) -> None:
         """Reset static oracle state."""
         self.w_star_fixed = None
@@ -132,18 +150,24 @@ class StaticOracle(Comparator):
         self._P_T = 0.0
         self.xtx = np.zeros((self.dim, self.dim))
         self.xty = np.zeros(self.dim)
-    
-    def update_target(self, t: int, *, x: Optional[np.ndarray] = None, 
-                     y: Optional[float] = None, model: Optional[np.ndarray] = None) -> np.ndarray:
+
+    def update_target(
+        self,
+        t: int,
+        *,
+        x: Optional[np.ndarray] = None,
+        y: Optional[float] = None,
+        model: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         """
         Return static target w_0*.
-        
+
         Args:
             t: Time step (ignored for static oracle)
             x: Feature vector (ignored)
             y: Target value (ignored)
             model: Current model parameters (ignored)
-            
+
         Returns:
             Fixed comparator w_0*
         """
@@ -152,26 +176,28 @@ class StaticOracle(Comparator):
                 return model.copy()  # Fallback to current model
             return np.zeros(self.dim)
         return self.w_star_fixed.copy()
-    
+
     def path_increment(self, w_star_prev: np.ndarray, w_star_now: np.ndarray) -> float:
         """
         Compute path increment (always 0 for static oracle).
-        
+
         Args:
             w_star_prev: Previous comparator (ignored)
             w_star_now: Current comparator (ignored)
-            
+
         Returns:
             0.0 (static oracle has no path movement)
         """
         return 0.0
-    
+
     @property
     def P_T(self) -> float:
         """Current accumulated path length (always 0 for static oracle)."""
         return self._P_T
 
-    def calibrate_with_initial_data(self, data_buffer: List[Tuple[np.ndarray, float]]) -> None:
+    def calibrate_with_initial_data(
+        self, data_buffer: List[Tuple[np.ndarray, float]]
+    ) -> None:
         """Calibrate static oracle using initial data from calibration phase."""
         self.xtx = np.zeros((self.dim, self.dim))
         self.xty = np.zeros(self.dim)
@@ -190,7 +216,7 @@ class StaticOracle(Comparator):
                 self.w_star_fixed = np.linalg.pinv(A) @ self.xty
 
         self.is_calibrated = True
-        
+
     def update_regret_accounting(
         self, x: np.ndarray, y: float, current_theta: np.ndarray
     ) -> Dict[str, float]:
@@ -209,6 +235,20 @@ class StaticOracle(Comparator):
         """
         if not self.is_calibrated:
             return {"regret_increment": 0.0}
+        # If frozen, compute regret vs fixed w* without updating stats
+        if self._frozen:
+            pred_current = float(current_theta @ x)
+            loss_current = self._compute_regularized_loss(
+                pred_current, y, current_theta
+            )
+            pred_oracle = float(self.w_star_fixed @ x)
+            loss_oracle = self._compute_regularized_loss(
+                pred_oracle, y, self.w_star_fixed
+            )
+            regret_increment = loss_current - loss_oracle
+            self.regret_static += regret_increment
+            self.events_seen += 1
+            return {"regret_increment": regret_increment}
 
         # Update cumulative statistics
         self.xtx += np.outer(x, x)
@@ -235,13 +275,13 @@ class StaticOracle(Comparator):
         self.events_seen += 1
 
         return {"regret_increment": regret_increment}
-        
+
     def _compute_regularized_loss(self, pred: float, y: float, w: np.ndarray) -> float:
         """Compute regularized loss for single point."""
         base_loss = loss_half_mse(pred, y)
         reg_term = 0.5 * self.lambda_reg * float(np.dot(w, w))
         return base_loss + reg_term
-        
+
     def get_oracle_metrics(self) -> Dict[str, Any]:
         """Get current static oracle metrics for logging."""
         metrics = {
@@ -250,14 +290,16 @@ class StaticOracle(Comparator):
             "events_seen": self.events_seen,
             "comparator_type": "static",
         }
-        
+
         if self.w_star_fixed is not None:
-            metrics.update({
-                "static_oracle_norm": float(np.linalg.norm(self.w_star_fixed)),
-            })
-            
+            metrics.update(
+                {
+                    "static_oracle_norm": float(np.linalg.norm(self.w_star_fixed)),
+                }
+            )
+
         return metrics
-        
+
     def get_current_oracle(self) -> Optional[np.ndarray]:
         """Get current (fixed) oracle parameters."""
         if self.is_calibrated and self.w_star_fixed is not None:
@@ -333,7 +375,7 @@ class RollingOracle(Comparator):
         self.oracle_refreshes = 0
         self.oracle_stalled_count = 0
 
-        # Drift detection attributes  
+        # Drift detection attributes
         self.drift_threshold = getattr(cfg, "drift_threshold", 0.1) if cfg else 0.1
         self.P_T_history: List[float] = []  # Track P_T history for drift detection
         self.drift_episodes: List[int] = []  # Track when drift was detected
@@ -356,24 +398,30 @@ class RollingOracle(Comparator):
         self.drift_episodes.clear()
         self.drift_detected = False
 
-    def update_target(self, t: int, *, x: Optional[np.ndarray] = None, 
-                     y: Optional[float] = None, model: Optional[np.ndarray] = None) -> np.ndarray:
+    def update_target(
+        self,
+        t: int,
+        *,
+        x: Optional[np.ndarray] = None,
+        y: Optional[float] = None,
+        model: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         """
         Update and return current target w_t*.
-        
+
         Args:
             t: Time step
             x: Feature vector for oracle update
             y: Target value for oracle update
             model: Current model parameters
-            
+
         Returns:
             Current oracle target w_t*
         """
         # For rolling oracle, update with new data if provided
         if x is not None and y is not None and model is not None:
             self.maybe_update(x, y, model)
-        
+
         # Return current oracle target
         if self.oracle_state is not None:
             return self.oracle_state.w_star.copy()
@@ -385,16 +433,16 @@ class RollingOracle(Comparator):
     def path_increment(self, w_star_prev: np.ndarray, w_star_now: np.ndarray) -> float:
         """
         Compute path increment ||w_t* - w_{t-1}*||_2.
-        
+
         Args:
             w_star_prev: Previous comparator w_{t-1}*
             w_star_now: Current comparator w_t*
-            
+
         Returns:
             Path increment using configured norm
         """
         return self._compute_path_increment(w_star_prev, w_star_now)
-    
+
     @property
     def P_T(self) -> float:
         """Current accumulated path length P_T."""
@@ -457,10 +505,10 @@ class RollingOracle(Comparator):
                 self.oracle_state.w_star, w_star_new
             )
             self.P_T_est += path_increment
-            
+
             # Track P_T history for drift detection
             self.P_T_history.append(self.P_T_est)
-            
+
             # Check for drift (sudden spike in P_T)
             self._check_drift_episode()
 
@@ -613,20 +661,22 @@ class RollingOracle(Comparator):
         """Check if a drift episode is occurring based on P_T spike."""
         if len(self.P_T_history) < 2:
             return
-            
+
         # Simple drift detection: significant jump in path length
         current_P_T = self.P_T_history[-1]
         prev_P_T = self.P_T_history[-2] if len(self.P_T_history) >= 2 else 0.0
-        
+
         # Detect spike in path length
         if prev_P_T > 0:
             relative_increase = (current_P_T - prev_P_T) / prev_P_T
             if relative_increase > self.drift_threshold:
                 self.drift_detected = True
                 self.drift_episodes.append(self.events_seen)
-                print(f"[Oracle] Drift detected at event {self.events_seen}, "
-                      f"P_T jump: {prev_P_T:.4f} -> {current_P_T:.4f} "
-                      f"(+{relative_increase:.1%})")
+                print(
+                    f"[Oracle] Drift detected at event {self.events_seen}, "
+                    f"P_T jump: {prev_P_T:.4f} -> {current_P_T:.4f} "
+                    f"(+{relative_increase:.1%})"
+                )
         else:
             # For very early stages, use absolute threshold
             if current_P_T > self.drift_threshold:
@@ -745,7 +795,7 @@ class RollingOracle(Comparator):
     def is_drift_detected(self) -> bool:
         """Check if drift has been detected recently."""
         return self.drift_detected
-        
+
     def reset_drift_flag(self) -> None:
         """Reset drift detection flag after handling."""
         self.drift_detected = False

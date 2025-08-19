@@ -297,6 +297,9 @@ def create_grid_id(params: Dict[str, Any]) -> str:
         str(path_type), str(path_type)[:3]
     )
 
+    comparator = params.get("comparator", "dynamic")
+    oracle_flag = "on" if params.get("enable_oracle", False) else "off"
+
     # Create a short, stable hash that reflects ALL parameters, so that grid ids are unique
     # across combinations even when not explicitly encoded in the human-readable prefix.
     def _normalize(x):
@@ -323,7 +326,8 @@ def create_grid_id(params: Dict[str, Any]) -> str:
 
     return (
         f"gamma_{gamma_bar:.1f}-split_{gamma_split:.1f}_q{quantile:.2f}_k{delete_ratio:.0f}_"
-        f"{accountant}_eps{eps_total:.1f}_p{p}_ang{rotate_angle:.3g}_dr{drift_rate:.3g}_fs{feature_scale:.3g}_h{short_h}"
+        f"{accountant}_eps{eps_total:.1f}_cmp{comparator}_orc{oracle_flag}_"
+        f"p{p}_ang{rotate_angle:.3g}_dr{drift_rate:.3g}_fs{feature_scale:.3g}_h{short_h}"
     )
 
 

@@ -1,5 +1,4 @@
 .venv/
-__pycache__/
 *.pyc
 *.pyo
 *.pyd
@@ -22,7 +21,6 @@ wheels/
 experiments/*/figs/
 
 # Additional patterns for M7-M10
-__pycache__/
 *.pyc
 *.png
 *.pdf

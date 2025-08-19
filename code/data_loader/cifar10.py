@@ -2,6 +2,7 @@ import os
 import numpy as np
 from .utils import set_global_seed
 from .streams import make_stream
+from .event_schema import create_event_record
 
 try:
     from torchvision.datasets import CIFAR10
@@ -31,4 +32,17 @@ def download_cifar10(data_dir: str, split="train"):
 def get_cifar10_stream(mode="iid", batch_size=1, seed=42):
     X, y = download_cifar10(os.path.expanduser("~/.cache/memory_pair_data"))
     X = X.reshape(len(X), -1)
-    return make_stream(X, y, mode=mode, seed=seed)
+    # Always emit event records
+    base_stream = make_stream(X, y, mode=mode, seed=seed)
+    event_id = 0
+    for x, y_i in base_stream:
+        sample_id = f"cifar10_{hash((x.tobytes(), int(y_i))) % 1000000:06d}"
+        yield create_event_record(
+            x=x,
+            y=y_i,
+            sample_id=sample_id,
+            event_id=event_id,
+            segment_id=0,
+            metrics=None,
+        )
+        event_id += 1

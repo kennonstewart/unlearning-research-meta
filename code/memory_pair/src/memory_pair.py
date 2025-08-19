@@ -516,10 +516,15 @@ class MemoryPair:
         # 1. Prediction before update
         pred = float(self.theta @ x)
 
-        # 2. Update regret counters
-        self.cumulative_regret += self._compute_regularized_loss(pred, y)
+        # 2. Update counters (do NOT add loss to regret; regret is comparator-based)
+        base_loss_t = self._compute_regularized_loss(pred, y)
         self.events_seen += 1
         self.inserts_seen += 1
+
+        # Reset per-event regret increment until comparator updates it
+        self.regret_increment = float("nan")
+        self.static_regret_increment = 0.0
+        self.path_regret_increment = 0.0
 
         # 3. Compute regularized gradient and track S_T
         g_old = self._compute_regularized_gradient(x, pred, y)
@@ -589,6 +594,19 @@ class MemoryPair:
                 self.regret_increment = incs.get("regret_increment", 0.0)
                 self.static_regret_increment = incs.get("static_increment", 0.0)
                 self.path_regret_increment = incs.get("path_increment", 0.0)
+
+        # 7b. Accumulate comparator-based regret if present; otherwise do not change cumulative_regret
+        if self.regret_increment is not None:
+            try:
+                # add only if it is a finite number
+                if not (
+                    isinstance(self.regret_increment, float)
+                    and np.isnan(self.regret_increment)
+                ):
+                    self.cumulative_regret += float(self.regret_increment)
+            except Exception:
+                # If comparator unavailable, leave cumulative_regret unchanged for this event
+                pass
 
         # 4. Handle state transitions
         if (
@@ -870,8 +888,7 @@ class MemoryPair:
                 "avg_regret": self.get_average_regret(),
                 "noise_regret_increment": self.noise_regret_inc,
                 "noise_regret_cum": self.noise_regret_cum,
-                "cum_regret_with_noise": self.cumulative_regret
-                + self.noise_regret_cum,
+                "cum_regret_with_noise": self.cumulative_regret + self.noise_regret_cum,
                 "avg_regret_with_noise": (
                     self.cumulative_regret + self.noise_regret_cum
                 )
@@ -914,7 +931,19 @@ class MemoryPair:
 
         # Add oracle metrics if oracle is enabled
         if self.oracle is not None:
-            oracle_metrics = self.oracle.get_oracle_metrics()
+            try:
+                oracle_metrics = self.oracle.get_oracle_metrics()
+            except Exception:
+                # If oracle isn't ready (e.g., during calibration/warmup), provide safe defaults
+                oracle_metrics = {
+                    "P_T": 0.0,
+                    "P_T_est": 0.0,
+                    "drift_flag": False,
+                    "regret_dynamic": 0.0,
+                    "regret_static_term": 0.0,
+                    "regret_path_term": 0.0,
+                }
+
             # Map oracle metrics to expected field names
             oracle_metrics["P_T"] = oracle_metrics.get(
                 "P_T", oracle_metrics.get("P_T_est", 0.0)
@@ -922,13 +951,16 @@ class MemoryPair:
             oracle_metrics["P_T_est"] = oracle_metrics.get(
                 "P_T_est", oracle_metrics["P_T"]
             )
-            oracle_metrics["drift_flag"] = oracle_metrics.get(
-                "drift_detected", False
-            )
+            oracle_metrics["drift_flag"] = oracle_metrics.get("drift_detected", False)
 
             # Normalize regret field names
-            if "regret_static" in oracle_metrics and "regret_static_term" not in oracle_metrics:
-                oracle_metrics["regret_static_term"] = oracle_metrics.pop("regret_static")
+            if (
+                "regret_static" in oracle_metrics
+                and "regret_static_term" not in oracle_metrics
+            ):
+                oracle_metrics["regret_static_term"] = oracle_metrics.pop(
+                    "regret_static"
+                )
             oracle_metrics.setdefault(
                 "regret_path_term", oracle_metrics.get("regret_path", 0.0)
             )

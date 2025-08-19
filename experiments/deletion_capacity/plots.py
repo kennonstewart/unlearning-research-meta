@@ -4,8 +4,15 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import importlib
 
-from memory_pair.src import theory
+
+def _load_theory_module():
+    """Dynamically import memory_pair.src.theory if available, else None."""
+    try:
+        return importlib.import_module("memory_pair.src.theory")
+    except Exception:
+        return None
 
 
 def plot_capacity_curve(csv_paths: List[str], out_path: str) -> None:
@@ -78,10 +85,36 @@ def plot_regret(
             vals = df[plain_col].to_numpy()
             plain_curves.append(vals)
             max_len = max(max_len, len(vals))
+        elif "regret" in df.columns:
+            # Fallback: compute from per-event regret
+            r = df["regret"].to_numpy()
+            if regret_type == "cumulative":
+                vals = np.cumsum(r)
+            else:
+                c = np.cumsum(r)
+                t = np.arange(1, len(c) + 1, dtype=float)
+                vals = c / t
+            plain_curves.append(vals)
+            max_len = max(max_len, len(vals))
+
         if emp_col is not None:
             nvals = df[emp_col].to_numpy()
             noise_curves.append(nvals)
             max_len = max(max_len, len(nvals))
+        else:
+            # Fallback: noise-aware per-event regret → cum/avg
+            for alt in ("regret_with_noise", "regret_noise"):
+                if alt in df.columns:
+                    rn = df[alt].to_numpy()
+                    if regret_type == "cumulative":
+                        nvals = np.cumsum(rn)
+                    else:
+                        cn = np.cumsum(rn)
+                        t = np.arange(1, len(cn) + 1, dtype=float)
+                        nvals = cn / t
+                    noise_curves.append(nvals)
+                    max_len = max(max_len, len(nvals))
+                    break
 
         th_col = next(
             (c for c in df.columns if c.startswith(prefix) and "theory" in c),
@@ -98,6 +131,12 @@ def plot_regret(
     for i, arr in enumerate(plain_curves):
         data_plain[i, : len(arr)] = arr
     avg_plain = np.nanmean(data_plain, axis=0)
+    # Trim trailing NaNs to avoid plotting artifacts
+    finite_idx = np.where(np.isfinite(avg_plain))[0]
+    if finite_idx.size > 0:
+        last = finite_idx[-1] + 1
+        avg_plain = avg_plain[:last]
+        max_len = last
 
     plt.figure()
     plt.plot(avg_plain, label="regret")
@@ -107,6 +146,10 @@ def plot_regret(
         for i, arr in enumerate(noise_curves):
             data_noise[i, : len(arr)] = arr
         avg_noise = np.nanmean(data_noise, axis=0)
+        finite_idx_n = np.where(np.isfinite(avg_noise))[0]
+        if finite_idx_n.size > 0:
+            last_n = finite_idx_n[-1] + 1
+            avg_noise = avg_noise[:last_n]
         plt.plot(avg_noise, label="regret + noise")
 
     if th_curves:
@@ -114,23 +157,36 @@ def plot_regret(
         for i, arr in enumerate(th_curves):
             data_th[i, : len(arr)] = arr
         avg_th = np.nanmean(data_th, axis=0)
+        finite_idx_t = np.where(np.isfinite(avg_th))[0]
+        if finite_idx_t.size > 0:
+            last_t = finite_idx_t[-1] + 1
+            avg_th = avg_th[:last_t]
         plt.plot(avg_th, label="theory")
     elif theory_kwargs is not None:
-        t = np.arange(1, max_len + 1)
-        G = theory_kwargs.get("G", 1.0)
-        D = theory_kwargs.get("D", 1.0)
-        c_val = theory_kwargs.get("c", 1.0)
-        C_val = theory_kwargs.get("C", 1.0)
-        S = theory_kwargs.get("S")
-        if S is None:
-            S = t * (G**2)
-        bound = theory.regret_insert_bound(S, G, D, c_val, C_val)
-        if regret_type == "average":
-            bound = bound / t
-        plt.plot(bound, linestyle="--", label="theory")
+        theory_mod = _load_theory_module()
+        if theory_mod is not None:
+            t = np.arange(1, max_len + 1)
+            G = theory_kwargs.get("G", 1.0)
+            D = theory_kwargs.get("D", 1.0)
+            c_val = theory_kwargs.get("c", 1.0)
+            C_val = theory_kwargs.get("C", 1.0)
+            S = theory_kwargs.get("S")
+            if S is None:
+                S = t * (G**2)
+            bound = theory_mod.regret_insert_bound(S, G, D, c_val, C_val)
+            if regret_type == "average":
+                bound = bound / t
+            plt.plot(bound, linestyle="--", label="theory")
+        else:
+            print("Warning: theory overlays requested but theory module is unavailable")
 
     plt.xlabel("event")
-    plt.ylabel("cumulative regret" if prefix == "cum_regret" else "average regret")
+    plt.ylabel(
+        "cumulative regret (R_t)"
+        if regret_type == "cumulative"
+        else "average regret (R_t/t)"
+    )
+    plt.title(f"{regret_type.title()} Regret")
     if th_curves or theory_kwargs is not None:
         plt.legend()
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -271,7 +327,7 @@ def plot_accountant_summary_stats(summary_file: str, out_path: str) -> None:
             return
 
         # Create subplots
-        n_metrics = len(available_metrics)
+        # n_metrics = len(available_metrics)  # Not used; removing to satisfy linter
         fig, axes = plt.subplots(2, 2, figsize=(15, 12))
         axes = axes.flatten()
 
@@ -582,6 +638,7 @@ def plot_drift_overlay(csv_paths: List[str], out_path: str) -> None:
     try:
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
         regret_label = None
+        metric_col = None  # ensure defined if no files contain metric columns
 
         for p in csv_paths:
             df = pd.read_csv(p)
@@ -604,6 +661,16 @@ def plot_drift_overlay(csv_paths: List[str], out_path: str) -> None:
                         if regret_col.startswith("cum_regret")
                         else "average regret"
                     )
+            elif "regret" in df.columns:
+                # Fallback to cumulative from per-event regret
+                ax1.plot(
+                    events,
+                    df["regret"].cumsum(),
+                    alpha=0.7,
+                    label=os.path.basename(p),
+                )
+                if regret_label is None:
+                    regret_label = "cumulative regret"
 
             # Plot accuracy or other metric
             metric_col = (
@@ -619,23 +686,24 @@ def plot_drift_overlay(csv_paths: List[str], out_path: str) -> None:
             # Add segment shading
             if "segment_id" in df.columns:
                 segments = df["segment_id"].unique()
-                colors = plt.cm.Set3(np.linspace(0, 1, len(segments)))
+                cmap = plt.cm.get_cmap("Set3", len(segments))
 
                 for i, seg_id in enumerate(segments):
                     seg_mask = df["segment_id"] == seg_id
                     seg_events = events[seg_mask]
                     if len(seg_events) > 0:
+                        color = cmap(i)
                         ax1.axvspan(
                             seg_events.min(),
                             seg_events.max(),
                             alpha=0.2,
-                            color=colors[i],
+                            color=color,
                         )
                         ax2.axvspan(
                             seg_events.min(),
                             seg_events.max(),
                             alpha=0.2,
-                            color=colors[i],
+                            color=color,
                         )
 
         if regret_label is None:

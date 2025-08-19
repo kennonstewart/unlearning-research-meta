@@ -29,40 +29,11 @@ from metrics_utils import aggregate_summaries, get_privacy_metrics
 def _get_data_stream(cfg: Config, seed: int):
     """Get data stream with unified interface for event records."""
     stream_fn = DATASET_MAP[cfg.dataset]
-    
-    # For backward compatibility, check if loader supports use_event_schema
-    try:
-        # Try to get the stream with event schema enabled
-        if cfg.dataset == "synthetic":
-            gen = stream_fn(seed=seed, use_event_schema=True)
-        else:
-            gen = stream_fn(seed=seed, use_event_schema=True)
-    except TypeError:
-        # Fallback for loaders that don't support use_event_schema yet
-        gen = stream_fn(seed=seed)
-        # Check if the first item is an event record or (x, y) tuple
-        first_item = next(gen)
-        if isinstance(first_item, dict) and "x" in first_item:
-            # It's already an event record, create a new generator
-            def record_gen():
-                yield first_item
-                yield from gen
-            return record_gen()
-        else:
-            # It's a legacy (x, y) tuple, wrap it
-            from data_loader.event_schema import create_event_record
-            def wrapped_gen():
-                event_id = 0
-                x, y = first_item
-                yield create_event_record(x, y, f"legacy_{event_id:06d}", event_id)
-                event_id += 1
-                
-                for x, y in gen:
-                    yield create_event_record(x, y, f"legacy_{event_id:06d}", event_id)
-                    event_id += 1
-            return wrapped_gen()
-    
-    return gen
+    # Always request event records; legacy tuple mode removed
+    if cfg.dataset == "synthetic":
+        return stream_fn(seed=seed, use_event_schema=True)
+    else:
+        return stream_fn(seed=seed, use_event_schema=True)
 
 
 # Algorithm and dataset mappings

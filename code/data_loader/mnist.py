@@ -33,13 +33,9 @@ def get_rotating_mnist_stream(mode="iid", batch_size=1, seed=42, use_event_schem
     X, y = download_rotating_mnist(os.path.expanduser("~/.cache/memory_pair_data"))
     X = X.reshape(len(X), -1)
     
-    if use_event_schema:
-        # Wrap the stream to emit event records
-        base_stream = make_stream(X, y, mode=mode, seed=seed)
-        return _wrap_stream_with_schema(base_stream)
-    else:
-        # Legacy behavior
-        return make_stream(X, y, mode=mode, seed=seed)
+    # Always emit event records; legacy tuple mode removed
+    base_stream = make_stream(X, y, mode=mode, seed=seed)
+    return _wrap_stream_with_schema(base_stream)
 
 
 def _wrap_stream_with_schema(base_stream):

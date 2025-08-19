@@ -154,17 +154,7 @@ def parse_event_record(record: Dict[str, Any]) -> Tuple[np.ndarray, Union[float,
     return x, y, meta
 
 
-def legacy_loader_adapter(event_record: Dict[str, Any]) -> Tuple[np.ndarray, Union[float, int]]:
-    """
-    Backward compatibility adapter for legacy code expecting (x, y) tuples.
-    
-    Args:
-        event_record: Modern event record dictionary
-    
-    Returns:
-        Legacy (x, y) tuple
-    """
-    return event_record["x"], event_record["y"]
+# Legacy adapter removed: all code should consume event records directly
 
 
 def validate_event_record(record: Dict[str, Any]) -> bool:

@@ -3,18 +3,16 @@ from typing import Optional, Iterator, Dict, Any, List
 
 try:
     from .utils import set_global_seed
-    from .streams import make_stream
     from .event_schema import create_event_record_with_diagnostics
 except ImportError:
     from utils import set_global_seed
-    from streams import make_stream
     from event_schema import create_event_record_with_diagnostics
 
 
 class ParameterPathController:
-    """Control the path of ground-truth parameters for controlled path-length.
+    """Controls parameter path for synthetic linear stream.
 
-    Supports configurable rotation angle, drift rate, and optional norm control
+    Supports static, rotating, and drifting paths with optional norm control
     of the parameter vector w* via w_scale and fix_w_norm.
     """
 
@@ -69,8 +67,8 @@ class ParameterPathController:
         delta_P = np.linalg.norm(w_new - self.w_star)
         self.P_T_cumulative += delta_P
 
-        self.w_star = w_new
-        return self.w_star.copy(), delta_P
+    self.w_star = w_new
+    return self.w_star.copy(), float(delta_P)
 
     def _rotate_parameter(self) -> np.ndarray:
         """Apply controlled rotation to parameter."""
@@ -264,17 +262,10 @@ def get_synthetic_linear_stream(
     )
     sc_estimator = StrongConvexityEstimator() if strong_convexity_estimation else None
 
-    if use_event_schema:
-        return _generate_linear_stream_with_schema(
-            cov_gen, path_controller, sc_estimator, noise_std, rng
-        )
-    else:
-        # Legacy behavior - simplified
-        X = rng.normal(size=(1000000, dim)).astype(np.float32)
-        w_star = rng.normal(size=dim)
-        noise = rng.normal(scale=noise_std, size=1000000).astype(np.float32)
-        y = X @ w_star + noise
-        return make_stream(X, y, mode="iid", seed=seed)
+    # Always emit event records; legacy tuple mode removed
+    return _generate_linear_stream_with_schema(
+        cov_gen, path_controller, sc_estimator, noise_std, rng
+    )
 
 
 def _generate_linear_stream_with_schema(
@@ -341,8 +332,8 @@ def _generate_linear_stream_with_schema(
                 "w_star_norm": w_star_norm,
                 "noise": noise_draw,
             },
-            lambda_est=lambda_est,
-            P_T_true=P_T_true,
+            lambda_est=float(lambda_est) if lambda_est is not None else None,
+            P_T_true=float(P_T_true) if P_T_true is not None else None,
         )
 
         event_id += 1

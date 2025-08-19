@@ -128,7 +128,7 @@ def get_covtype_stream(
     mode="iid", 
     batch_size=1, 
     seed=42, 
-    use_event_schema=True,
+    use_event_schema=True,  # kept for backward compat; ignored
     online_standardize=False,
     clip_k=3.0,
     label_shift_window=1000
@@ -147,19 +147,15 @@ def get_covtype_stream(
     """
     X, y = download_covtype(os.path.expanduser("~/.cache/memory_pair_data"))
     
-    if use_event_schema:
-        # Wrap the stream to emit event records with optional preprocessing
-        base_stream = make_stream(X, y, mode=mode, seed=seed)
-        return _wrap_stream_with_preprocessing(
-            base_stream, 
-            X.shape[1], 
-            online_standardize, 
-            clip_k, 
-            label_shift_window
-        )
-    else:
-        # Legacy behavior
-        return make_stream(X, y, mode=mode, seed=seed)
+    # Always emit event records; legacy tuple mode removed
+    base_stream = make_stream(X, y, mode=mode, seed=seed)
+    return _wrap_stream_with_preprocessing(
+        base_stream, 
+        X.shape[1], 
+        online_standardize, 
+        clip_k, 
+        label_shift_window
+    )
 
 
 def _wrap_stream_with_preprocessing(

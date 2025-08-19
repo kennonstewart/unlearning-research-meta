@@ -25,11 +25,8 @@ def main():
     gen = MAP[args.dataset](mode=args.mode)
     for i in range(args.T):
         event = next(gen)
-        # Handle both legacy (x, y) tuples and new event record format
-        if isinstance(event, dict):
-            x, y = event['x'], event['y']
-        else:
-            x, y = event
+        # Consume unified event record format
+        x, y = event['x'], event['y']
         print(i, hash(x.tobytes()) % 1000, int(y))
 
 
