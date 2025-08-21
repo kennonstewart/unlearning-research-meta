@@ -63,19 +63,7 @@ selectors:
 
 # 3) Include subset to run
 include:
-  - baseline
-  - experiment_a  # Enable oracle for regret tracking in Experiment A
-  - lbfgs_ablation
-  - { where: { accountant: "zcdp", gamma_split: [0.7] } }
-
-# 4) Optional explicit cases
-cases:
-  - { gamma_split: 0.7, comparator: "static", d_max: null }
-
-# 5) Exclude rules
-exclude:
-  - { where: { accountant: "eps_delta", lambda_reg: 0.0 } }
-  - { where: { enable_oracle: true, oracle_stride: 128 } }
+  - experiment_a
 
 # 6) Optional cap on total selected cells
 limit: 120
