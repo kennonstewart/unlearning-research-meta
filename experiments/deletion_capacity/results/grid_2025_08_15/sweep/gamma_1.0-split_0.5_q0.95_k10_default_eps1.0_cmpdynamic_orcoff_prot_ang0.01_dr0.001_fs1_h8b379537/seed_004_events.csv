@@ -1,3 +1,3 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:731f65e74aca3bce122ea9caab5fdd919035865cbc31ae0dde4959d218e0d4e1
-size 5093954
+version https://git-lfs.github.com/spec/v1,seed,grid_id,gamma_bar,gamma_split,accountant,G_hat,D_hat,c_hat,C_hat,lambda_est,S_scalar,sigma_step_theory,N_star_live,m_theory_live,blocked_reason,path_type,rotate_angle,drift_rate,feature_scale,w_scale,fix_w_norm,noise_std,event_type
+oid sha256:731f65e74aca3bce122ea9caab5fdd919035865cbc31ae0dde4959d218e0d4e1,4,gamma_1.0-split_0.5_q0.95_k10_default_eps1.0_cmpdynamic_orcoff_prot_ang0.01_dr0.001_fs1_h8b379537,,,unknown,29.975769392182844,0.4556037242849906,1.0,1.0,18.466219997969624,1109379.122966888,1452.26765301893,,,,,,,,,,,unknown
+size 5093954,4,gamma_1.0-split_0.5_q0.95_k10_default_eps1.0_cmpdynamic_orcoff_prot_ang0.01_dr0.001_fs1_h8b379537,,,unknown,29.975769392182844,0.4556037242849906,1.0,1.0,18.466219997969624,1109379.122966888,1452.26765301893,,,,,,,,,,,unknown
