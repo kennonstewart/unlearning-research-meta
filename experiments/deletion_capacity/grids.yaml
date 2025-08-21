@@ -6,6 +6,12 @@ matrix:
   gamma_bar: [1.0]
   gamma_split: [0.3, 0.5, 0.7]
   delete_ratio: [3, 5]
+  rotate_angle: [0.01]
+  drift_rate: [0.001]
+  G_hat: [null]
+  D_hat: [null]
+  c_hat: [null]
+  C_hat: [null]
 
   # Oracle block (optional)
   enable_oracle: [true, false]
