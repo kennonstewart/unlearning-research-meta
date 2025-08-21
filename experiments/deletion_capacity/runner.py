@@ -31,7 +31,16 @@ def _get_data_stream(cfg: Config, seed: int):
     stream_fn = DATASET_MAP[cfg.dataset]
     # Always request event records; legacy tuple mode removed
     if cfg.dataset == "synthetic":
-        return stream_fn(seed=seed, use_event_schema=True)
+        return stream_fn(
+            seed=seed,
+            use_event_schema=True,
+            rotate_angle=cfg.rotate_angle,
+            drift_rate=cfg.drift_rate,
+            G_hat=cfg.G_hat,
+            D_hat=cfg.D_hat,
+            c_hat=cfg.c_hat,
+            C_hat=cfg.C_hat,
+        )
     else:
         return stream_fn(seed=seed, use_event_schema=True)
 

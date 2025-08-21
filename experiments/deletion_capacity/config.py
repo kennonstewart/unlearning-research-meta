@@ -90,6 +90,14 @@ class Config:
     drift_window: int = 10  # Duration of LR boost in steps
     drift_adaptation: bool = False  # Enable drift-responsive learning rate
 
+    # Synthetic stream drift parameters
+    rotate_angle: float = 0.01
+    drift_rate: float = 0.001
+    G_hat: Optional[float] = None
+    D_hat: Optional[float] = None
+    c_hat: Optional[float] = None
+    C_hat: Optional[float] = None
+
     @property
     def gamma_insert(self) -> float:
         """Gamma budget allocated to insertions (learning)."""

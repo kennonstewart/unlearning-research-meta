@@ -197,7 +197,12 @@ def get_synthetic_linear_stream(
     fix_w_norm: bool = True,
     # Estimation diagnostics
     strong_convexity_estimation: bool = True,
+    G_hat: Optional[float] = None,
+    D_hat: Optional[float] = None,
+    c_hat: Optional[float] = None,
+    C_hat: Optional[float] = None,
 ):
+
     """Generate an infinite linear regression stream with configurable covariance.
 
     Parameters
@@ -264,7 +269,13 @@ def get_synthetic_linear_stream(
 
     # Always emit event records; legacy tuple mode removed
     return _generate_linear_stream_with_schema(
-        cov_gen, path_controller, sc_estimator, noise_std, rng
+        cov_gen, path_controller, sc_estimator, noise_std, rng,
+        rotate_angle=rotate_angle,
+        drift_rate=drift_rate,
+        G_hat=G_hat,
+        D_hat=D_hat,
+        c_hat=c_hat,
+        C_hat=C_hat,
     )
 
 
@@ -274,6 +285,12 @@ def _generate_linear_stream_with_schema(
     sc_estimator: Optional[StrongConvexityEstimator],
     noise_std: float,
     rng: np.random.Generator,
+    rotate_angle: Optional[float] = None,
+    drift_rate: Optional[float] = None,
+    G_hat: Optional[float] = None,
+    D_hat: Optional[float] = None,
+    c_hat: Optional[float] = None,
+    C_hat: Optional[float] = None,
 ) -> Iterator[Dict[str, Any]]:
     """Generate infinite linear stream with event schema and diagnostics.
 
@@ -331,6 +348,12 @@ def _generate_linear_stream_with_schema(
                 "x_norm": x_norm,
                 "w_star_norm": w_star_norm,
                 "noise": noise_draw,
+                "rotate_angle": rotate_angle,
+                "drift_rate": drift_rate,
+                "G_hat": G_hat,
+                "D_hat": D_hat,
+                "c_hat": c_hat,
+                "C_hat": C_hat,
             },
             lambda_est=float(lambda_est) if lambda_est is not None else None,
             P_T_true=float(P_T_true) if P_T_true is not None else None,
