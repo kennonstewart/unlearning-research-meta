@@ -8,10 +8,10 @@ matrix:
   delete_ratio: [3, 5]
   rotate_angle: [0.01]
   drift_rate: [0.001]
-  G_hat: [null]
-  D_hat: [null]
-  c_hat: [null]
-  C_hat: [null]
+  G_hat: [3.0]
+  D_hat: [3.0]
+  c_hat: [1.0]
+  C_hat: [1.0]
 
   # Oracle block (optional)
   enable_oracle: [true, false]
@@ -59,6 +59,10 @@ selectors:
       gamma_split: [0.3, 0.5, 0.7]
       enable_oracle: [true]
       comparator: ["static"]
+      G_hat: [3.0]
+      D_hat: [3.0]
+      c_hat: [1.0]
+      C_hat: [1.0]
   - name: lbfgs_ablation
     where:
       lbfgs_pair_gate_m_t: [0.0, 1e-3]

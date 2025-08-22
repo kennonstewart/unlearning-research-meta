@@ -1,0 +1,2 @@
+seed,grid_id,avg_regret_empirical,N_star_emp,m_emp,final_acc,total_events,gamma_bar,gamma_split,accountant,G_hat,D_hat,c_hat,C_hat,lambda_est,S_scalar,sigma_step_theory,N_star_live,m_theory_live,blocked_reason,path_type,rotate_angle,drift_rate,feature_scale,w_scale,fix_w_norm,noise_std,delta_total,N_star_theory,eta_t
+4,gamma_1.0-split_0.3_q0.95_k3_zcdp_eps1.0_prot_ang0.01_dr0.001_fs1,64518.73154513806,2381,793,6.906463945666999,9950,1.0,0.3,zcdp,45.85330352766232,0.538550153249369,1.0,1.0,18.72268420377605,2801906.9624698856,,,,,,,,,,,,1e-05,6776.0,0.0005974109035482
