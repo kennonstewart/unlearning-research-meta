@@ -124,7 +124,7 @@ def insert_data_to_db(processed_data: list, conn_params: dict):
                 'drift_rate': metadata.get('drift_rate'),
                 'feature_scale': metadata.get('feature_scale'),
                 'w_scale': metadata.get('w_scale'),
-                'fix_w_norm': metadata.get('fix_w_norm'),
+                'fix_w_norm': bool(metadata.get('fix_w_norm')) if metadata.get('fix_w_norm') is not None and not pd.isna(metadata.get('fix_w_norm')) else None,
                 'noise_std': metadata.get('noise_std'),
                 'eps_spent': metadata.get('eps_spent'),
                 'eps_remaining': metadata.get('eps_remaining'),
@@ -197,11 +197,14 @@ def verify_data(conn_params: dict):
         print(f"Unique grids: {grid_count}, Unique seeds: {seed_count}")
         
         # Sample data
-        cursor.execute("SELECT run_id, grid_id, seed, avg_regret_empirical FROM fact_event LIMIT 3;")
+        cursor.execute("SELECT run_id, seed, avg_regret_empirical FROM fact_event WHERE run_id IS NOT NULL LIMIT 3;")
         sample_rows = cursor.fetchall()
         print("Sample data:")
         for row in sample_rows:
-            print(f"  Run {row[0][:8]}...: grid={row[1][:20]}..., seed={row[2]}, regret={row[3]:.3f}")
+            run_id_short = row[0][:8] if row[0] else 'N/A'
+            seed = row[1] if row[1] is not None else 'N/A'
+            regret = f"{row[2]:.3f}" if row[2] is not None else 'N/A'
+            print(f"  Run {run_id_short}...: seed={seed}, regret={regret}")
         
     except Exception as e:
         print(f"Error verifying data: {e}")
@@ -212,7 +215,7 @@ def verify_data(conn_params: dict):
 
 def main():
     parser = argparse.ArgumentParser(description='Load experiment CSV files into PostgreSQL')
-    parser.add_argument('--csv-dir', required=True, help='Directory containing CSV files')
+    parser.add_argument('--csv-dir', help='Directory containing CSV files')
     parser.add_argument('--dsn', required=True, help='PostgreSQL connection string')
     parser.add_argument('--verify-only', action='store_true', help='Only verify existing data')
     
@@ -229,6 +232,11 @@ def main():
     if args.verify_only:
         verify_data(conn_params)
         return 0
+    
+    # CSV directory is required for non-verify operations
+    if not args.csv_dir:
+        print("Error: --csv-dir is required when not using --verify-only")
+        return 1
     
     # Check CSV directory exists
     if not os.path.exists(args.csv_dir):

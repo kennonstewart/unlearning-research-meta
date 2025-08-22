@@ -224,6 +224,62 @@ Features:
 - Sensitivity bin analysis
 - Drift overlay visualization
 
+## 🗄️ Centralized Results Database
+
+### PostgreSQL Setup
+The repository supports centralizing experiment results in a PostgreSQL database for efficient analysis and reporting.
+
+#### Database Setup
+```bash
+# 1. Install PostgreSQL (if not already installed)
+sudo apt-get update && sudo apt-get install -y postgresql postgresql-contrib
+sudo service postgresql start
+
+# 2. Create database and user
+sudo -u postgres psql -c "CREATE USER unlearning WITH PASSWORD 'unlearning';"
+sudo -u postgres psql -c "CREATE DATABASE unlearning_db OWNER unlearning;"
+sudo -u postgres psql -d unlearning_db -c "GRANT ALL PRIVILEGES ON DATABASE unlearning_db TO unlearning;"
+
+# 3. Apply database schema
+psql -U unlearning -d unlearning_db -h localhost -f schema_simple.sql
+```
+
+#### Loading Experiment Data
+```bash
+# Load CSV results into PostgreSQL
+python etl_load.py --csv-dir experiments/deletion_capacity/results \
+    --dsn postgresql://unlearning:unlearning@localhost/unlearning_db
+
+# Verify data loading
+python etl_load.py --verify-only \
+    --dsn postgresql://unlearning:unlearning@localhost/unlearning_db
+```
+
+#### Querying Results
+```python
+import sqlalchemy
+import pandas as pd
+
+# Connect to database
+engine = sqlalchemy.create_engine("postgresql+psycopg2://unlearning:unlearning@localhost/unlearning_db")
+
+# Query experiment results
+df = pd.read_sql("""
+    SELECT run_id, seed, accountant, avg_regret_empirical, m_emp 
+    FROM fact_event 
+    WHERE accountant = 'eps_delta'
+""", engine)
+```
+
+**Benefits of centralized database:**
+- **Unified access** to all experiment results across projects
+- **Efficient queries** with SQL optimizations and indexing
+- **Data consistency** with normalized schema and type validation
+- **Concurrent analysis** by multiple researchers
+- **Incremental loading** of new experiments without reprocessing
+
+See `experiments/deletion_capacity/notebooks/sql_demo.ipynb` for detailed examples.
+
 ## 📚 References
 
 This implementation follows the theoretical framework established in our research on online machine unlearning with differential privacy guarantees and regret minimization.
