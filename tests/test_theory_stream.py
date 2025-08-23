@@ -16,9 +16,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from code.data_loader.theory_loader import get_theory_stream
 
 
+@pytest.mark.theory_stream
 class TestTheoryStreamAcceptance:
     """Test acceptance criteria for theory stream."""
     
+    @pytest.mark.theory_stream
     def test_at1_path_length_enforcement(self):
         """AT-1: Path length enforcement within tolerance."""
         dim = 10
@@ -54,6 +56,7 @@ class TestTheoryStreamAcceptance:
         print(f"AT-1: Target P_T={target_PT}, Actual P_T={P_T_actual:.3f}, Rel Error={relative_error:.4f}")
         assert relative_error <= tol_rel, f"Path length error {relative_error:.4f} exceeds tolerance {tol_rel}"
     
+    @pytest.mark.theory_stream
     def test_at2_gradient_bound_enforcement(self):
         """AT-2: Gradient bound enforcement with low clip rate."""
         dim = 5
@@ -137,6 +140,7 @@ class TestTheoryStreamAcceptance:
             # We use a more relaxed tolerance for this synthetic setting
             assert relative_error <= 0.5, f"Lambda estimation error {relative_error:.4f} too large"
     
+    @pytest.mark.theory_stream
     def test_at5_adagrad_energy_enforcement(self):
         """AT-5: AdaGrad energy S_T within tolerance."""
         dim = 6
@@ -171,6 +175,7 @@ class TestTheoryStreamAcceptance:
         print(f"AT-5: Target S_T={target_ST}, Actual S_T={ST_actual:.3f}, Rel Error={relative_error:.4f}")
         assert relative_error <= tol_rel, f"S_T error {relative_error:.4f} exceeds tolerance {tol_rel}"
     
+    @pytest.mark.theory_stream  
     def test_at6_privacy_accounting(self):
         """AT-6: Privacy accounting stays within budget."""
         dim = 5

@@ -75,10 +75,17 @@ def demo_theory_stream():
         metrics["ST_target_residual"].append(m["ST_target_residual"])
         metrics["privacy_spend"].append(m["privacy_spend_running"])
         
-        # Progress updates
+        # Progress updates with block-level ratios
         if (i + 1) % 500 == 0:
+            # Calculate current ratios
+            t = i + 1
+            PT_ratio = m['P_T_true'] / (config['target_PT'] * t / config['T']) if t > 0 else 0
+            ST_ratio = m['ST_running'] / (config['target_ST'] * t / config['T']) if t > 0 else 0
+            
             print(f"  Step {i+1:4d}: P_T={m['P_T_true']:.2f}, g_norm={m['g_norm']:.3f}, "
                   f"ST={m['ST_running']:.0f}, clip_rate={np.mean(metrics['clip_applied'][-500:]):.3f}")
+            print(f"    Block ratios: PT_ratio={PT_ratio:.3f}, ST_ratio={ST_ratio:.3f}")
+            print(f"    Target residuals: PT={m['PT_target_residual']:.3f}, ST={m['ST_target_residual']:.3f}")
     
     print(f"\nCompleted {config['T']} steps.\n")
     

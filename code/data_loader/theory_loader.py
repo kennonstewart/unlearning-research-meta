@@ -513,14 +513,19 @@ def get_theory_stream(
             y = y_raw
         
         # Compute gradient for bound enforcement
-        # Generate a synthetic gradient with controllable magnitude
-        # Base gradient from data
-        residual = x @ w_star - y  # Use ground truth parameter
+        # Direct approach: generate gradient with target energy per step
+        target_grad_norm = math.sqrt(st_ctrl.target_per_step)
+        
+        # Generate base gradient from loss
+        residual = x @ w_star - y  
         grad_base = x * residual + target_lambda * w_star
         
-        # Add controlled noise to maintain gradient energy
-        grad_noise = rng.normal(size=dim) * 0.5
-        grad_raw = grad_base + grad_noise
+        # Scale to have target norm (before mu scaling)
+        grad_base_norm = np.linalg.norm(grad_base)
+        if grad_base_norm > 0:
+            grad_raw = grad_base * (target_grad_norm / grad_base_norm)
+        else:
+            grad_raw = rng.normal(size=dim) * target_grad_norm / math.sqrt(dim)
         
         # Apply ST controller scaling: g <- mu * g (before clipping)
         grad_scaled = st_ctrl.apply_scaling(grad_raw)
@@ -558,14 +563,6 @@ def get_theory_stream(
             "noise": float(base_noise),
             # Theory targets (emitted periodically)
             "theory_targets": theory_targets_block if event_id % 1000 == 0 else None,
-            # New theory metrics
-            "g_norm": g_norm,
-            "clip_applied": was_clipped,
-            "ST_running": st_ctrl.ST_running,
-            "PT_target_residual": PT_target_residual,
-            "ST_target_residual": ST_target_residual,
-            "sigma_step": privacy_metrics["sigma_step"],
-            "privacy_spend_running": privacy_metrics.get("rho_spent", privacy_metrics.get("eps_spent", 0.0)),
             # Passthrough for LBFGS
             "G_hat": target_G,
             "D_hat": target_D,
@@ -583,6 +580,13 @@ def get_theory_stream(
             metrics=metrics,
             lambda_est=float(lambda_est) if lambda_est is not None else None,
             P_T_true=float(path_ctrl.P_T_cumulative),
+            g_norm=g_norm,
+            clip_applied=was_clipped,
+            ST_running=st_ctrl.ST_running,
+            PT_target_residual=PT_target_residual,
+            ST_target_residual=ST_target_residual,
+            sigma_step=privacy_metrics["sigma_step"],
+            privacy_spend_running=privacy_metrics.get("rho_spent", privacy_metrics.get("eps_spent", 0.0)),
         )
         
         event_id += 1
