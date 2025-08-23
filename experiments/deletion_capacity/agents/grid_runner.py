@@ -324,10 +324,40 @@ def create_grid_id(params: Dict[str, Any]) -> str:
     )
     short_h = hashlib.md5(hash_src.encode("utf-8")).hexdigest()[:8]
 
+    # Theory-first compact suffix (only include if provided)
+    tf_parts = []
+    tg = params.get("target_G", None)
+    tD = params.get("target_D", None)
+    tc = params.get("target_c", None)
+    tC = params.get("target_C", None)
+    tl = params.get("target_lambda", None)
+    tpt = params.get("target_PT", None)
+    tst = params.get("target_ST", None)
+    ps = params.get("path_style", params.get("path_type", None))
+
+    if tpt is not None:
+        tf_parts.append(f"PT{tpt:g}")
+    if tst is not None:
+        tf_parts.append(f"ST{tst:g}")
+    if tg is not None:
+        tf_parts.append(f"G{tg:.2f}")
+    if tl is not None:
+        tf_parts.append(f"lam{tl:.3g}")
+    if tc is not None and tC is not None:
+        tf_parts.append(f"c{tc:.3g}-C{tC:.3g}")
+    elif tc is not None:
+        tf_parts.append(f"c{tc:.3g}")
+    elif tC is not None:
+        tf_parts.append(f"C{tC:.3g}")
+    if ps:
+        p = {"static": "st", "rotating": "rot", "drift": "dr", "brownian": "br", "piecewise-constant": "pc"}.get(str(ps), str(ps)[:3])
+
     return (
         f"gamma_{gamma_bar:.1f}-split_{gamma_split:.1f}_q{quantile:.2f}_k{delete_ratio:.0f}_"
         f"{accountant}_eps{eps_total:.1f}_cmp{comparator}_orc{oracle_flag}_"
-        f"p{p}_ang{rotate_angle:.3g}_dr{drift_rate:.3g}_fs{feature_scale:.3g}_h{short_h}"
+        f"p{p}_ang{rotate_angle:.3g}_dr{drift_rate:.3g}_fs{feature_scale:.3g}_"
+        + ("_".join(tf_parts) + "_" if tf_parts else "")
+        + f"h{short_h}"
     )
 
 
@@ -453,6 +483,16 @@ def run_parameter_combination(
         "sigma_step_theory": np.nan,
         "N_star_live": np.nan,
         "m_theory_live": np.nan,
+        # Theory-first targets
+        "target_G": params.get("target_G", np.nan),
+        "target_D": params.get("target_D", np.nan),
+        "target_c": params.get("target_c", np.nan),
+        "target_C": params.get("target_C", np.nan),
+        "target_lambda": params.get("target_lambda", np.nan),
+        "target_PT": params.get("target_PT", np.nan),
+        "target_ST": params.get("target_ST", np.nan),
+        "rho_total": params.get("rho_total", np.nan),
+        "path_style": params.get("path_style", params.get("path_type", None)),
     }
 
     if csv_paths:
@@ -557,12 +597,21 @@ def aggregate_results(sweep_dir: str) -> Optional[str]:
                 "delta_total",
                 # Drift/scale/feature controls
                 "path_type",
+                "path_style",
                 "rotate_angle",
                 "drift_rate",
                 "feature_scale",
                 "w_scale",
                 "fix_w_norm",
                 "noise_std",
+                # Theory-first targets
+                "target_G",
+                "target_D",
+                "target_c",
+                "target_C",
+                "target_lambda",
+                "target_PT",
+                "target_ST",
             ]:
                 if k in params:
                     df[k] = params[k]
@@ -723,6 +772,16 @@ def process_seed_output(
                 "w_scale",
                 "fix_w_norm",
                 "noise_std",
+                # Theory-first targets
+                "target_G",
+                "target_D",
+                "target_c",
+                "target_C",
+                "target_lambda",
+                "target_PT",
+                "target_ST",
+                "rho_total",
+                "path_style",
             ]
 
             # Add mandatory fields from parameters first
@@ -760,6 +819,57 @@ def process_seed_output(
                 summary_row["blocked_reason"]
             ):
                 summary_row["blocked_reason"] = ""
+
+            # === Theory-first acceptance metrics (computed from event CSV) ===
+            try:
+                # Targets
+                tG = mandatory_fields.get("target_G", np.nan)
+                tPT = mandatory_fields.get("target_PT", np.nan)
+                tST = mandatory_fields.get("target_ST", np.nan)
+                rho_tot = mandatory_fields.get("rho_total", np.nan)
+
+                # Observables
+                PT_final = float(df["P_T_true"].iloc[-1]) if "P_T_true" in df.columns else np.nan
+                ST_final = float(df["ST_running"].iloc[-1]) if "ST_running" in df.columns else (float(df["S_scalar"].iloc[-1]) if "S_scalar" in df.columns else np.nan)
+                max_g = float(df["g_norm"].max()) if "g_norm" in df.columns else np.nan
+                clip_rate = float(df["clip_applied"].mean()) if "clip_applied" in df.columns else np.nan
+                rho_spent = np.nan
+                if "privacy_spend_running" in df.columns:
+                    rho_spent = float(df["privacy_spend_running"].iloc[-1])
+                elif "privacy_spend" in df.columns:
+                    rho_spent = float(df["privacy_spend"].iloc[-1])
+
+                # Errors
+                PT_err = abs(PT_final / tPT - 1.0) if (not np.isnan(PT_final) and not np.isnan(tPT) and tPT != 0) else np.nan
+                ST_err = abs(ST_final / tST - 1.0) if (not np.isnan(ST_final) and not np.isnan(tST) and tST != 0) else np.nan
+
+                # AT checks
+                reasons = []
+                if not np.isnan(PT_err) and PT_err > 0.05:
+                    reasons.append(f"AT-1 PT err {PT_err*100:.1f}%")
+                if (not np.isnan(max_g) and not np.isnan(tG) and max_g > 1.05 * tG) or (not np.isnan(clip_rate) and clip_rate > 0.05):
+                    reasons.append("AT-2 gradient/clipping")
+                if not np.isnan(ST_err) and ST_err > 0.05:
+                    reasons.append(f"AT-5 ST err {ST_err*100:.1f}%")
+                if not np.isnan(rho_tot) and not np.isnan(rho_spent) and rho_spent > rho_tot + 1e-9:
+                    reasons.append("AT-6 privacy overspend")
+
+                # Store metrics
+                summary_row["PT_final"] = PT_final
+                summary_row["PT_error"] = None if np.isnan(PT_err) else PT_err
+                summary_row["ST_final"] = ST_final
+                summary_row["ST_error"] = None if np.isnan(ST_err) else ST_err
+                summary_row["max_g_norm"] = max_g
+                summary_row["avg_clip_rate"] = clip_rate
+                summary_row["rho_spent_final"] = rho_spent
+
+                # Blocked reason if any failures (append to any existing reason)
+                if reasons:
+                    prev_reason = summary_row.get("blocked_reason", "") or ""
+                    reason_text = "; ".join(reasons)
+                    summary_row["blocked_reason"] = (prev_reason + ("; " if prev_reason and reason_text else "") + reason_text)
+            except Exception:
+                pass
 
             # Write seed summary file
             seed_output_file = os.path.join(output_dir, f"seed_{seed:03d}.csv")
@@ -824,6 +934,16 @@ def process_event_output(
                 "w_scale",
                 "fix_w_norm",
                 "noise_std",
+                # Theory-first targets
+                "target_G",
+                "target_D",
+                "target_c",
+                "target_C",
+                "target_lambda",
+                "target_PT",
+                "target_ST",
+                "rho_total",
+                "path_style",
             ]
 
             for field in mandatory_field_names:
@@ -963,6 +1083,16 @@ def process_aggregate_output(
         "w_scale",
         "fix_w_norm",
         "noise_std",
+        # Theory-first targets
+        "target_G",
+        "target_D",
+        "target_c",
+        "target_C",
+        "target_lambda",
+        "target_PT",
+        "target_ST",
+        "rho_total",
+        "path_style",
     ]
 
     for field in mandatory_field_names:
