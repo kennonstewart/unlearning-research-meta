@@ -151,8 +151,8 @@
     "\n",
     "Covariance and feature scaling:\n",
     "- `eigs`: Explicit eigenvalues of the Gaussian feature covariance $\\Sigma$. Controls anisotropy; larger spread concentrates variance along top PCs.\n",
-    "- `cond_number`: If `eigs` is not provided, generates geometrically spaced eigenvalues with condition number `cond_number` (\u03a3 spectrum from 1 to 1/cond_number).\n",
-    "- `rand_orth_seed`: Seed for the random orthogonal matrix defining eigenvectors of \u03a3.\n",
+    "- `cond_number`: If `eigs` is not provided, generates geometrically spaced eigenvalues with condition number `cond_number` (Σ spectrum from 1 to 1/cond_number).\n",
+    "- `rand_orth_seed`: Seed for the random orthogonal matrix defining eigenvectors of Σ.\n",
     "- `feature_scale`: Post-covariance scalar applied to all features. Scales norms and effective step sizes for learners.\n",
     "\n",
     "Ground-truth parameter path (concept drift):\n",
@@ -163,18 +163,18 @@
     "- `path_control`: Enable/disable controlled path machinery. If `False`, parameters are resampled i.i.d.; drift metrics become trivial.\n",
     "- `rotate_angle`: Radians per step for `rotating`. Larger angle increases instantaneous drift (`delta_P`) and cumulative path length (`P_T_true`).\n",
     "- `drift_rate`: Standard deviation of per-step drift for `drift`. Larger values yield more volatile and faster-growing `P_T_true`.\n",
-    "- `w_scale`: If provided and `fix_w_norm=True`, initializes and maintains \u2016w*\u2016 at this value. Useful to isolate orientation drift from norm changes.\n",
+    "- `w_scale`: If provided and `fix_w_norm=True`, initializes and maintains ‖w*‖ at this value. Useful to isolate orientation drift from norm changes.\n",
     "- `fix_w_norm`: When `True`, renormalizes the drifting parameter to `w_scale` (or initial norm) each step; when `False`, the norm may grow/shrink.\n",
     "\n",
     "Diagnostics and estimation:\n",
     "- `strong_convexity_estimation`: When `True`, includes an online estimate `lambda_est` via a secant-style update using a simple learner surrogate. Expect noisy early estimates that stabilize with time.\n",
     "\n",
     "### Key Metrics in `metrics`\n",
-    "- `delta_P`: Per-step path increment \u2016w*_t \u2212 w*_{t\u22121}\u2016 (0 if static).\n",
+    "- `delta_P`: Per-step path increment ‖w*_t − w*_{t−1}‖ (0 if static).\n",
     "- `P_T_true`: Cumulative path length up to time t.\n",
-    "- `x_norm`: \u2016x\u2016; influenced by \u03a3 spectrum and `feature_scale`.\n",
-    "- `w_star_norm`: \u2016w*\u2016; constant if `fix_w_norm=True`.\n",
-    "- `noise`: The scalar noise draw added to `x\u00b7w*` to produce `y`.\n",
+    "- `x_norm`: ‖x‖; influenced by Σ spectrum and `feature_scale`.\n",
+    "- `w_star_norm`: ‖w*‖; constant if `fix_w_norm=True`.\n",
+    "- `noise`: The scalar noise draw added to `x·w*` to produce `y`.\n",
     "- `lambda_est`: Online strong convexity estimate (if enabled).\n",
     "\n",
     "Below, we run controlled experiments to visualize how these parameters affect the stream."
@@ -721,7 +721,7 @@
     "\n",
     "drift_events = take_events(stream, N)\n",
     "drift_df = events_to_frame(drift_events)\n",
-    "fig, axes = plot_drift_summary(drift_df, title=\"Random Drift: \u0394P and Path Length\")\n",
+    "fig, axes = plot_drift_summary(drift_df, title=\"Random Drift: ΔP and Path Length\")\n",
     "plt.show()\n",
     "\n",
     "drift_df.head()"
@@ -735,12 +735,12 @@
     "## Explore Further\n",
     "- Increase `rotate_angle` (e.g., 0.03) to amplify per-step drift in the rotating path; `P_T_true` should grow near-linearly with a higher slope.\n",
     "- Increase `drift_rate` (e.g., 0.01) to make `delta_P` noisier and `P_T_true` grow faster in the random drift case.\n",
-    "- Toggle `fix_w_norm` to see how changing \u2016w*\u2016 interacts with targets and diagnostics; when `False`, expect `w_star_norm` to vary.\n",
+    "- Toggle `fix_w_norm` to see how changing ‖w*‖ interacts with targets and diagnostics; when `False`, expect `w_star_norm` to vary.\n",
     "- Adjust `cond_number` to shape `x_norm` behavior via anisotropy; larger values concentrate variance along top directions.\n",
     "- Set `feature_scale` > 1 to scale feature norms and widen the range of `y`.\n",
     "- Disable `strong_convexity_estimation` to remove `lambda_est` and reduce overhead if not needed.\n",
     "\n",
-    "Tip: The iterator is infinite\u2014use small `N` for quick experiments and scale up as needed."
+    "Tip: The iterator is infinite—use small `N` for quick experiments and scale up as needed."
    ]
   },
   {
@@ -838,7 +838,7 @@
     "\n",
     "fig, axes = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)\n",
     "sns.lineplot(data=rot_angle_df, x=\"event_id\", y=\"delta_P\", hue=\"rotate_angle\", ax=axes[0])\n",
-    "axes[0].set_title(\"\u0394P vs event_id by rotate_angle\")\n",
+    "axes[0].set_title(\"ΔP vs event_id by rotate_angle\")\n",
     "sns.lineplot(data=rot_angle_df, x=\"event_id\", y=\"P_T_true\", hue=\"rotate_angle\", ax=axes[1])\n",
     "axes[1].set_title(\"P_T_true vs event_id by rotate_angle\")\n",
     "plt.show()\n",
@@ -940,7 +940,7 @@
     "\n",
     "fig, axes = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)\n",
     "sns.lineplot(drift_rate_df, x=\"event_id\", y=\"delta_P\", hue=\"drift_rate\", ax=axes[0])\n",
-    "axes[0].set_title(\"\u0394P vs event_id by drift_rate\")\n",
+    "axes[0].set_title(\"ΔP vs event_id by drift_rate\")\n",
     "sns.lineplot(drift_rate_df, x=\"event_id\", y=\"P_T_true\", hue=\"drift_rate\", ax=axes[1])\n",
     "axes[1].set_title(\"P_T_true vs event_id by drift_rate\")\n",
     "plt.show()\n",
@@ -1041,9 +1041,9 @@
     "\n",
     "fig, axes = plt.subplots(1, 3, figsize=(18, 5), constrained_layout=True)\n",
     "sns.lineplot(fix_df, x=\"event_id\", y=\"w_star_norm\", hue=\"fix_w_norm\", ax=axes[0])\n",
-    "axes[0].set_title(\"\u2016w*\u2016 with/without norm fixing\")\n",
+    "axes[0].set_title(\"‖w*‖ with/without norm fixing\")\n",
     "sns.lineplot(fix_df, x=\"event_id\", y=\"delta_P\", hue=\"fix_w_norm\", ax=axes[1])\n",
-    "axes[1].set_title(\"\u0394P vs event_id\")\n",
+    "axes[1].set_title(\"ΔP vs event_id\")\n",
     "sns.lineplot(fix_df, x=\"event_id\", y=\"y\", hue=\"fix_w_norm\", ax=axes[2])\n",
     "axes[2].set_title(\"Targets y vs event_id\")\n",
     "plt.show()\n",
@@ -1145,7 +1145,7 @@
     "\n",
     "fig, axes = plt.subplots(1, 2, figsize=(14, 5), constrained_layout=True)\n",
     "sns.lineplot(cond_df, x=\"event_id\", y=\"x_norm\", hue=\"cond_number\", ax=axes[0])\n",
-    "axes[0].set_title(\"\u2016x\u2016 vs event_id by cond_number\")\n",
+    "axes[0].set_title(\"‖x‖ vs event_id by cond_number\")\n",
     "sns.boxplot(cond_df, x=\"cond_number\", y=\"y\", ax=axes[1])\n",
     "axes[1].set_title(\"Distribution of targets y by cond_number\")\n",
     "plt.show()\n",
@@ -1247,39 +1247,13 @@
     "\n",
     "fig, axes = plt.subplots(1, 3, figsize=(18, 5), constrained_layout=True)\n",
     "sns.lineplot(scale_df, x=\"event_id\", y=\"x_norm\", hue=\"feature_scale\", ax=axes[0])\n",
-    "axes[0].set_title(\"\u2016x\u2016 vs event_id by feature_scale\")\n",
+    "axes[0].set_title(\"‖x‖ vs event_id by feature_scale\")\n",
     "sns.lineplot(scale_df, x=\"event_id\", y=\"P_T_true\", hue=\"feature_scale\", ax=axes[1])\n",
     "axes[1].set_title(\"P_T_true vs event_id by feature_scale\")\n",
     "sns.boxplot(scale_df, x=\"feature_scale\", y=\"y\", ax=axes[2])\n",
     "axes[2].set_title(\"Distribution of targets y by feature_scale\")\n",
     "plt.show()\n",
     "scale_df.groupby(\"feature_scale\")[\"x_norm\"].mean().to_frame(\"mean_x_norm\")"
-   ]
-  },
-  {
-   "cell_type": "markdown",
-   "id": "comprehensive_theory",
-   "metadata": {},
-   "source": [
-    "# Comprehensive Theory-First Configurations\n\nThis section demonstrates comprehensive use of the theory-first approach with various theoretical drift configurations."
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "theory_configurations",
-   "metadata": {},
-   "outputs": [],
-   "source": [
-    "# Comprehensive demonstration of theoretical drift configurations\n\nconfigs = {\n    'Low Complexity': {\n        'target_G': 1.0, 'target_D': 2.0, 'target_lambda': 0.1,\n        'target_PT': 10.0, 'target_ST': 500.0, 'target_c': 0.1, 'target_C': 10.0\n    },\n    'High Complexity': {\n        'target_G': 5.0, 'target_D': 4.0, 'target_lambda': 0.01,\n        'target_PT': 100.0, 'target_ST': 5000.0, 'target_c': 0.001, 'target_C': 1000.0\n    },\n    'Stable Drift': {\n        'target_G': 2.0, 'target_D': 3.0, 'target_lambda': 0.05,\n        'target_PT': 25.0, 'target_ST': 1000.0, 'target_c': 0.01, 'target_C': 100.0,\n        'path_style': 'rotating'\n    },\n    'Chaotic Drift': {\n        'target_G': 2.0, 'target_D': 3.0, 'target_lambda': 0.05,\n        'target_PT': 25.0, 'target_ST': 1000.0, 'target_c': 0.01, 'target_C': 100.0,\n        'path_style': 'brownian'\n    }\n}\n\nprint('Theory-first configurations demonstrate precise control over:')\nfor name, config in configs.items():\n    print(f'  {name}: P_T={config[\"target_PT\"]}, G={config[\"target_G\"]}, \u03bb={config[\"target_lambda\"]}')\n\n# Example: create a theory stream with controlled drift\nexample_stream = get_theory_stream(\n    dim=5, T=100, **configs['Stable Drift'],\n    accountant='zcdp', rho_total=1.0, seed=42\n)\n\n# Show first few events\nfor i in range(3):\n    event = next(example_stream)\n    print(f'Event {i}: P_T={event[\"metrics\"][\"P_T_true\"]:.3f}, G={event[\"metrics\"][\"g_norm\"]:.3f}')"
-   ]
-  },
-  {
-   "cell_type": "markdown",
-   "id": "conclusion",
-   "metadata": {},
-   "source": [
-    "## Conclusion: Theory-First Approach Benefits\n\nThe theory-first `get_theory_stream()` approach provides:\n\n1. **Direct Theoretical Control**: Specify gradient bounds, path length, strong convexity directly\n2. **Integrated Privacy**: Built-in zCDP and (\u03b5,\u03b4)-DP accounting\n3. **Rich Diagnostics**: Real-time constraint adherence monitoring\n4. **Flexible Drift Patterns**: Multiple path styles (rotating, brownian, piecewise-constant)\n5. **Experimental Reproducibility**: Theory-driven parameterization\n\n**Use `get_theory_stream()` for new experiments** to leverage theoretical drift configurations."
    ]
   }
  ],
