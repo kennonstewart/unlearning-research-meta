@@ -360,3 +360,50 @@ def _generate_linear_stream_with_schema(
         )
 
         event_id += 1
+
+
+# Helper functions for theory-first PT controller
+def set_rotation_by_PT(T: int, w_norm: float, target_PT: float) -> float:
+    """
+    Set rotation angle to achieve target path length PT over T steps.
+    
+    Args:
+        T: Number of steps
+        w_norm: Parameter vector norm (typically target_D/2)
+        target_PT: Target path length
+        
+    Returns:
+        theta: Rotation angle per step
+    """
+    import math
+    
+    # PT = T * 2 * w_norm * sin(theta/2)
+    # Solve for theta: theta = 2 * arcsin(PT / (T * 2 * w_norm))
+    sin_half_theta = target_PT / (T * 2 * w_norm)
+    sin_half_theta = min(sin_half_theta, 0.99)  # Clamp to feasible range
+    
+    if sin_half_theta <= 0:
+        return 0.0
+    else:
+        theta = 2 * math.asin(sin_half_theta)
+        return np.clip(theta, 1e-6, 0.3)  # Apply PT controller bounds
+
+
+def set_brownian_by_PT(T: int, dim: int, target_PT: float) -> float:
+    """
+    Set Brownian drift scale to achieve target path length PT over T steps.
+    
+    Args:
+        T: Number of steps
+        dim: Dimension of parameter space
+        target_PT: Target path length
+        
+    Returns:
+        drift_std: Standard deviation for Brownian drift
+    """
+    import math
+    
+    # For Brownian motion: E[PT] ≈ T * E[||drift||] ≈ T * drift_std * sqrt(dim)
+    # Solve for drift_std: drift_std = PT / (T * sqrt(dim))
+    drift_std = target_PT / (T * math.sqrt(dim))
+    return max(drift_std, 0.0)  # Ensure non-negative

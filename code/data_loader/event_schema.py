@@ -73,6 +73,14 @@ def create_event_record_with_diagnostics(
     # M8 diagnostics (Linear)
     lambda_est: Optional[float] = None,
     P_T_true: Optional[float] = None,
+    # Theory stream diagnostics
+    g_norm: Optional[float] = None,
+    clip_applied: Optional[bool] = None,
+    ST_running: Optional[float] = None,
+    PT_target_residual: Optional[float] = None,
+    ST_target_residual: Optional[float] = None,
+    sigma_step: Optional[float] = None,
+    privacy_spend_running: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     Create event record with extended diagnostics for M7-M10.
@@ -116,6 +124,20 @@ def create_event_record_with_diagnostics(
         diagnostics["lambda_est"] = lambda_est
     if P_T_true is not None:
         diagnostics["P_T_true"] = P_T_true
+    if g_norm is not None:
+        diagnostics["g_norm"] = g_norm
+    if clip_applied is not None:
+        diagnostics["clip_applied"] = clip_applied
+    if ST_running is not None:
+        diagnostics["ST_running"] = ST_running
+    if PT_target_residual is not None:
+        diagnostics["PT_target_residual"] = PT_target_residual
+    if ST_target_residual is not None:
+        diagnostics["ST_target_residual"] = ST_target_residual
+    if sigma_step is not None:
+        diagnostics["sigma_step"] = sigma_step
+    if privacy_spend_running is not None:
+        diagnostics["privacy_spend_running"] = privacy_spend_running
         
     # Merge diagnostics into metrics
     metrics.update(diagnostics)

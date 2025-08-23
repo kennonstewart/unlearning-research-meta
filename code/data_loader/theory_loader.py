@@ -74,15 +74,18 @@ class PrivacyController:
         """Get current noise scale for given sensitivity."""
         return self.sigma_step * sensitivity
     
-    def step(self) -> Dict[str, float]:
-        """Advance to next step and return privacy metrics."""
+    def step(self, event_type: str = "insert") -> Dict[str, float]:
+        """Advance to next step and return privacy metrics. Only update spend on deletes."""
         self.t += 1
-        if hasattr(self, 'rho_step'):
-            self.rho_spent += self.rho_step
-            if self.targets.accountant == "eps-delta":
-                # Convert back to (ε,δ) for reporting
-                if self.targets.delta_total is not None:
-                    self.eps_spent = math.sqrt(2 * self.rho_spent * math.log(1/self.targets.delta_total))
+        
+        # Only spend privacy budget on delete events
+        if event_type == "delete":
+            if hasattr(self, 'rho_step'):
+                self.rho_spent += self.rho_step
+                if self.targets.accountant == "eps-delta":
+                    # Convert back to (ε,δ) for reporting
+                    if self.targets.delta_total is not None:
+                        self.eps_spent = math.sqrt(2 * self.rho_spent * math.log(1/self.targets.delta_total))
         
         return {
             "sigma_step": self.sigma_step,
@@ -104,26 +107,24 @@ class PathLengthController:
         self.w_scale = w_scale
         self.rng = np.random.default_rng(seed)
         
-        # Compute per-step drift budget
-        self.delta_P_budget = targets.target_PT / T
+        # Block control parameters
+        self.B = 200  # Block size
+        self.sum_log_ratio_PT = 0.0  # I-term accumulator
         
         # Initialize parameters based on path style
         if path_style == "rotating":
-            # For rotation: P_T ≈ T * 2 * ||w|| * sin(θ/2)
-            # Solve for θ: θ = 2 * arcsin(P_T / (T * 2 * ||w||))
-            sin_half_theta = targets.target_PT / (T * 2 * w_scale)
-            sin_half_theta = min(sin_half_theta, 0.99)  # Clamp to feasible range, leave some margin
-            if sin_half_theta <= 0:
-                self.rotate_angle = 0.0
-            else:
-                self.rotate_angle = 2 * math.asin(sin_half_theta)
+            # PT controller initialization from problem statement: 
+            # theta = target_PT / ((target_D/2) * T)
+            self.theta = targets.target_PT / ((targets.target_D / 2) * T)
+            # Clamp theta to [1e-6, 0.3]
+            self.theta = np.clip(self.theta, 1e-6, 0.3)
         elif path_style == "brownian":
             # For Brownian: E[P_T] ≈ T * E[||d_t||] ≈ T * σ_d * sqrt(d)
             # Solve for σ_d: σ_d = P_T / (T * sqrt(d))
             self.drift_std = targets.target_PT / (T * math.sqrt(dim))
         else:
             # Piecewise constant - no drift
-            self.rotate_angle = 0.0
+            self.theta = 0.0
             self.drift_std = 0.0
         
         # Tracking
@@ -133,11 +134,22 @@ class PathLengthController:
         # Initialize parameter
         v = self.rng.normal(size=dim)
         v /= np.linalg.norm(v) + 1e-12
-        self.w_star = v * w_scale
         
-        # Adaptive control for path length - more conservative
-        self.adaptive_factor = 1.0
-        self.check_interval = max(10, T // 20)  # Check less frequently
+        # For rotating path style, ensure vector has significant components 
+        # in first two dimensions to get predictable rotation behavior
+        if path_style == "rotating":
+            # Set first two components to dominate
+            v_dominant = np.zeros(dim)
+            v_dominant[0] = 0.8  # Major component
+            v_dominant[1] = 0.6  # Minor component
+            # Fill remaining with small noise
+            if dim > 2:
+                v_dominant[2:] = self.rng.normal(size=dim-2) * 0.1
+            # Normalize and scale
+            v_dominant /= np.linalg.norm(v_dominant)
+            self.w_star = v_dominant * w_scale
+        else:
+            self.w_star = v * w_scale
     
     def get_next_parameter(self) -> tuple[np.ndarray, float]:
         """Get next parameter and path increment."""
@@ -147,36 +159,40 @@ class PathLengthController:
             w_new = self._rotate_parameter()
         elif self.path_style == "brownian":
             w_new = self._drift_parameter()
+            # Only enforce norm constraint for brownian motion (which adds noise)
+            if np.linalg.norm(w_new) > 0:
+                w_new = (w_new / np.linalg.norm(w_new)) * self.w_scale
         else:
             w_new = self.w_star.copy()
-        
-        # Enforce norm constraint
-        if np.linalg.norm(w_new) > 0:
-            w_new = (w_new / np.linalg.norm(w_new)) * self.w_scale
         
         # Compute path increment
         delta_P = np.linalg.norm(w_new - self.w_star)
         self.P_T_cumulative += delta_P
         
-        # Adaptive adjustment for path length (gentle feedback control)
-        if self.t > 50 and self.t % self.check_interval == 0:  # Check less frequently and start later
-            expected_PT_so_far = self.targets.target_PT * self.t / self.T
-            if expected_PT_so_far > 0:
-                current_ratio = self.P_T_cumulative / expected_PT_so_far
-                if current_ratio < 0.7:  # Significantly too slow
-                    self.adaptive_factor *= 1.1
-                elif current_ratio > 1.3:  # Significantly too fast
-                    self.adaptive_factor *= 0.9
-                self.adaptive_factor = np.clip(self.adaptive_factor, 0.8, 1.5)
+        # Block control (every B=200 events)
+        if self.t % self.B == 0 and self.path_style == "rotating":
+            ratio_PT = self.P_T_cumulative / (self.targets.target_PT * self.t / self.T)
+            if ratio_PT > 0:
+                # Update theta with P-control: theta *= ratio_PT ** (-0.5)
+                self.theta *= ratio_PT ** (-0.5)
+                
+                # Optional I-term: multiply by exp(-0.1 * sum_log_ratio_PT)
+                log_ratio = math.log(ratio_PT)
+                self.sum_log_ratio_PT += log_ratio
+                i_factor = math.exp(-0.1 * self.sum_log_ratio_PT)
+                self.theta *= i_factor
+                
+                # Clamp theta to [1e-6, 0.3]
+                self.theta = np.clip(self.theta, 1e-6, 0.3)
         
         self.w_star = w_new
         return self.w_star.copy(), float(delta_P)
     
     def _rotate_parameter(self) -> np.ndarray:
-        """Apply controlled rotation."""
+        """Apply controlled rotation using theta."""
         if self.dim >= 2:
-            angle = self.rotate_angle * self.adaptive_factor
-            c, s = np.cos(angle), np.sin(angle)
+            # Simple rotation in first two dimensions
+            c, s = np.cos(self.theta), np.sin(self.theta)
             R = np.eye(self.dim)
             R[0, 0] = c
             R[0, 1] = -s
@@ -188,7 +204,7 @@ class PathLengthController:
     
     def _drift_parameter(self) -> np.ndarray:
         """Apply Brownian drift."""
-        drift = self.rng.normal(scale=self.drift_std * self.adaptive_factor, size=self.dim)
+        drift = self.rng.normal(scale=self.drift_std, size=self.dim)
         return self.w_star + drift
 
 
@@ -200,17 +216,42 @@ class GradientBoundController:
         self.clip_count = 0
         self.total_count = 0
     
-    def clip_gradient(self, grad: np.ndarray) -> tuple[np.ndarray, bool]:
-        """Clip gradient to enforce bound and return (clipped_grad, was_clipped)."""
-        self.total_count += 1
+    def soft_clip(self, grad: np.ndarray, target_G: float) -> np.ndarray:
+        """Apply soft clipping using tanh-based function."""
         grad_norm = np.linalg.norm(grad)
+        if grad_norm == 0:
+            return grad
         
-        if grad_norm > self.target_G:
-            self.clip_count += 1
-            clipped_grad = grad * (self.target_G / grad_norm)
-            return clipped_grad, True
+        # Tanh-based soft clipping: scale = tanh(norm/target) * target / norm
+        ratio = grad_norm / target_G
+        if ratio <= 1.0:
+            return grad  # No clipping needed
         else:
-            return grad, False
+            # Soft transition using tanh
+            scale_factor = np.tanh(1.0 / ratio) * target_G / grad_norm
+            return grad * scale_factor
+    
+    def hard_cap(self, grad: np.ndarray, max_norm: float) -> tuple[np.ndarray, bool]:
+        """Apply hard cap as backstop."""
+        grad_norm = np.linalg.norm(grad)
+        if grad_norm > max_norm:
+            return grad * (max_norm / grad_norm), True
+        return grad, False
+    
+    def clip_gradient(self, grad: np.ndarray) -> tuple[np.ndarray, bool]:
+        """Clip gradient with soft-clip then hard cap and return (clipped_grad, was_clipped)."""
+        self.total_count += 1
+        
+        # First apply soft-clip
+        grad_soft_clipped = self.soft_clip(grad, self.target_G)
+        
+        # Then apply hard cap as backstop at 1.05 * target_G
+        grad_final, was_hard_clipped = self.hard_cap(grad_soft_clipped, 1.05 * self.target_G)
+        
+        if was_hard_clipped:
+            self.clip_count += 1
+        
+        return grad_final, was_hard_clipped
     
     def get_clip_rate(self) -> float:
         """Get current clipping rate."""
@@ -242,33 +283,41 @@ class AdaGradEnergyController:
         self.ST_running = 0.0
         self.t = 0
         
+        # ST controller parameters
+        self.mu = 1.0  # Scale factor (default 1.0)
+        self.B = 200   # Block size for control
+        self.sum_log_ratio_ST = 0.0  # I-term accumulator
+        
         # Target per-step energy
         self.target_per_step = targets.target_ST / T
-        
-        # Adjustment factor (simple feedback control)
-        self.adjustment_factor = 1.0
+    
+    def apply_scaling(self, grad: np.ndarray) -> np.ndarray:
+        """Apply mu scaling to gradient before clipping."""
+        return self.mu * grad
     
     def update(self, grad_norm_sq: float) -> float:
         """Update running S_T and return adjustment factor."""
         self.t += 1
         self.ST_running += grad_norm_sq
         
-        # Simple feedback: if we're off track, adjust scaling
-        if self.t > 20:  # Wait for some samples
-            expected_ST_so_far = self.target_per_step * self.t
-            if expected_ST_so_far > 0:
-                current_ratio = self.ST_running / expected_ST_so_far
+        # Block control (every B=200 events)  
+        if self.t % self.B == 0:
+            ratio_ST = self.ST_running / (self.target_ST * self.t / self.T)
+            old_mu = self.mu
+            if ratio_ST > 0:
+                # Update mu: mu *= ratio_ST ** (-0.25)
+                self.mu *= ratio_ST ** (-0.25)
                 
-                # More aggressive feedback control
-                if current_ratio < 0.8:  # Too low
-                    self.adjustment_factor *= 1.02
-                elif current_ratio > 1.2:  # Too high
-                    self.adjustment_factor *= 0.98
+                # Optional I-term: multiply by exp(-0.05 * sum_log_ratio_ST)
+                log_ratio = math.log(ratio_ST)
+                self.sum_log_ratio_ST += log_ratio
+                i_factor = math.exp(-0.05 * self.sum_log_ratio_ST)
+                self.mu *= i_factor
                 
-                # Clamp adjustment factor
-                self.adjustment_factor = np.clip(self.adjustment_factor, 0.1, 10.0)
+                # Clamp mu to reasonable bounds
+                self.mu = np.clip(self.mu, 0.1, 50.0)  # Allow larger mu values
         
-        return self.adjustment_factor
+        return self.mu
     
     def get_target_residual(self) -> float:
         """Get relative error vs target."""
@@ -431,39 +480,68 @@ def get_theory_stream(
     
     while True:
         # Update feature scaling based on S_T control
-        st_adjustment = st_ctrl.adjustment_factor
         if event_id > 0 and event_id % 50 == 0:  # Update covariance periodically
-            adjusted_feature_scale = feature_scale * st_adjustment
+            # Use mu from ST controller for feature scaling  
+            adjusted_feature_scale = feature_scale * st_ctrl.mu
             cov_gen = CovarianceGenerator(dim, eigs, None, seed + event_id, adjusted_feature_scale)
         
         # Generate feature vector
-        x = cov_gen.sample(1)[0].astype(np.float32)
+        x_raw = cov_gen.sample(1)[0].astype(np.float32)
+        
+        # Bound feature norm ||x_t|| via feature_scale
+        x_norm_target = feature_scale * math.sqrt(dim)  # Expected norm for unit Gaussian
+        x_norm_actual = np.linalg.norm(x_raw)
+        if x_norm_actual > 2.0 * x_norm_target:  # Clip extreme outliers
+            x = x_raw * (2.0 * x_norm_target / x_norm_actual)
+        else:
+            x = x_raw
         
         # Get current ground-truth parameter
         w_star, delta_P = path_ctrl.get_next_parameter()
         
         # Generate target with noise
         base_noise = rng.normal(scale=noise_std)
-        y = float(x @ w_star + base_noise)
+        y_raw = float(x @ w_star + base_noise)
+        
+        # Bound residual by r_eps (simple clamping)
+        r_eps = 2.0 * noise_std  # Reasonable bound for residual
+        residual_raw = x @ w_learner - y_raw
+        if abs(residual_raw) > r_eps:
+            # Adjust y to bring residual into bounds
+            y = y_raw + np.sign(residual_raw) * (abs(residual_raw) - r_eps)
+        else:
+            y = y_raw
         
         # Compute gradient for bound enforcement
-        # For squared loss: ∇f(w) = x(x^T w - y) + λw
-        residual = x @ w_learner - y
-        grad_raw = x * residual + target_lambda * w_learner
-        grad_clipped, was_clipped = grad_ctrl.clip_gradient(grad_raw)
+        # Direct approach: generate gradient with target energy per step
+        target_grad_norm = math.sqrt(st_ctrl.target_per_step)
         
-        # Update S_T controller
+        # Generate base gradient from loss
+        residual = x @ w_star - y  
+        grad_base = x * residual + target_lambda * w_star
+        
+        # Scale to have target norm (before mu scaling)
+        grad_base_norm = np.linalg.norm(grad_base)
+        if grad_base_norm > 0:
+            grad_raw = grad_base * (target_grad_norm / grad_base_norm)
+        else:
+            grad_raw = rng.normal(size=dim) * target_grad_norm / math.sqrt(dim)
+        
+        # Apply ST controller scaling: g <- mu * g (before clipping)
+        grad_scaled = st_ctrl.apply_scaling(grad_raw)
+        
+        # Apply gradient clipping (soft-clip + hard cap)
+        grad_clipped, was_clipped = grad_ctrl.clip_gradient(grad_scaled)
+        
+        # Update S_T controller with clipped gradient norm squared
         grad_norm_sq = np.linalg.norm(grad_clipped) ** 2
         st_ctrl.update(grad_norm_sq)
         
         # Update strong convexity estimation
-        lambda_est = sc_estimator.update(grad_clipped, w_learner)
+        lambda_est = sc_estimator.update(grad_clipped, w_star)
         
-        # Simple learner update
-        w_learner = w_learner - 0.01 * grad_clipped
-        
-        # Get privacy metrics
-        privacy_metrics = privacy_ctrl.step()
+        # Get privacy metrics (only spend on delete events)
+        privacy_metrics = privacy_ctrl.step("insert")  # All events are inserts in theory stream
         
         # Compute diagnostics
         x_norm = float(np.linalg.norm(x))
@@ -485,14 +563,6 @@ def get_theory_stream(
             "noise": float(base_noise),
             # Theory targets (emitted periodically)
             "theory_targets": theory_targets_block if event_id % 1000 == 0 else None,
-            # New theory metrics
-            "g_norm": g_norm,
-            "clip_applied": was_clipped,
-            "ST_running": st_ctrl.ST_running,
-            "PT_target_residual": PT_target_residual,
-            "ST_target_residual": ST_target_residual,
-            "sigma_step": privacy_metrics["sigma_step"],
-            "privacy_spend_running": privacy_metrics.get("rho_spent", privacy_metrics.get("eps_spent", 0.0)),
             # Passthrough for LBFGS
             "G_hat": target_G,
             "D_hat": target_D,
@@ -510,6 +580,13 @@ def get_theory_stream(
             metrics=metrics,
             lambda_est=float(lambda_est) if lambda_est is not None else None,
             P_T_true=float(path_ctrl.P_T_cumulative),
+            g_norm=g_norm,
+            clip_applied=was_clipped,
+            ST_running=st_ctrl.ST_running,
+            PT_target_residual=PT_target_residual,
+            ST_target_residual=ST_target_residual,
+            sigma_step=privacy_metrics["sigma_step"],
+            privacy_spend_running=privacy_metrics.get("rho_spent", privacy_metrics.get("eps_spent", 0.0)),
         )
         
         event_id += 1
