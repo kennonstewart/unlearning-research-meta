@@ -149,6 +149,15 @@ from runner import ExperimentRunner, ALGO_MAP
     default=False,
     help="Enable drift-responsive learning rate adaptation.",
 )
+@click.option("--target-g", "target_G", type=float, default=None, help="Theory-first: gradient norm bound G.")
+@click.option("--target-d", "target_D", type=float, default=None, help="Theory-first: domain diameter D.")
+@click.option("--target-c", "target_c", type=float, default=None, help="Theory-first: inverse-Hessian min eigenvalue clamp c.")
+@click.option("--target-C", "target_C", type=float, default=None, help="Theory-first: inverse-Hessian max eigenvalue clamp C.")
+@click.option("--target-lambda", "target_lambda", type=float, default=None, help="Theory-first: strong convexity λ.")
+@click.option("--target-pt", "target_PT", type=float, default=None, help="Theory-first: total path length P_T.")
+@click.option("--target-st", "target_ST", type=float, default=None, help="Theory-first: AdaGrad energy S_T (sum of squared gradients).")
+@click.option("--rho-total", "rho_total", type=float, default=None, help="zCDP total privacy budget ρ (use with accountant=zcdp/rdp/relaxed).")
+@click.option("--path-style", "path_style", type=click.Choice(["rotating", "brownian", "piecewise-constant"]), default="rotating", help="Theory-first path evolution style.")
 def main(**kwargs):
     """Run deletion capacity experiment with configurable privacy accountant."""
     # Handle backward compatibility for gamma parameters

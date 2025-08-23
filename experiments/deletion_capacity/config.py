@@ -98,6 +98,17 @@ class Config:
     c_hat: Optional[float] = None
     C_hat: Optional[float] = None
 
+    # Theory-first stream targets
+    target_G: Optional[float] = None
+    target_D: Optional[float] = None
+    target_c: Optional[float] = None
+    target_C: Optional[float] = None
+    target_lambda: Optional[float] = None
+    target_PT: Optional[float] = None
+    target_ST: Optional[float] = None
+    path_style: str = "rotating"
+    rho_total: Optional[float] = None
+
     @property
     def gamma_insert(self) -> float:
         """Gamma budget allocated to insertions (learning)."""

@@ -14,7 +14,7 @@ import numpy as np
 # Add code path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
 
-from data_loader import get_rotating_mnist_stream, get_synthetic_linear_stream, parse_event_record
+from data_loader import get_rotating_mnist_stream, get_synthetic_linear_stream, parse_event_record, get_theory_stream
 from memory_pair.src.memory_pair import MemoryPair
 from memory_pair.src.odometer import PrivacyOdometer, ZCDPOdometer, rho_to_epsilon
 from memory_pair.src.accountant_strategies import create_accountant_strategy, StrategyAccountantAdapter
@@ -27,9 +27,44 @@ from phases import PhaseState, bootstrap_phase, sensitivity_calibration_phase, w
 from io_utils import EventLogger, write_summary_json, create_plots, git_commit_results, write_seed_summary_json
 from metrics_utils import aggregate_summaries, get_privacy_metrics
 def _get_data_stream(cfg: Config, seed: int):
-    """Get data stream with unified interface for event records."""
+    """Get data stream with unified interface for event records.
+
+    Prefers the theory-first stream when any target_* is provided; otherwise falls back to legacy synthetic stream.
+    """
+    # Theory-first branch for synthetic dataset
+    any_theory_targets = any([
+        getattr(cfg, "target_G", None) is not None,
+        getattr(cfg, "target_D", None) is not None,
+        getattr(cfg, "target_c", None) is not None,
+        getattr(cfg, "target_C", None) is not None,
+        getattr(cfg, "target_lambda", None) is not None,
+        getattr(cfg, "target_PT", None) is not None,
+        getattr(cfg, "target_ST", None) is not None,
+    ])
+
+    if cfg.dataset == "synthetic" and any_theory_targets:
+        # Map accountant to theory loader naming
+        acct = "zcdp" if cfg.accountant in ["zcdp", "rdp", "relaxed"] else "eps-delta"
+        return get_theory_stream(
+            dim=20,  # Default dimension for synthetic data
+            T=cfg.max_events,
+            target_G=cfg.target_G,
+            target_D=cfg.target_D,
+            target_c=cfg.target_c,
+            target_C=cfg.target_C,
+            target_lambda=cfg.target_lambda,
+            target_PT=cfg.target_PT,
+            target_ST=cfg.target_ST,
+            accountant=acct,
+            rho_total=getattr(cfg, "rho_total", None),
+            eps_total=cfg.eps_total,
+            delta_total=cfg.delta_total,
+            path_style=getattr(cfg, "path_style", "rotating"),
+            seed=seed,
+        )
+
+    # Legacy behavior
     stream_fn = DATASET_MAP[cfg.dataset]
-    # Always request event records; legacy tuple mode removed
     if cfg.dataset == "synthetic":
         return stream_fn(
             seed=seed,
