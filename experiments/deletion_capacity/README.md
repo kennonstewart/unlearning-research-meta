@@ -6,7 +6,7 @@ This experiment measures how many deletion requests a privacy-preserving learner
 
 The deletion capacity experiment investigates the fundamental trade-off between privacy, utility, and deletion capacity in online machine unlearning. Using a regret-constrained optimization framework, the experiment determines the maximum number of deletions that can be processed while maintaining:
 
-- **Differential Privacy**: (ε, δ)-DP guarantees across all deletion operations
+- **Zero-Concentrated Differential Privacy**: zCDP guarantees across all deletion operations
 - **Regret Bounds**: Total regret/T ≤ γ constraint for competitive performance
 - **Theoretical Soundness**: Calibrated constants based on actual algorithm behavior
 
@@ -25,27 +25,27 @@ The deletion capacity experiment investigates the fundamental trade-off between 
    - Automatic transition to interleaving phase
 
 3. **Interleaving Phase**: Full insert/delete operations with privacy accounting
-   - Privacy odometer enforces capacity limits
+   - zCDP accountant enforces capacity limits
    - Gaussian noise scaled per deletion operation
 
-### Privacy Odometer with Regret-Constrained Optimization
+### zCDP Accountant with Joint Optimization
 
-The privacy odometer solves the optimization problem:
+The zCDP accountant uses joint m-σ optimization to solve:
 
 ```
 maximize m
-subject to: (R_ins + R_del(m))/T ≤ γ
+subject to: 
+1. Privacy constraint: m · ρ_step ≤ ρ_total with ρ_step = Δ²/(2σ²)
+2. Regret constraint: (R_ins + R_del(m, σ))/T ≤ γ
 ```
 
 Where:
 - **R_ins = G·D·√(c·C·T)**: Insertion regret bound
-- **R_del(m) = (m·G/λ)·√((2ln(1.25m/δ)/ε)·(2ln(1/δ_B)))**: Deletion regret bound
+- **R_del(m, σ) = m·(G/λ)·σ·√(2ln(1/δ_B))**: Deletion regret bound
 - **m**: Deletion capacity (number of deletions allowed)
+- **σ**: Gaussian noise standard deviation
 
-The solution provides:
-- **ε_step = ε_total/m**: Per-deletion privacy budget
-- **δ_step = δ_total/m**: Per-deletion failure probability  
-- **σ = (G/λ)·√(2ln(1.25/δ_step))/ε_step**: Gaussian noise scale
+The solution provides optimal deletion capacity and noise scale.
 
 ## Usage
 
@@ -158,14 +158,24 @@ if model.odometer.ready_to_delete:
     model.delete(x, y)  # Privacy-preserving deletion
 ```
 
-**Note**: The zCDP accountant is the recommended approach for new experiments. The internal accounting uses zero-Concentrated Differential Privacy (ρ) with optional conversion to (ε,δ) for reporting.
+**Note**: The system is now zCDP-only. All privacy accounting uses zero-Concentrated Differential Privacy (ρ) with conversion to (ε,δ) for reporting.
 
-**Legacy approach (deprecated)**: For backward compatibility, you can still use `PrivacyOdometer` directly, but this is deprecated in favor of the zCDP accountant:
+**Example**: Create a MemoryPair model with zCDP accountant:
 
 ```python
-# DEPRECATED: Legacy PrivacyOdometer (use zCDP accountant instead)
-from code.memory_pair.src.odometer import PrivacyOdometer
-odometer = PrivacyOdometer(eps_total=1.0, delta_total=1e-5)
+from memory_pair.src.accountant import get_adapter
+from memory_pair import MemoryPair
+
+# Create zCDP accountant
+accountant = get_adapter("zcdp", 
+    rho_total=1.0, 
+    delta_total=1e-5, 
+    gamma=0.5, 
+    lambda_=0.1
+)
+
+# Create model
+model = MemoryPair(dim=20, accountant=accountant)
 ```
 
 For notation and symbol definitions, see [docs/symbols.md](../../docs/symbols.md).

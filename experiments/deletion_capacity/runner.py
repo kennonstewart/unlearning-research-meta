@@ -16,8 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
 
 from data_loader import get_rotating_mnist_stream, get_synthetic_linear_stream, parse_event_record, get_theory_stream
 from memory_pair.src.memory_pair import MemoryPair
-from memory_pair.src.odometer import PrivacyOdometer, ZCDPOdometer, rho_to_epsilon
-from memory_pair.src.accountant_strategies import create_accountant_strategy, StrategyAccountantAdapter
+from memory_pair.src.accountant import get_adapter
 from memory_pair.src.calibrator import Calibrator
 from baselines import SekhariBatchUnlearning, QiaoHessianFree
 
@@ -43,8 +42,7 @@ def _get_data_stream(cfg: Config, seed: int):
     ])
 
     if cfg.dataset == "synthetic" and any_theory_targets:
-        # Map accountant to theory loader naming
-        acct = "zcdp" if cfg.accountant in ["zcdp", "rdp", "relaxed"] else "eps-delta"
+        # zCDP-only
         return get_theory_stream(
             dim=20,  # Default dimension for synthetic data
             T=cfg.max_events,
@@ -55,9 +53,8 @@ def _get_data_stream(cfg: Config, seed: int):
             target_lambda=cfg.target_lambda,
             target_PT=cfg.target_PT,
             target_ST=cfg.target_ST,
-            accountant=acct,
-            rho_total=getattr(cfg, "rho_total", None),
-            eps_total=cfg.eps_total,
+            accountant="zcdp",
+            rho_total=getattr(cfg, "rho_total", 1.0),
             delta_total=cfg.delta_total,
             path_style=getattr(cfg, "path_style", "rotating"),
             seed=seed,
@@ -196,45 +193,28 @@ class ExperimentRunner:
         return SeedResult(summary=summary, csv_path=csv_path)
     
     def _create_model(self, first_x):
-        """Create model with appropriate accountant strategy."""
-        # Create accountant using strategy pattern
-        accountant_strategy = create_accountant_strategy(
-            accountant_type=self.cfg.accountant,
-            eps_total=self.cfg.eps_total,
+        """Create model with zCDP accountant."""
+        accountant = get_adapter(
+            "zcdp",
+            rho_total=self.cfg.rho_total,
             delta_total=self.cfg.delta_total,
             T=self.cfg.max_events,
             gamma=self.cfg.gamma_delete,
             lambda_=self.cfg.lambda_,
             delta_b=self.cfg.delta_b,
             m_max=self.cfg.m_max,
-            relaxation_factor=getattr(self.cfg, 'relaxation_factor', 0.8),
         )
-        
-        # Wrap in adapter for backward compatibility
-        odometer = StrategyAccountantAdapter(accountant_strategy)
-        
-        # Create calibrator
         calibrator = Calibrator(
-            quantile=self.cfg.quantile,
-            D_cap=self.cfg.D_cap,
-            ema_beta=self.cfg.ema_beta
+            quantile=self.cfg.quantile, D_cap=self.cfg.D_cap, ema_beta=self.cfg.ema_beta
         )
-        
-        # Create model
-        model_class = ALGO_MAP[self.cfg.algo]
-        if self.cfg.algo == "memorypair":
-            model = model_class(
-                dim=first_x.shape[0],
-                odometer=odometer,
-                calibrator=calibrator,
-                recal_window=self.cfg.recal_window,
-                recal_threshold=self.cfg.recal_threshold,
-                cfg=self.cfg,  # Pass config for feature flags
-            )
-        else:
-            model = model_class(dim=first_x.shape[0], odometer=odometer)
-        
-        return model
+        return MemoryPair(
+            dim=first_x.shape[0],
+            accountant=accountant,
+            calibrator=calibrator,
+            recal_window=self.cfg.recal_window,
+            recal_threshold=self.cfg.recal_threshold,
+            cfg=self.cfg,
+        )
     
     def _save_seed_results(self, seed: int, logger: EventLogger, state: PhaseState, model) -> str:
         """Save CSV results for one seed."""
@@ -344,8 +324,9 @@ class ExperimentRunner:
         figs_dir = os.path.join(self.cfg.out_dir, "figs")
         create_plots(csv_paths, figs_dir)
         
-        # Git commit results
-        git_commit_results(summary_path, figs_dir, self.cfg.dataset, self.cfg.algo)
+        # Git commit results (optional)
+        if getattr(self.cfg, "commit_results", False):
+            git_commit_results(summary_path, figs_dir, self.cfg.dataset, self.cfg.algo)
         
         print(f"\nResults saved to {summary_path}")
         print(f"Plots saved to {figs_dir}")

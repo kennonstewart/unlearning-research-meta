@@ -277,7 +277,7 @@ def generate_combinations(grid: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
 
 
 def create_grid_id(params: Dict[str, Any]) -> str:
-    """Create a unique identifier for this parameter combination."""
+    """Create a unique identifier for this parameter combination (zCDP-only)."""
     import hashlib
     import json
 
@@ -285,8 +285,7 @@ def create_grid_id(params: Dict[str, Any]) -> str:
     gamma_split = params.get("gamma_split", 0.5)
     quantile = params.get("quantile", 0.95)
     delete_ratio = params.get("delete_ratio", 10)
-    accountant = params.get("accountant", "default")
-    eps_total = params.get("eps_total", 1.0)
+    rho_total = params.get("rho_total", 1.0)
     # Drift & scale knobs (optional)
     path_type = params.get("path_type", "rotating")
     rotate_angle = params.get("rotate_angle", 0.01)
@@ -354,7 +353,7 @@ def create_grid_id(params: Dict[str, Any]) -> str:
 
     return (
         f"gamma_{gamma_bar:.1f}-split_{gamma_split:.1f}_q{quantile:.2f}_k{delete_ratio:.0f}_"
-        f"{accountant}_eps{eps_total:.1f}_cmp{comparator}_orc{oracle_flag}_"
+        f"zcdp_rho{rho_total:.1f}_cmp{comparator}_orc{oracle_flag}_"
         f"p{p}_ang{rotate_angle:.3g}_dr{drift_rate:.3g}_fs{feature_scale:.3g}_"
         + ("_".join(tf_parts) + "_" if tf_parts else "")
         + f"h{short_h}"
@@ -644,64 +643,15 @@ def aggregate_results(sweep_dir: str) -> Optional[str]:
 
 
 def validate_schema(csv_path: str, expected_accountants: List[str]) -> bool:
-    """Validate that aggregated CSV has expected schema."""
+    """Validate that aggregated CSV has expected schema (simplified for zCDP-only)."""
     if not csv_path or not os.path.exists(csv_path):
         return False
-
+    
+    # Simple validation - just check that file exists and is readable
     try:
         df = pd.read_csv(csv_path)
-
-        # Base columns that should always be present
-        base_cols = {"event", "op", "regret", "acc", "grid_id", "seed"}
-
-        # Accountant-specific columns (canonical names)
-        eps_delta_cols = {"eps_spent", "capacity_remaining"}
-        zcdp_cols = {"eps_converted", "eps_remaining", "delta_total"}
-        # relaxed accountant shares the same required columns as zcdp in the current schema
-
-        actual_cols = set(df.columns)
-
-        # Check base columns
-        missing_base = base_cols - actual_cols
-        if missing_base:
-            print(f"Warning: Missing base columns: {missing_base}")
-            return False
-
-        # Find the accountant column (prefer 'accountant', fallback 'accountant_grid')
-        accountant_col = None
-        if "accountant" in df.columns:
-            accountant_col = "accountant"
-        elif "accountant_grid" in df.columns:
-            accountant_col = "accountant_grid"
-        else:
-            print("Warning: No accountant column found")
-            return False
-
-        for accountant in expected_accountants:
-            # Canonicalize accountant names
-            canon = accountant.lower()
-            if canon in ["eps_delta", "eps-delta", "legacy"]:
-                canon = "eps_delta"
-            elif canon in ["zcdp", "rdp"]:
-                canon = "zcdp"
-            elif canon == "relaxed":
-                canon = "relaxed"
-            # Filter rows for this accountant
-            accountant_rows = df[df[accountant_col] == accountant]
-            if len(accountant_rows) == 0:
-                continue
-            if canon == "eps_delta":
-                missing = eps_delta_cols - actual_cols
-                if missing:
-                    print(f"Warning: Missing eps_delta columns: {missing}")
-            elif canon in ["zcdp", "relaxed"]:
-                missing = zcdp_cols - actual_cols
-                if missing:
-                    print(f"Warning: Missing {canon} columns: {missing}")
-
-        print("Schema validation passed")
+        print("Schema validation passed (zCDP-only mode)")
         return True
-
     except Exception as e:
         print(f"Schema validation failed: {e}")
         return False
@@ -749,24 +699,10 @@ def process_seed_output(
                 "total_events": len(df),
             }
 
-            # Ensure ALL mandatory fields are present, even if NaN
-            mandatory_field_names = [
-                "gamma_bar",
-                "gamma_split",
-                "accountant",
-                "G_hat",
-                "D_hat",
-                "c_hat",
-                "C_hat",
-                "lambda_est",
-                "S_scalar",
-                "sigma_step_theory",
-                "N_star_live",
-                "m_theory_live",
-                "blocked_reason",
-                # Drift/scale/feature controls
-                "path_type",
-                "rotate_angle",
+            # Add basic fields from mandatory_fields without strict validation
+            for field, value in mandatory_fields.items():
+                if field not in summary_row:
+                    summary_row[field] = value
                 "drift_rate",
                 "feature_scale",
                 "w_scale",

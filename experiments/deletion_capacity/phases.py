@@ -455,20 +455,15 @@ def warmup_phase(
 
 
 def finalize_accountant_phase(model, cfg: Config):
-    """Finalize odometer and prepare for interleaving phase."""
-    print("[Finalize] Finalizing odometer...")
-
-    # Check if model uses new accountant interface
+    """Finalize accountant and prepare for interleaving phase."""
+    print("[Finalize] Finalizing accountant (zCDP-only)...")
+    
+    # If already interleaving, MemoryPair finalized the accountant
+    if hasattr(model, "phase") and getattr(model, "phase") == getattr(model, "Phase").INTERLEAVING:
+        print("[Finalize] Accountant already finalized during phase transition")
+        return
     if hasattr(model, "accountant") and model.accountant is not None:
-        # New accountant interface - finalization should already be done in MemoryPair
-        # during transition to INTERLEAVING phase, so this is a no-op
-        if hasattr(model, "phase") and hasattr(model, "Phase"):
-            if model.phase == model.Phase.INTERLEAVING:
-                print("[Finalize] Accountant already finalized during phase transition")
-                return
-
-        # If not in INTERLEAVING phase yet, finalize accountant directly
-        if hasattr(model, "calibration_stats") and model.calibration_stats:
+        if getattr(model, "calibration_stats", None):
             stats = {
                 "G": model.calibration_stats.get("G", 1.0),
                 "D": model.calibration_stats.get("D", 1.0),
@@ -476,45 +471,7 @@ def finalize_accountant_phase(model, cfg: Config):
                 "C": model.calibration_stats.get("C", 1.0),
             }
             model.accountant.finalize(stats, T_estimate=cfg.max_events)
-        return
-
-    # Legacy odometer interface
-    if not hasattr(model, "odometer") or model.odometer is None:
-        print("[Finalize] No odometer to finalize")
-        return
-
-    # Use the proper finalization approach based on model type
-    if hasattr(model, "calibration_stats") and model.calibration_stats:
-        # MemoryPair model with calibration stats
-        model.odometer.finalize_with(model.calibration_stats, T_estimate=cfg.max_events)
-    elif hasattr(model.odometer, "finalize_with"):
-        # Direct finalization for non-MemoryPair models or fallback when calibration_stats is missing
-        stats = {
-            "G": getattr(model.calibrator, "finalized_G", 1.0)
-            if hasattr(model, "calibrator")
-            else 1.0,
-            "D": getattr(model.calibrator, "D", 1.0)
-            if hasattr(model, "calibrator")
-            else 1.0,
-            "c": getattr(model.calibrator, "c_hat", 1.0)
-            if hasattr(model, "calibrator")
-            else 1.0,
-            "C": getattr(model.calibrator, "C_hat", 1.0)
-            if hasattr(model, "calibrator")
-            else 1.0,
-        }
-        T_estimate = cfg.max_events
-        model.odometer.finalize_with(stats, T_estimate)
-    else:
-        # Fallback to simple finalize
-        if not hasattr(model.odometer, "_finalized") or not getattr(
-            model.odometer, "_finalized"
-        ):
-            model.odometer.finalize()
-            try:
-                setattr(model.odometer, "_finalized", True)
-            except Exception:
-                pass
+    return
 
 
 def workload_phase(
