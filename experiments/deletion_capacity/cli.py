@@ -15,26 +15,14 @@ from runner import ExperimentRunner, ALGO_MAP
 @click.option(
     "--gamma-bar",
     type=float,
-    default=None,
-    help="Total regret budget (unified approach). If specified, use with --gamma-split.",
+    default=1.0,
+    help="Total regret budget (unified approach). Use with --gamma-split.",
 )
 @click.option(
     "--gamma-split",
     type=float,
     default=0.5,
     help="Fraction of gamma_bar allocated to insertions (learning). Default 0.5.",
-)
-@click.option(
-    "--gamma-learn",
-    type=float,
-    default=None,
-    help="Target avg regret for learning (sample complexity N*). Legacy - prefer --gamma-bar/--gamma-split.",
-)
-@click.option(
-    "--gamma-priv",
-    type=float,
-    default=None,
-    help="Target avg regret for privacy (odometer capacity m). Legacy - prefer --gamma-bar/--gamma-split.",
 )
 @click.option(
     "--bootstrap-iters",
@@ -67,9 +55,9 @@ from runner import ExperimentRunner, ALGO_MAP
 )
 @click.option(
     "--accountant",
-    type=click.Choice(["default", "legacy", "eps_delta", "zcdp", "rdp", "relaxed"]),
+    type=click.Choice(["zcdp"]),
     default="zcdp",
-    help="Privacy accountant type: zcdp/rdp=zCDP (recommended), default/legacy/eps_delta=(ε,δ)-DP (deprecated), relaxed=experimental.",
+    help="Privacy accountant type (zCDP-only).",
 )
 @click.option(
     "--alphas",
@@ -159,52 +147,11 @@ from runner import ExperimentRunner, ALGO_MAP
 @click.option("--rho-total", "rho_total", type=float, default=None, help="zCDP total privacy budget ρ (use with accountant=zcdp/rdp/relaxed).")
 @click.option("--path-style", "path_style", type=click.Choice(["rotating", "brownian", "piecewise-constant"]), default="rotating", help="Theory-first path evolution style.")
 def main(**kwargs):
-    """Run deletion capacity experiment with configurable privacy accountant."""
-    # Handle backward compatibility for gamma parameters
-    if kwargs.get("gamma_bar") is not None:
-        # New unified approach
-        if kwargs.get("gamma_learn") is not None or kwargs.get("gamma_priv") is not None:
-            print("Warning: --gamma_bar specified, ignoring legacy --gamma-learn/--gamma-priv")
-        gamma_bar = kwargs["gamma_bar"]
-        gamma_split = kwargs.get("gamma_split", 0.5)
-    else:
-        # Legacy approach
-        gamma_learn = kwargs.get("gamma_learn")
-        gamma_priv = kwargs.get("gamma_priv")
-        
-        if gamma_learn is not None and gamma_priv is not None:
-            print(f"Warning: Using legacy --gamma-learn={gamma_learn}/--gamma-priv={gamma_priv}. "
-                  f"Consider migrating to --gamma-bar={gamma_learn + gamma_priv} --gamma-split={gamma_learn/(gamma_learn + gamma_priv):.3f}")
-        
-        # Use defaults if not specified
-        if gamma_learn is None and gamma_priv is None:
-            gamma_bar = 1.0
-            gamma_split = 0.5
-        else:
-            gamma_learn = gamma_learn if gamma_learn is not None else 1.0
-            gamma_priv = gamma_priv if gamma_priv is not None else 0.5
-            gamma_bar = gamma_learn + gamma_priv
-            gamma_split = gamma_learn / gamma_bar
-        
-    # Remove legacy parameters and update with unified ones
-    kwargs = {k: v for k, v in kwargs.items() if k not in ['gamma_learn', 'gamma_priv']}
-    kwargs["gamma_bar"] = gamma_bar
-    kwargs["gamma_split"] = gamma_split
-    
+    """Run deletion capacity experiment with zCDP accountant."""
     # Create config from CLI arguments
     cfg = Config.from_cli_args(**kwargs)
     
-    # Add deprecation warning for legacy accountant options
-    if cfg.accountant in ["default", "legacy", "eps_delta"]:
-        import warnings
-        warnings.warn(
-            f"Using accountant='{cfg.accountant}' is deprecated. "
-            "The zCDP accountant ('zcdp') is now the recommended approach for new experiments.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-    
-    # Create and run experiment
+    # Create and run experiment (zCDP-only)
     runner = ExperimentRunner(cfg)
     runner.run_all()
 

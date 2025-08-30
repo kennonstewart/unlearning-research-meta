@@ -32,7 +32,7 @@ class Config:
     D_cap: float = 10.0
 
     # Accountant configuration
-    accountant: str = "default"
+    accountant: str = "zcdp"
     alphas: List[float] = field(
         default_factory=lambda: [1.5, 2, 3, 4, 8, 16, 32, 64, float("inf")]
     )
@@ -110,7 +110,7 @@ class Config:
     target_PT: Optional[float] = None
     target_ST: Optional[float] = None
     path_style: str = "rotating"
-    rho_total: Optional[float] = None
+    rho_total: float = 1.0  # Make this required for zCDP
 
     @property
     def gamma_insert(self) -> float:
