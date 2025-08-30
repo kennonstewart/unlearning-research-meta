@@ -6,16 +6,15 @@ from typing import Optional, Union, Tuple, Dict, Any
 from dataclasses import dataclass
 
 try:
-    from .odometer import PrivacyOdometer, RDPOdometer, N_star_live, m_theory_live
+    from .odometer import N_star_live, m_theory_live
     from .lbfgs import LimitedMemoryBFGS
     from .metrics import loss_half_mse
     from .calibrator import Calibrator
     from .comparators import RollingOracle
-    from .accountant_strategies import StrategyAccountantAdapter
     from .accountant import get_adapter
     from .accountant.types import Accountant
 except (ModuleNotFoundError, ImportError):
-    from odometer import PrivacyOdometer, RDPOdometer, N_star_live, m_theory_live
+    from odometer import N_star_live, m_theory_live
     from lbfgs import LimitedMemoryBFGS
     from metrics import loss_half_mse
     from calibrator import Calibrator
@@ -49,7 +48,7 @@ class Phase(Enum):
 
 class MemoryPair:
     """
-    Online learning algorithm with unlearning capabilities and privacy accounting.
+    Online learning algorithm with unlearning capabilities and zCDP privacy accounting.
 
     MemoryPair implements a three-phase state machine for calibrated online learning:
 
@@ -64,13 +63,13 @@ class MemoryPair:
     regret tracking. When an oracle/comparator is enabled, regret is computed against
     the oracle's optimal solution. When no oracle is available, regret is computed
     against a zero prediction baseline to enable basic regret tracking. Deletions 
-    are performed with differential privacy guarantees managed by the unified 
+    are performed with differential privacy guarantees managed by the zCDP-only 
     Accountant interface.
 
     Attributes:
         theta (np.ndarray): Current parameter vector
         lbfgs (LimitedMemoryBFGS): L-BFGS optimizer instance
-        accountant (Accountant): Unified privacy accounting interface for deletions
+        accountant (Accountant): zCDP privacy accounting interface for deletions
         phase (Phase): Current phase of the state machine
         calibrator (Calibrator): Helper for collecting calibration statistics
         cumulative_regret (float): Total regret accumulated over all events
@@ -85,7 +84,6 @@ class MemoryPair:
     def __init__(
         self,
         dim: int,
-        odometer: Union[PrivacyOdometer, RDPOdometer] = None,
         accountant: Optional[Accountant] = None,
         calibrator: Optional[Calibrator] = None,
         recal_window: Optional[int] = None,
@@ -97,70 +95,31 @@ class MemoryPair:
 
         Args:
             dim: Dimensionality of the parameter space
-            odometer: Legacy odometer for backward compatibility (creates adapter automatically)
-            accountant: Accountant adapter for unified privacy accounting (if provided, overrides odometer)
+            accountant: zCDP accountant adapter for unified privacy accounting
             calibrator: Calibrator for bootstrap phase (creates default if None)
             recal_window: Events between recalibration checks (None = disabled)
             recal_threshold: Relative threshold for drift detection
             cfg: Configuration object with feature flags (for future use)
         """
         self.theta = np.zeros(dim)
-        m_max = getattr(cfg, "m_max", None) if cfg else None
-        m_max = m_max if m_max is not None else 10
+        m_max = getattr(cfg, "m_max", 10) if cfg else 10
         self.lbfgs = LimitedMemoryBFGS(m_max=m_max, cfg=cfg)
 
-        # Handle accountant vs odometer parameters - always ensure we have an accountant
+        # zCDP-only accountant
         if accountant is not None:
             self.accountant = accountant
-            self.odometer = None  # Keep for backward compatibility logging
         else:
-            # Create accountant adapter if config specifies it
-            if cfg and hasattr(cfg, "accountant"):
-                accountant_params = {
-                    "eps_total": getattr(cfg, "eps_total", 1.0),
-                    "delta_total": getattr(cfg, "delta_total", 1e-5),
-                    "rho_total": getattr(cfg, "rho_total", None) or 1.0,  # Handle None case
-                    "T": getattr(cfg, "T", 10000),
-                    "gamma": getattr(cfg, "gamma_delete", 0.5),
-                    "lambda_": getattr(
-                        cfg, "lambda_", 0.1
-                    ),  # Use the right lambda field
-                    "delta_b": getattr(cfg, "delta_b", 0.05),
-                }
-                self.accountant = get_adapter(cfg.accountant, **accountant_params)
-                self.odometer = None  # Use accountant instead
-            else:
-                # For backward compatibility: wrap provided or default odometer in adapter
-                actual_odometer = odometer or RDPOdometer()
-                self.odometer = (
-                    actual_odometer  # Keep reference for legacy access patterns
-                )
+            acct_kwargs = {
+                "rho_total": getattr(cfg, "rho_total", 1.0),
+                "delta_total": getattr(cfg, "delta_total", 1e-5),
+                "T": getattr(cfg, "T", getattr(cfg, "max_events", 10000) if cfg else 10000),
+                "gamma": getattr(cfg, "gamma_delete", getattr(cfg, "gamma", 0.5) if cfg else 0.5),
+                "lambda_": getattr(cfg, "lambda_", 0.1),
+                "delta_b": getattr(cfg, "delta_b", 0.05),
+                "m_max": getattr(cfg, "m_max", None),
+            }
+            self.accountant = get_adapter("zcdp", **acct_kwargs)
 
-                # Create appropriate adapter based on odometer type
-                if isinstance(actual_odometer, PrivacyOdometer):
-                    # Extract parameters for eps-delta adapter
-                    adapter_params = {
-                        "eps_total": getattr(actual_odometer, "eps_total", 1.0),
-                        "delta_total": getattr(actual_odometer, "delta_total", 1e-5),
-                        "T": getattr(actual_odometer, "T", 10000),
-                        "gamma": getattr(actual_odometer, "gamma", 0.5),
-                        "lambda_": getattr(actual_odometer, "lambda_", 0.1),
-                        "delta_b": getattr(actual_odometer, "delta_b", 0.05),
-                    }
-                    self.accountant = get_adapter("eps_delta", **adapter_params)
-                else:
-                    # Assume zCDP-compatible (RDPOdometer, ZCDPOdometer)
-                    adapter_params = {
-                        "rho_total": getattr(actual_odometer, "rho_total", 1.0),
-                        "delta_total": getattr(actual_odometer, "delta_total", 1e-5),
-                        "T": getattr(actual_odometer, "T", 10000),
-                        "gamma": getattr(actual_odometer, "gamma", 0.5),
-                        "lambda_": getattr(actual_odometer, "lambda_", 0.1),
-                        "delta_b": getattr(actual_odometer, "delta_b", 0.05),
-                    }
-                    self.accountant = get_adapter("zcdp", **adapter_params)
-
-        # Store config for feature flags (no behavior change yet)
         self.cfg = cfg
         self.lambda_reg = getattr(cfg, "lambda_reg", 0.0) if cfg else 0.0
 
@@ -491,7 +450,6 @@ class MemoryPair:
         y: float,
         *,
         return_grad: bool = False,
-        log_to_odometer: bool = False,
     ) -> Union[float, Tuple[float, np.ndarray]]:
         """
         Insert a data point and update the model.
@@ -504,7 +462,6 @@ class MemoryPair:
             x: Input feature vector
             y: Target value
             return_grad: If True, return (prediction, gradient) tuple
-            log_to_odometer: If True, log gradient/theta to odometer (legacy parameter)
 
         Returns:
             Prediction before update, or (prediction, gradient) if return_grad=True
@@ -579,10 +536,6 @@ class MemoryPair:
             # Check for recalibration trigger
             self._check_recalibration_trigger()
 
-        # Optional: push stats to odometer during bootstrap/warmup (legacy)
-        if log_to_odometer and hasattr(self.odometer, "observe"):
-            self.odometer.observe(g_old, self.theta)
-
         # Update oracle if enabled (only for insert events)
         if self.oracle is not None and self.phase in [
             Phase.LEARNING,
@@ -630,9 +583,9 @@ class MemoryPair:
             print(
                 f"[MemoryPair] Reached N* = {self.N_star} inserts. Transitioning to INTERLEAVING phase."
             )
-            print("[Finalize] Finalizing odometer...")
+            print("[Finalize] Finalizing accountant...")
 
-            # Finalize accountant or odometer
+            # Finalize accountant (zCDP-only)
             if self.accountant is not None:
                 self.accountant.finalize(
                     {
@@ -642,17 +595,6 @@ class MemoryPair:
                         "C": self.calib_stats.C,
                     },
                     T_estimate=self.calib_stats.N_star or self.events_seen or 1,
-                )
-            elif self.odometer is not None:
-                # Backward compatibility - finalize legacy odometer
-                odometer_stats = {
-                    "G": self.calib_stats.G,
-                    "D": self.calib_stats.D,
-                    "c": self.calib_stats.c,
-                    "C": self.calib_stats.C,
-                }
-                self.odometer.finalize_with(
-                    odometer_stats, self.calib_stats.N_star or self.events_seen or 1
                 )
 
             # Compute deferred inference threshold N_gamma

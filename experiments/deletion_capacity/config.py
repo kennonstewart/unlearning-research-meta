@@ -51,6 +51,9 @@ class Config:
 
     # Output granularity for grid search
     output_granularity: str = "seed"
+    
+    # Git results committing (default False)
+    commit_results: bool = False
 
     # Adaptive geometry defaults
     adagrad_eps: float = 1e-12

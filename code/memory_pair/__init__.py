@@ -1,7 +1,6 @@
-from .src import MemoryPair, PrivacyOdometer, LimitedMemoryBFGS
+from .src import MemoryPair, LimitedMemoryBFGS
 
 __all__ = [
     "MemoryPair",
-    "PrivacyOdometer",
     "LimitedMemoryBFGS",
 ]
