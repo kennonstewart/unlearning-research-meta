@@ -22,31 +22,29 @@ python agents/grid_runner.py --dry-run
 
 The parameter grid is defined in `grids.yaml` (or custom file with `--grid-file`). 
 
-### Default Grid Parameters
+### Default Grid Parameters (zCDP-only)
 
-- **Learning ↔ Privacy split**: `gamma_learn` and `gamma_priv` are paired
-  - (0.9, 0.1), (0.7, 0.3), (0.5, 0.5), (0.3, 0.7)
+- **Learning ↔ Privacy split**: `gamma_bar` and `gamma_split` 
+  - gamma_bar: [0.5, 1.0, 2.0], gamma_split: [0.3, 0.5, 0.7]
 - **Calibrator conservativeness**: `quantile` 
   - 0.90, 0.95, 0.99
 - **Delete workload**: `delete_ratio`
   - 1, 5, 10 (k inserts per delete)
-- **Accountant type**: `accountant`
-  - "legacy", "rdp"
-- **Privacy budget**: `eps_total`
-  - 1.0, 0.5
+- **zCDP budget**: `rho_total`
+  - 0.5, 1.0, 2.0
 
-Total combinations: 4 × 3 × 3 × 2 × 2 = 144
+Total combinations: 3×3×3×3×3 = 243
 
 ## Output Structure
 
 ```
 results/grid_YYYY_MM_DD/
 ├── sweep/
-│   ├── split_0.7-0.3_q0.95_k10_legacy_eps1.0/
+│   ├── gamma_1.0-split_0.5_q0.95_k10_zcdp_rho1.0/
 │   │   ├── seed_000.csv
 │   │   ├── seed_001.csv
 │   │   └── ...
-│   ├── split_0.3-0.7_q0.90_k1_rdp_eps0.5/
+│   ├── gamma_2.0-split_0.3_q0.90_k1_zcdp_rho0.5/
 │   │   └── ...
 │   └── all_runs.csv               # Aggregated results
 ```

@@ -1,7 +1,7 @@
 # Memory Pair Library
 
 This directory contains a minimal implementation of the Memory-Pair online learner used by the experiments.
-The algorithm maintains L-BFGS curvature pairs and supports deletion with Gaussian noise calibrated by a privacy odometer.
+The algorithm maintains L-BFGS curvature pairs and supports deletion with Gaussian noise calibrated by a zCDP accountant.
 
 ## L2 Regularization
 
@@ -11,36 +11,27 @@ The learner accepts an optional `lambda_reg` parameter controlling ℓ2 regulari
 
 and gradients include the additional `lambda_reg * w` term. A positive `lambda_reg` makes the objective `lambda_reg`-strongly convex, tightening regret bounds by reducing the optimization term.
 
-## Privacy Odometers
+## zCDP Privacy Accounting
 
-The library now supports **zCDP (zero-Concentrated Differential Privacy)** accounting via the `ZCDPOdometer` class:
+The library uses **zCDP (zero-Concentrated Differential Privacy)** accounting via the unified accountant interface:
 
 ```python
-from memory_pair.src.odometer import ZCDPOdometer, rho_to_epsilon
+from memory_pair.src.accountant import get_adapter
+from memory_pair import MemoryPair
 
-# Create zCDP odometer
-odometer = ZCDPOdometer(
+# Create zCDP accountant
+accountant = get_adapter("zcdp",
     rho_total=1.0,      # Total zCDP budget
     delta_total=1e-5,   # Failure probability  
     gamma=0.5,          # Regret constraint
     lambda_=0.1         # Strong convexity
 )
 
-# Finalize with calibration statistics
-stats = {"G": 2.5, "D": 1.2, "c": 0.8, "C": 1.5}
-odometer.finalize_with(stats, T_estimate=1000)
+# Create model with accountant
+model = MemoryPair(dim=20, accountant=accountant)
 
-# Perform deletions with per-step sensitivity tracking
-for i in range(odometer.deletion_capacity):
-    sensitivity = 0.5  # Actual ||d|| for this deletion
-    sigma = odometer.noise_scale()
-    odometer.spend(sensitivity, sigma)
-    
-    print(f"Deletion {i+1}: ρ_spent = {odometer.rho_spent:.6f}")
-
-# Convert to (ε, δ) for reporting
-epsilon = rho_to_epsilon(odometer.rho_spent, odometer.delta_total)
-print(f"Final: ρ = {odometer.rho_spent:.4f} → ε = {epsilon:.4f}")
+# Accountant is automatically finalized during LEARNING→INTERLEAVING transition
+# when N* inserts are reached
 ```
 
 ### Key Features
