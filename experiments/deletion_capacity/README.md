@@ -1,5 +1,7 @@
 # Deletion Capacity Experiment
 
+**Scope**: MemoryPair + zCDP-only with synthetic data streams (theory-first preferred).
+
 This experiment measures how many deletion requests a privacy-preserving learner can process while maintaining differential privacy guarantees and staying within regret bounds. It implements a three-phase calibrated state machine for the Memory-Pair algorithm with automatic capacity optimization.
 
 ## Overview
@@ -98,9 +100,9 @@ python agents/grid_runner.py \
 
 ### Command Line Options
 
-- `--algo`: Algorithm choice (`memorypair`, `baseline1`, `baseline2`)
+- `--algo`: Algorithm choice (only `memorypair` supported - MemoryPair with zCDP)
 - `--schedule`: Deletion pattern (`burst`, `trickle`, `uniform`)
-- `--dataset`: Data stream (`rotmnist`, `mnist`, `cifar10`)
+- `--dataset`: Data stream (synthetic-only, theory-first preferred when targets provided)
 - `--T`: Total time horizon (default: 10000)
 - `--gamma`: Regret constraint (default: 0.1)
 - `--eps_total`: Total DP epsilon budget (default: 1.0)

@@ -1,6 +1,3 @@
-from .mnist import get_rotating_mnist_stream
-from .cifar10 import get_cifar10_stream
-from .covtype import get_covtype_stream
 from .linear import get_synthetic_linear_stream
 from .theory_loader import get_theory_stream
 from .event_schema import (
@@ -10,9 +7,6 @@ from .event_schema import (
 )
 
 __all__ = [
-    "get_rotating_mnist_stream",
-    "get_cifar10_stream",
-    "get_covtype_stream",
     "get_synthetic_linear_stream",
     "get_theory_stream",
     "create_event_record",
