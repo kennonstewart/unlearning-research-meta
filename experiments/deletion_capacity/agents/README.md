@@ -5,83 +5,51 @@ This directory contains the grid search automation for deletion capacity experim
 ## Quick Start
 
 ```bash
-# Run with default grid
-python agents/grid_runner.py --seeds 5
+# Run with provided theory-first grid (synthetic-only, MemoryPair+zCDP)
+python agents/grid_runner.py \
+  --grid-file agents/grids.yaml \
+  --seeds 5 \
+  --base-out results/grid_$(date +%Y_%m_%d)
 
-# Use custom grid file
-python agents/grid_runner.py --grid-file my_grid.yaml --seeds 10
+# Event-level output (one row per event)
+python agents/grid_runner.py \
+  --grid-file agents/grids.yaml \
+  --seeds 3 \
+  --output-granularity event \
+  --base-out results/grid_$(date +%Y_%m_%d)_events
 
 # Parallel execution with 4 processes
-python agents/grid_runner.py --parallel 4 --seeds 5
+python agents/grid_runner.py \
+  --grid-file agents/grids.yaml \
+  --parallel 4 \
+  --seeds 5 \
+  --base-out results/grid_$(date +%Y_%m_%d)_p4
 
-# Dry run to see parameter combinations
-python agents/grid_runner.py --dry-run
+# Dry run to preview parameter combinations
+python agents/grid_runner.py --grid-file agents/grids.yaml --dry-run
 ```
 
 ## Grid Configuration
 
-The parameter grid is defined in `grids.yaml` (or custom file with `--grid-file`). 
+The parameter grid is defined in `agents/grids.yaml`.
 
-### Default Grid Parameters (zCDP-only)
+Key notes for this synthetic-only setup:
+- Algorithm/accountant: `algo: memorypair`, `accountant: zcdp`.
+- Theory-first data stream: any presence of `target_*` values routes the runner to the theory-first synthetic stream.
+- Strong convexity: enable via `strong_convexity: true` and set `lambda_reg > 0` (in the grid).
+- Gamma pairing: `gamma_bar` and `gamma_split` are paired by index (not crossed). If you want more splits for the same gamma_bar, broadcast one list, e.g. `gamma_bar: [1.0]`, `gamma_split: [0.5, 0.6, 0.7]`.
 
-- **Learning ↔ Privacy split**: `gamma_bar` and `gamma_split` 
-  - gamma_bar: [0.5, 1.0, 2.0], gamma_split: [0.3, 0.5, 0.7]
-- **Calibrator conservativeness**: `quantile` 
-  - 0.90, 0.95, 0.99
-- **Delete workload**: `delete_ratio`
-  - 1, 5, 10 (k inserts per delete)
-- **zCDP budget**: `rho_total`
-  - 0.5, 1.0, 2.0
+### Included Grid (agents/grids.yaml)
 
-Total combinations: 3×3×3×3×3 = 243
+- Privacy: `rho_total` in `[0.5, 1.0, 2.0]`
+- Delete rate: `delete_ratio` in `[1, 5, 10]`
+- Regret split pairs: `(gamma_bar, gamma_split)` in `[(0.6,0.5), (1.0,0.6), (1.5,0.7)]`
+- Drift regimes via `target_PT` in `[100, 250]` (with `path_style: rotating`)
+- Fixed theory constants: `target_G=2.0, target_D=2.0, target_c=0.1, target_C=10.0, target_lambda=0.05, target_ST=40000`
+- Strong-convexity regularization: `lambda_reg` in `[0.01, 0.05]`
+
+This yields a compact sweep that exercises the core levers without exploding combinations.
 
 ## Output Structure
 
-```
-results/grid_YYYY_MM_DD/
-├── sweep/
-│   ├── gamma_1.0-split_0.5_q0.95_k10_zcdp_rho1.0/
-│   │   ├── seed_000.csv
-│   │   ├── seed_001.csv
-│   │   └── ...
-│   ├── gamma_2.0-split_0.3_q0.90_k1_zcdp_rho0.5/
-│   │   └── ...
-│   └── all_runs.csv               # Aggregated results
-```
-
-## Schema
-
-The aggregated `all_runs.csv` contains all per-event logs with additional grid metadata:
-
-### Base Columns
-- `event`, `op`, `regret`, `acc` - Standard event data
-- `grid_id`, `seed` - Grid cell identifier and seed number
-- `gamma_learn_grid`, `gamma_priv_grid`, `quantile_grid`, `delete_ratio_grid`, `accountant_grid` - Grid parameters
-
-### Accountant-specific Columns
-- **Legacy accountant**: `eps_spent`, `capacity_remaining`, `eps_step_theory`, `delta_step_theory`
-- **RDP accountant**: `eps_converted`, `eps_remaining`, `delta_total`, `sens_*`
-
-## Example Usage
-
-```bash
-# Full grid search with 3 seeds per combination
-python agents/grid_runner.py \
-    --grid-file grids.yaml \
-    --seeds 3 \
-    --parallel 8 \
-    --base-out results/grid_$(date +%Y_%m_%d)
-
-# Small test run
-python agents/grid_runner.py \
-    --grid-file test_grid.yaml \
-    --seeds 2 \
-    --base-out /tmp/test_results
-```
-
-The script automatically:
-1. Generates all parameter combinations from the grid
-2. Runs experiments for each combination across all seeds
-3. Aggregates results into a master CSV with grid metadata
-4. Validates the output schema
-5. Reports completion statistics
+Results are written under the chosen `--base-out` directory. See the main README for schema details. The `grid_id` encodes key parameters, including theory-first targets and zCDP settings, for easy filtering in downstream analysis.
