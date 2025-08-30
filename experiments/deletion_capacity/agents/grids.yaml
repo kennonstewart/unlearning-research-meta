@@ -1,0 +1,46 @@
+version: 1
+matrix:
+  # Core setup (synthetic-only, MemoryPair-only)
+  algo: memorypair
+  accountant: zcdp
+  max_events: 20000
+  bootstrap_iters: 1000
+
+  # Regret budget: gamma_bar and gamma_split are PAIRED BY INDEX (not crossed)
+  gamma_bar:   [0.6, 1.0, 1.5]
+  gamma_split: [0.5, 0.6, 0.7]   # Paired 1:1 with gamma_bar by position
+
+  # Deletion workload and privacy budget
+  delete_ratio: [1, 5, 10]       # inserts per delete
+  rho_total: [0.5, 1.0, 2.0]
+  delta_total: 1e-5
+  delta_b: 0.05                  # regret bound failure prob for delete term
+  m_max: null                    # let optimizer choose
+
+  # Calibrator
+  quantile: [0.95]
+  D_cap: 10.0
+  ema_beta: 0.9
+
+  # Strong convexity + learning policy
+  strong_convexity: true
+  lambda_reg: [0.01, 0.05]       # makes objective lambda_reg-strongly convex
+  lambda_: 0.05                  # passed to zCDP accountant
+
+  # Theory-first synthetic stream (keep most constants fixed; vary drift/energy lightly)
+  dim: 20
+  path_style: rotating
+  target_G: 2.0
+  target_D: 2.0
+  target_c: 0.1
+  target_C: 10.0
+  target_lambda: 0.05
+  # Two drift regimes via path length; one S_T level
+  target_PT: [100.0, 250.0]
+  target_ST: [40000.0]
+
+  # Disable oracle for simpler regret (zero-baseline fallback is used)
+  enable_oracle: false
+
+  # Cosmetic/file naming compatibility
+  eps_total: 1.0
