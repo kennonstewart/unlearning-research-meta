@@ -21,6 +21,11 @@ def plot_regret_decomposition(
     show_theory_bound: bool = True,
     G: float = 1.0,
     lambda_param: float = 0.01,
+    stepsize_policy: str = "strongly-convex",
+    stepsize_params: Optional[Dict] = None,
+    S_T_values: Optional[List[float]] = None,
+    c: float = 1.0,
+    C: float = 1.0,
 ) -> None:
     """
     Plot dynamic regret decomposition into static vs path terms.
@@ -34,8 +39,13 @@ def plot_regret_decomposition(
         title: Plot title
         save_path: Optional path to save plot
         show_theory_bound: Whether to show theoretical bound
-        G: Lipschitz constant for theory bound
-        lambda_param: Regularization parameter for theory bound
+        G: Gradient norm bound for theory bound
+        lambda_param: Strong convexity parameter for theory bound (strongly-convex policy)
+        stepsize_policy: Step-size policy ("strongly-convex" or "adagrad")
+        stepsize_params: Additional parameters for the policy
+        S_T_values: Cumulative squared gradients for AdaGrad bound
+        c: Lower curvature bound for AdaGrad
+        C: Upper curvature bound for AdaGrad
     """
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
 
@@ -82,19 +92,45 @@ def plot_regret_decomposition(
     # Show theoretical bound if requested
     if show_theory_bound and len(events) > 0:
         T_values = np.array(events)
-        # O(G²/λ log T + G P_T)
-        log_term = (G**2 / lambda_param) * np.log(np.maximum(T_values, 1))
-        if len(P_T_values) == len(T_values):
-            path_term = G * np.array(P_T_values)
-            theory_bound = log_term + path_term
-            ax1.plot(
-                events,
-                theory_bound,
-                label="Theory: O(G²/λ log T + G·P_T)",
-                color="orange",
-                linewidth=1,
-                linestyle="-.",
-            )
+        
+        if stepsize_policy == "strongly-convex":
+            # Strongly-convex bound: O(G²/(λ c) log T + G P_T)
+            log_term = (G**2 / (lambda_param * c)) * (1 + np.log(np.maximum(T_values, 1)))
+            if len(P_T_values) == len(T_values):
+                path_term = G * np.array(P_T_values)
+                theory_bound = log_term + path_term
+                bound_label = "Strongly-convex bound: O(G²/(λ c)(1+ln T) + G·P_T)"
+            else:
+                theory_bound = log_term
+                bound_label = "Strongly-convex bound: O(G²/(λ c)(1+ln T))"
+        
+        elif stepsize_policy == "adagrad":
+            # AdaGrad bound: O(G D √(c C S_T))
+            if S_T_values is not None and len(S_T_values) == len(T_values):
+                D = stepsize_params.get("D", 1.0) if stepsize_params else 1.0
+                theory_bound = G * D * np.sqrt(c * C * np.array(S_T_values))
+                bound_label = "Adaptive (AdaGrad) bound: O(G D √(c C S_T))"
+            else:
+                # Fallback if S_T values not available - use rough approximation
+                D = stepsize_params.get("D", 1.0) if stepsize_params else 1.0
+                # Assume S_T ≈ G² * T for rough visualization
+                theory_bound = G * D * np.sqrt(c * C * G**2 * T_values)
+                bound_label = "Adaptive (AdaGrad) bound: O(G D √(c C S_T)) [approx]"
+        
+        else:
+            # Fallback to strongly-convex
+            log_term = (G**2 / lambda_param) * np.log(np.maximum(T_values, 1))
+            theory_bound = log_term
+            bound_label = "Theory bound (default)"
+
+        ax1.plot(
+            events,
+            theory_bound,
+            label=bound_label,
+            color="orange",
+            linewidth=1,
+            linestyle="-.",
+        )
 
     ax1.set_xlabel("Event Number")
     ax1.set_ylabel("Regret")

@@ -417,6 +417,11 @@ class ZCDPOdometer:
             delta_b: Regret bound failure probability
             m_max: Upper bound for deletion capacity binary search
         """
+        if rho_total is None:
+            raise ValueError("rho_total cannot be None for ZCDPOdometer")
+        if rho_total <= 0:
+            raise ValueError(f"rho_total must be positive, got {rho_total}")
+        
         self.rho_spent = 0.0
         self.rho_total = rho_total
         self.delta_total = delta_total

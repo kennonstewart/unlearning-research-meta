@@ -68,8 +68,8 @@ from runner import ExperimentRunner, ALGO_MAP
 @click.option(
     "--accountant",
     type=click.Choice(["default", "legacy", "eps_delta", "zcdp", "rdp", "relaxed"]),
-    default="default",
-    help="Privacy accountant type: default/legacy/eps_delta=(ε,δ)-DP, zcdp/rdp=zCDP, relaxed=experimental.",
+    default="zcdp",
+    help="Privacy accountant type: zcdp/rdp=zCDP (recommended), default/legacy/eps_delta=(ε,δ)-DP (deprecated), relaxed=experimental.",
 )
 @click.option(
     "--alphas",
@@ -193,6 +193,16 @@ def main(**kwargs):
     
     # Create config from CLI arguments
     cfg = Config.from_cli_args(**kwargs)
+    
+    # Add deprecation warning for legacy accountant options
+    if cfg.accountant in ["default", "legacy", "eps_delta"]:
+        import warnings
+        warnings.warn(
+            f"Using accountant='{cfg.accountant}' is deprecated. "
+            "The zCDP accountant ('zcdp') is now the recommended approach for new experiments.",
+            DeprecationWarning,
+            stacklevel=2
+        )
     
     # Create and run experiment
     runner = ExperimentRunner(cfg)
