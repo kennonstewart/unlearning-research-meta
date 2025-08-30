@@ -703,6 +703,8 @@ def process_seed_output(
             for field, value in mandatory_fields.items():
                 if field not in summary_row:
                     summary_row[field] = value
+
+            mandatory_field_names = [
                 "drift_rate",
                 "feature_scale",
                 "w_scale",
