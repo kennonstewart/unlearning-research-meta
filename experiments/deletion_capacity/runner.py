@@ -14,11 +14,10 @@ import numpy as np
 # Add code path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
 
-from data_loader import get_rotating_mnist_stream, get_synthetic_linear_stream, parse_event_record, get_theory_stream
+from data_loader import get_synthetic_linear_stream, parse_event_record, get_theory_stream
 from memory_pair.src.memory_pair import MemoryPair
 from memory_pair.src.accountant import get_adapter
 from memory_pair.src.calibrator import Calibrator
-from baselines import SekhariBatchUnlearning, QiaoHessianFree
 
 from config import Config
 from protocols import AccountantAdapter, ModelAdapter
@@ -26,11 +25,11 @@ from phases import PhaseState, bootstrap_phase, sensitivity_calibration_phase, w
 from io_utils import EventLogger, write_summary_json, create_plots, git_commit_results, write_seed_summary_json
 from metrics_utils import aggregate_summaries, get_privacy_metrics
 def _get_data_stream(cfg: Config, seed: int):
-    """Get data stream with unified interface for event records.
+    """Get synthetic data stream with unified interface for event records.
 
     Prefers the theory-first stream when any target_* is provided; otherwise falls back to legacy synthetic stream.
     """
-    # Theory-first branch for synthetic dataset
+    # Theory-first branch when any target_* is provided
     any_theory_targets = any([
         getattr(cfg, "target_G", None) is not None,
         getattr(cfg, "target_D", None) is not None,
@@ -41,8 +40,8 @@ def _get_data_stream(cfg: Config, seed: int):
         getattr(cfg, "target_ST", None) is not None,
     ])
 
-    if cfg.dataset == "synthetic" and any_theory_targets:
-        # zCDP-only
+    if any_theory_targets:
+        # Theory-first: zCDP-only
         return get_theory_stream(
             dim=20,  # Default dimension for synthetic data
             T=cfg.max_events,
@@ -59,11 +58,9 @@ def _get_data_stream(cfg: Config, seed: int):
             path_style=getattr(cfg, "path_style", "rotating"),
             seed=seed,
         )
-
-    # Legacy behavior
-    stream_fn = DATASET_MAP[cfg.dataset]
-    if cfg.dataset == "synthetic":
-        return stream_fn(
+    else:
+        # Legacy synthetic linear stream
+        return get_synthetic_linear_stream(
             seed=seed,
             use_event_schema=True,
             rotate_angle=cfg.rotate_angle,
@@ -73,20 +70,11 @@ def _get_data_stream(cfg: Config, seed: int):
             c_hat=cfg.c_hat,
             C_hat=cfg.C_hat,
         )
-    else:
-        return stream_fn(seed=seed, use_event_schema=True)
 
 
-# Algorithm and dataset mappings
+# Algorithm mapping - MemoryPair only
 ALGO_MAP = {
     "memorypair": MemoryPair,
-    "sekhari": SekhariBatchUnlearning,
-    "qiao": QiaoHessianFree,
-}
-
-DATASET_MAP = {
-    "rot-mnist": get_rotating_mnist_stream,
-    "synthetic": get_synthetic_linear_stream,
 }
 
 
@@ -223,7 +211,7 @@ class ExperimentRunner:
         # Create parameter-specific filename to prevent overwriting when different 
         # parameter combinations use the same output directory
         param_suffix = f"gamma{self.cfg.gamma_bar:.1f}-split{self.cfg.gamma_split:.1f}_{self.cfg.accountant}_eps{self.cfg.eps_total:.1f}"
-        csv_path = os.path.join(self.cfg.out_dir, f"seed_{seed:03d}_{self.cfg.dataset}_{self.cfg.algo}_{param_suffix}.csv")
+        csv_path = os.path.join(self.cfg.out_dir, f"seed_{seed:03d}_{self.cfg.algo}_{param_suffix}.csv")
         logger.to_csv(csv_path)
         return csv_path
     
@@ -312,12 +300,12 @@ class ExperimentRunner:
         
         # Save aggregated summary
         os.makedirs(self.cfg.out_dir, exist_ok=True)
-        summary_path = os.path.join(self.cfg.out_dir, f"summary_{self.cfg.dataset}_{self.cfg.algo}.json")
+        summary_path = os.path.join(self.cfg.out_dir, f"summary_{self.cfg.algo}.json")
         write_summary_json(aggregated, summary_path)
 
         # Save aggregated summary
         os.makedirs(self.cfg.out_dir, exist_ok=True)
-        summary_path = os.path.join(self.cfg.out_dir, f"seed_summary_{self.cfg.dataset}_{self.cfg.algo}.json")
+        summary_path = os.path.join(self.cfg.out_dir, f"seed_summary_{self.cfg.algo}.json")
         write_seed_summary_json(summaries, summary_path)
         
         # Create plots
@@ -326,7 +314,7 @@ class ExperimentRunner:
         
         # Git commit results (optional)
         if getattr(self.cfg, "commit_results", False):
-            git_commit_results(summary_path, figs_dir, self.cfg.dataset, self.cfg.algo)
+            git_commit_results(summary_path, figs_dir, "synthetic", self.cfg.algo)
         
         print(f"\nResults saved to {summary_path}")
         print(f"Plots saved to {figs_dir}")

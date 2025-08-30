@@ -5,24 +5,33 @@ import os
 # Add the parent directory to the path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from data_loader import get_rotating_mnist_stream, get_cifar10_stream, get_covtype_stream
+from data_loader import get_synthetic_linear_stream, get_theory_stream
 from data_loader.utils import set_global_seed
 
 MAP = {
-    "rotmnist": get_rotating_mnist_stream,
-    "cifar10": get_cifar10_stream,
-    "covtype": get_covtype_stream,
+    "linear": get_synthetic_linear_stream,
+    "theory": get_theory_stream,
 }
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset", choices=list(MAP.keys()))
-parser.add_argument("--mode", default="iid", choices=["iid", "drift", "adv"])
+parser.add_argument("--dataset", choices=["linear", "theory"])
 parser.add_argument("--T", type=int, default=10)
 
 
 def main():
     args = parser.parse_args()
-    gen = MAP[args.dataset](mode=args.mode)
+    # Synthetic streams use different API - no mode parameter
+    if args.dataset == "linear":
+        gen = MAP[args.dataset](seed=42, use_event_schema=True)
+    elif args.dataset == "theory":
+        # Theory stream requires more parameters - use minimal set
+        gen = MAP[args.dataset](
+            dim=10, T=args.T, target_G=2.0, target_D=1.0, 
+            accountant="zcdp", rho_total=1.0, delta_total=1e-5, seed=42
+        )
+    else:
+        raise ValueError(f"Unknown dataset: {args.dataset}")
+        
     for i in range(args.T):
         event = next(gen)
         # Consume unified event record format

@@ -1,14 +1,11 @@
-# Data Loader
+# Synthetic-Only Data Loader
 
-Utility loaders for Rotating-MNIST, CIFAR-10 and COVTYPE datasets, plus theory-first synthetic linear streams. Each loader falls back to a deterministic simulation when the real dataset cannot be downloaded.
+Utility loaders for theory-first synthetic linear streams, providing controlled geometric properties for deletion capacity experiments. Each loader uses deterministic simulation with configurable drift and geometry parameters.
 
 ## Available Loaders
 
 | Key      | Function                     | Description |
 |----------|------------------------------|-------------|
-| rotmnist | `get_rotating_mnist_stream` | Rotating MNIST with configurable drift |
-| cifar10  | `get_cifar10_stream`        | CIFAR-10 with optional preprocessing |
-| covtype  | `get_covtype_stream`        | Forest cover type classification |
 | linear   | `get_synthetic_linear_stream` | Synthetic linear regression (legacy) |
 | **theory** | `get_theory_stream`       | **Theory-first synthetic linear regression** |
 
@@ -80,8 +77,8 @@ Grid cells are now specified in **theory space** $(G,D,c,C,\lambda,P_T,S_T,\text
 
 ## Legacy Usage
 
-Run `python sanity_check.py` to verify deterministic output for existing loaders:
+Run `python sanity_check.py` to verify deterministic output for synthetic loaders:
 
 ```bash
-python sanity_check.py --dataset rotmnist --T 10
+python sanity_check.py --dataset linear --T 10
 ```
