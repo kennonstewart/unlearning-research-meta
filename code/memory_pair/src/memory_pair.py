@@ -105,7 +105,8 @@ class MemoryPair:
             cfg: Configuration object with feature flags (for future use)
         """
         self.theta = np.zeros(dim)
-        m_max = getattr(cfg, "m_max", 10) if cfg else 10
+        m_max = getattr(cfg, "m_max", None) if cfg else None
+        m_max = m_max if m_max is not None else 10
         self.lbfgs = LimitedMemoryBFGS(m_max=m_max, cfg=cfg)
 
         # Handle accountant vs odometer parameters - always ensure we have an accountant
@@ -118,7 +119,7 @@ class MemoryPair:
                 accountant_params = {
                     "eps_total": getattr(cfg, "eps_total", 1.0),
                     "delta_total": getattr(cfg, "delta_total", 1e-5),
-                    "rho_total": getattr(cfg, "rho_total", 1.0),
+                    "rho_total": getattr(cfg, "rho_total", None) or 1.0,  # Handle None case
                     "T": getattr(cfg, "T", 10000),
                     "gamma": getattr(cfg, "gamma_delete", 0.5),
                     "lambda_": getattr(
@@ -872,6 +873,31 @@ class MemoryPair:
         pred = float(self.theta @ x)
         return self._compute_regularized_loss(pred, y)
 
+    def get_stepsize_policy(self) -> Dict[str, Any]:
+        """Get step-size policy information for logging."""
+        if hasattr(self, 'sc_active') and self.sc_active:
+            policy = "strongly-convex"
+            params = {
+                "lambda": self.lambda_est,
+                "t": self.t,
+                "eta_formula": "1/(λ*t)"
+            }
+        else:
+            policy = "adagrad"
+            D_bound = getattr(self.calibrator, "D_hat_t", None)
+            if D_bound is None:
+                D_bound = getattr(self.cfg, "D_bound", 1.0) if self.cfg else 1.0
+            params = {
+                "D": D_bound,
+                "S_t": self.S_scalar,
+                "eta_formula": "D/√S_t"
+            }
+        
+        return {
+            "stepsize_policy": policy,
+            "stepsize_params": params
+        }
+
     def get_metrics_dict(self) -> dict:
         """Get dictionary of current metrics for logging."""
         metrics = {
@@ -1000,6 +1026,10 @@ class MemoryPair:
                     "comparator_type": "none",
                 }
             )
+
+        # Add step-size policy information
+        stepsize_info = self.get_stepsize_policy()
+        metrics.update(stepsize_info)
 
         return metrics
 

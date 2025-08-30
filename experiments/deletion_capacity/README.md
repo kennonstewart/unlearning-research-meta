@@ -39,13 +39,13 @@ subject to: (R_ins + R_del(m))/T ≤ γ
 
 Where:
 - **R_ins = G·D·√(c·C·T)**: Insertion regret bound
-- **R_del(m) = (m·L/λ)·√((2ln(1.25m/δ)/ε)·(2ln(1/δ_B)))**: Deletion regret bound
+- **R_del(m) = (m·G/λ)·√((2ln(1.25m/δ)/ε)·(2ln(1/δ_B)))**: Deletion regret bound
 - **m**: Deletion capacity (number of deletions allowed)
 
 The solution provides:
 - **ε_step = ε_total/m**: Per-deletion privacy budget
 - **δ_step = δ_total/m**: Per-deletion failure probability  
-- **σ = (L/λ)·√(2ln(1.25/δ_step))/ε_step**: Gaussian noise scale
+- **σ = (G/λ)·√(2ln(1.25/δ_step))/ε_step**: Gaussian noise scale
 
 ## Usage
 
@@ -133,11 +133,11 @@ stats = calibrator.finalize(gamma=0.1, model=model)
 
 ```python
 from code.memory_pair.src.memory_pair import MemoryPair, Phase
-from code.memory_pair.src.odometer import PrivacyOdometer
+from code.memory_pair.src.accountant.zcdp import Adapter
 
-# Initialize with privacy parameters
-odometer = PrivacyOdometer(eps_total=1.0, delta_total=1e-5)
-model = MemoryPair(dim=10, odometer=odometer)
+# Initialize with zCDP privacy parameters (preferred approach)
+accountant = Adapter(rho_total=1.0, delta_total=1e-5, gamma=0.1)
+model = MemoryPair(dim=10, odometer=accountant.odometer)
 
 # Phase 1: Calibration
 assert model.phase == Phase.CALIBRATION
@@ -157,6 +157,18 @@ assert model.phase == Phase.INTERLEAVING
 if model.odometer.ready_to_delete:
     model.delete(x, y)  # Privacy-preserving deletion
 ```
+
+**Note**: The zCDP accountant is the recommended approach for new experiments. The internal accounting uses zero-Concentrated Differential Privacy (ρ) with optional conversion to (ε,δ) for reporting.
+
+**Legacy approach (deprecated)**: For backward compatibility, you can still use `PrivacyOdometer` directly, but this is deprecated in favor of the zCDP accountant:
+
+```python
+# DEPRECATED: Legacy PrivacyOdometer (use zCDP accountant instead)
+from code.memory_pair.src.odometer import PrivacyOdometer
+odometer = PrivacyOdometer(eps_total=1.0, delta_total=1e-5)
+```
+
+For notation and symbol definitions, see [docs/symbols.md](../../docs/symbols.md).
 
 ### Results and Metrics
 

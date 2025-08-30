@@ -64,7 +64,7 @@ class PrivacyOdometer:
         lambda_ (float): Strong convexity parameter
         delta_b (float): Regret bound failure probability
         deletion_capacity (Optional[int]): Maximum number of deletions allowed
-        L (Optional[float]): Lipschitz constant (gradient bound)
+        G (Optional[float]): Gradient norm upper bound (Lipschitz constant, replaces legacy L)
         D (Optional[float]): Hypothesis diameter
         eps_step (Optional[float]): Privacy budget per deletion
         delta_step (Optional[float]): Failure probability per deletion
@@ -108,7 +108,8 @@ class PrivacyOdometer:
 
         # Computed after finalization
         self.deletion_capacity: int = 0
-        self.L: Optional[float] = None
+        self.G: Optional[float] = None  # Gradient norm bound (preferred)
+        self.L: Optional[float] = None  # Legacy alias for G (deprecated)
         self.D: Optional[float] = None
         self.eps_step: Optional[float] = None
         self.delta_step: Optional[float] = None
@@ -147,7 +148,19 @@ class PrivacyOdometer:
                   'c': Lower curvature bound, 'C': Upper curvature bound
             T_estimate: Estimated total number of events (typically N*)
         """
-        self.L = stats["G"]  # Use gradient bound as Lipschitz constant
+        # Support both 'G' (preferred) and 'L' (legacy) in stats dict
+        if 'G' in stats:
+            self.G = stats["G"]
+        elif 'L' in stats:
+            self.G = stats["L"]
+            import warnings
+            warnings.warn("Using 'L' for gradient bound is deprecated, prefer 'G'", DeprecationWarning)
+        else:
+            raise ValueError("stats must contain either 'G' (preferred) or 'L' for gradient bound")
+        
+        # Set legacy L for backward compatibility
+        self.L = self.G
+        
         self.D = stats["D"]
         self.c = stats.get("c", 1.0)
         self.C = stats.get("C", 1.0)
@@ -161,7 +174,7 @@ class PrivacyOdometer:
         self.eps_step = self.eps_total / self.deletion_capacity
         self.delta_step = self.delta_total / self.deletion_capacity
         self.sigma_step = (
-            (self.L / self.lambda_)
+            (self.G / self.lambda_)
             * np.sqrt(2 * np.log(1.25 / self.delta_step))
             / self.eps_step
         )
@@ -172,7 +185,7 @@ class PrivacyOdometer:
         print(
             f"[Odometer] Finalized with deletion capacity m = {self.deletion_capacity}"
         )
-        print(f"[Odometer] L = {self.L:.4f}, D = {self.D:.4f}")
+        print(f"[Odometer] G = {self.G:.4f}, D = {self.D:.4f}")
         print(
             f"[Odometer] ε_step = {self.eps_step:.6f}, δ_step = {self.delta_step:.2e}, σ = {self.sigma_step:.4f}"
         )
@@ -186,10 +199,12 @@ class PrivacyOdometer:
         """
         if not self._grad_norms or not self._theta_traj:
             print("[Odometer] Warning: No observations collected, using default values")
-            self.L = 1.0
+            self.G = 1.0
+            self.L = self.G  # Legacy compatibility
             self.D = 1.0
         else:
-            self.L = max(self._grad_norms)
+            self.G = max(self._grad_norms)
+            self.L = self.G  # Legacy compatibility
             theta_0 = self._theta_traj[0]
             self.D = max(np.linalg.norm(theta - theta_0) for theta in self._theta_traj)
 
@@ -198,7 +213,7 @@ class PrivacyOdometer:
         self.eps_step = self.eps_total / self.deletion_capacity
         self.delta_step = self.delta_total / self.deletion_capacity
         self.sigma_step = (
-            (self.L / self.lambda_)
+            (self.G / self.lambda_)
             * np.sqrt(2 * np.log(1.25 / self.delta_step))
             / self.eps_step
         )
@@ -207,7 +222,7 @@ class PrivacyOdometer:
         print(
             f"[Odometer] Finalized with deletion capacity m = {self.deletion_capacity}"
         )
-        print(f"[Odometer] L = {self.L:.4f}, D = {self.D:.4f}")
+        print(f"[Odometer] G = {self.G:.4f}, D = {self.D:.4f}")
         print(
             f"[Odometer] ε_step = {self.eps_step:.6f}, δ_step = {self.delta_step:.2e}, σ = {self.sigma_step:.4f}"
         )
@@ -220,8 +235,8 @@ class PrivacyOdometer:
         (R_ins + R_del(m)) / T ≤ γ
 
         where:
-        R_ins = L·D·√(c·C·T) (insertion regret)
-        R_del(m) = (m·L/λ)·√((2ln(1.25m/δ_tot)/ε_tot)·(2ln(1/δ_B))) (deletion regret)
+        R_ins = G·D·√(c·C·T) (insertion regret)
+        R_del(m) = (m·G/λ)·√((2ln(1.25m/δ_tot)/ε_tot)·(2ln(1/δ_B))) (deletion regret)
 
         Returns:
             Maximum feasible deletion capacity
@@ -232,13 +247,13 @@ class PrivacyOdometer:
             # Insertion regret term
             c_val = getattr(self, "c", 1.0)
             C_val = getattr(self, "C", 1.0)
-            insertion_regret = self.L * self.D * np.sqrt(c_val * C_val * self.T)
+            insertion_regret = self.G * self.D * np.sqrt(c_val * C_val * self.T)
 
             # Deletion regret term
             if m <= 0:
                 deletion_regret = 0
             else:
-                deletion_regret = (m * self.L / self.lambda_) * np.sqrt(
+                deletion_regret = (m * self.G / self.lambda_) * np.sqrt(
                     (2 * np.log(1.25 * max(m, 1) / self.delta_total) / self.eps_total)
                     * (2 * np.log(1 / self.delta_b))
                 )
@@ -369,7 +384,7 @@ class ZCDPOdometer:
         lambda_ (float): Strong convexity parameter
         delta_b (float): Regret bound failure probability
         deletion_capacity (Optional[int]): Maximum number of deletions allowed
-        L (Optional[float]): Lipschitz constant (gradient bound)
+        G (Optional[float]): Gradient norm upper bound (Lipschitz constant, replaces legacy L)
         D (Optional[float]): Hypothesis diameter
         sigma_step (Optional[float]): Computed noise standard deviation per deletion
         deletions_count (int): Number of deletions performed
@@ -402,6 +417,11 @@ class ZCDPOdometer:
             delta_b: Regret bound failure probability
             m_max: Upper bound for deletion capacity binary search
         """
+        if rho_total is None:
+            raise ValueError("rho_total cannot be None for ZCDPOdometer")
+        if rho_total <= 0:
+            raise ValueError(f"rho_total must be positive, got {rho_total}")
+        
         self.rho_spent = 0.0
         self.rho_total = rho_total
         self.delta_total = delta_total
@@ -413,7 +433,8 @@ class ZCDPOdometer:
 
         # Computed after finalization
         self.deletion_capacity: int = 0
-        self.L: Optional[float] = None
+        self.G: Optional[float] = None  # Gradient norm bound (preferred)
+        self.L: Optional[float] = None  # Legacy alias for G (deprecated)
         self.D: Optional[float] = None
         self.sigma_step: Optional[float] = None
         self.sens_bound: Optional[float] = (
@@ -512,19 +533,31 @@ class ZCDPOdometer:
                   'c': Lower curvature bound, 'C': Upper curvature bound
             T_estimate: Estimated total number of events (typically max_events)
         """
-        self.L = stats["G"]  # Use gradient bound as Lipschitz constant
+        # Support both 'G' (preferred) and 'L' (legacy) in stats dict
+        if 'G' in stats:
+            self.G = stats["G"]
+        elif 'L' in stats:
+            self.G = stats["L"]
+            import warnings
+            warnings.warn("Using 'L' for gradient bound is deprecated, prefer 'G'", DeprecationWarning)
+        else:
+            raise ValueError("stats must contain either 'G' (preferred) or 'L' for gradient bound")
+        
+        # Set legacy L for backward compatibility
+        self.L = self.G
+        
         self.D = stats["D"]
         self.c = stats.get("c", 1.0)
         self.C = stats.get("C", 1.0)
         self.T = T_estimate
 
-        # Use empirical sensitivity upper bound if available, otherwise fall back to L/λ
+        # Use empirical sensitivity upper bound if available, otherwise fall back to G/λ
         if self.actual_sensitivities:
             # Use high quantile of observed sensitivities as upper bound
             self.sens_bound = float(np.quantile(self.actual_sensitivities, 0.95))
         else:
             # Fall back to theoretical bound
-            self.sens_bound = self.L / self.lambda_
+            self.sens_bound = self.G / self.lambda_
 
         # Joint m-σ optimization: find largest m with smallest feasible σ
         m, sigma = self._joint_optimize_m_sigma()
@@ -537,14 +570,14 @@ class ZCDPOdometer:
         print(
             f"[ZCDPOdometer] Joint optimization: m = {self.deletion_capacity}, σ = {self.sigma_step:.4f}"
         )
-        print(f"[ZCDPOdometer] L = {self.L:.4f}, D = {self.D:.4f}")
+        print(f"[ZCDPOdometer] G = {self.G:.4f}, D = {self.D:.4f}")
         print(f"[ZCDPOdometer] Sensitivity bound = {self.sens_bound:.4f}")
         if self.actual_sensitivities:
             print(
                 f"[ZCDPOdometer] Based on {len(self.actual_sensitivities)} observed sensitivities"
             )
         else:
-            print("[ZCDPOdometer] Using theoretical sensitivity bound L/λ")
+            print("[ZCDPOdometer] Using theoretical sensitivity bound G/λ")
 
     def _joint_optimize_m_sigma(self) -> Tuple[int, float]:
         """
@@ -580,17 +613,17 @@ class ZCDPOdometer:
         def regret_bound_with_sigma(m: int, sigma: float) -> float:
             """Compute total regret bound for capacity m and noise scale σ."""
             # Insertion regret term
-            insertion_regret = self.L * self.D * np.sqrt(self.c * self.C * self.T)
+            insertion_regret = self.G * self.D * np.sqrt(self.c * self.C * self.T)
 
             # Deletion regret term using provided σ
-            # From Theorem 5.5: R_del ≈ m * (L/λ) * noise_contribution
+            # From Theorem 5.5: R_del ≈ m * (G/λ) * noise_contribution
             # where noise_contribution comes from injected Gaussian noise
             if m <= 0:
                 deletion_regret = 0
             else:
                 # High-probability bound on ||η||: σ * sqrt(2 * log(1/δ_B))
                 noise_norm_bound = sigma * np.sqrt(2 * np.log(1 / self.delta_b))
-                deletion_regret = m * (self.L / self.lambda_) * noise_norm_bound
+                deletion_regret = m * (self.G / self.lambda_) * noise_norm_bound
 
             return (insertion_regret + deletion_regret) / self.T
 
@@ -683,7 +716,18 @@ class ZCDPOdometer:
         )
 
         # Update statistics
-        self.L = new_stats["G"]
+        if 'G' in new_stats:
+            self.G = new_stats["G"]
+        elif 'L' in new_stats:
+            self.G = new_stats["L"]
+            import warnings
+            warnings.warn("Using 'L' for gradient bound is deprecated, prefer 'G'", DeprecationWarning)
+        else:
+            raise ValueError("new_stats must contain either 'G' (preferred) or 'L' for gradient bound")
+        
+        # Set legacy L for backward compatibility
+        self.L = self.G
+        
         self.D = new_stats["D"]
         self.c = new_stats.get("c", 1.0)
         self.C = new_stats.get("C", 1.0)
@@ -693,7 +737,7 @@ class ZCDPOdometer:
         if self.actual_sensitivities:
             self.sens_bound = float(np.quantile(self.actual_sensitivities, 0.95))
         else:
-            self.sens_bound = self.L / self.lambda_
+            self.sens_bound = self.G / self.lambda_
 
         # Recompute capacity with remaining budget
         # First, check how much zCDP budget is remaining
