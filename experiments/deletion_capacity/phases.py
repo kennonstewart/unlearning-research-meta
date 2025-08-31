@@ -36,6 +36,9 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
 from data_loader import parse_event_record
 
+# Import Phase enum for safe comparison (MemoryPair keeps Phase at module scope)
+from memory_pair.src.memory_pair import Phase as MPPhase
+
 
 def get_pred_and_grad(model, x, y, is_calibration=False):
     """Helper to obtain (pred, grad). Adjust for your API.
@@ -459,7 +462,7 @@ def finalize_accountant_phase(model, cfg: Config):
     print("[Finalize] Finalizing accountant (zCDP-only)...")
     
     # If already interleaving, MemoryPair finalized the accountant
-    if hasattr(model, "phase") and getattr(model, "phase") == getattr(model, "Phase").INTERLEAVING:
+    if getattr(model, "phase", None) == MPPhase.INTERLEAVING:
         print("[Finalize] Accountant already finalized during phase transition")
         return
     if hasattr(model, "accountant") and model.accountant is not None:

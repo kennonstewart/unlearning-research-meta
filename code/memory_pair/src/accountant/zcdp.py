@@ -28,6 +28,9 @@ class Adapter:
             'delta_b': kwargs.get('delta_b', 0.05),
             'm_max': kwargs.get('m_max', None),
         }
+        # Sanitize m_max
+        if odometer_kwargs['m_max'] is None:
+            odometer_kwargs['m_max'] = 10
         self.odometer = ZCDPOdometer(**odometer_kwargs)
     
     def finalize(self, stats: Dict[str, float], T_estimate: int) -> None:

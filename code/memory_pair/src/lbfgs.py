@@ -11,7 +11,7 @@ class LimitedMemoryBFGS:
     """Simple L-BFGS helper storing curvature pairs with strong convexity controls."""
 
     def __init__(self, m_max: int = 10, cfg=None):
-        self.m_max = m_max
+        self.m_max = m_max if m_max is not None else 10
         self.S = []  # list of s vectors
         self.Y = []  # list of y vectors
         self.cfg = cfg  # store config for strong convexity parameters

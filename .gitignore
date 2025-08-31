@@ -18,8 +18,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-experiments/*/figs/
-experiments/*/results/
+
 
 # Additional patterns for M7-M10
 *.pyc
