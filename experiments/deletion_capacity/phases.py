@@ -114,6 +114,35 @@ def _create_extended_log_entry(
             entry["x_norm"] = meta["metrics"]["x_norm"]
         else:
             entry["x_norm"] = None
+            
+        # Merge all keys from the current record's meta["metrics"] into the log entry
+        # This ensures all event-level diagnostics from the data loader are persisted
+        if "metrics" in meta and meta["metrics"]:
+            for key, val in meta["metrics"].items():
+                # Don't clobber existing populated values
+                if key not in entry or entry[key] is None or (
+                    isinstance(entry[key], float) and np.isnan(entry[key])
+                ):
+                    entry[key] = val
+                    
+        # Normalize privacy field names for downstream compatibility
+        # Mirror rho_spent to privacy_spend_running if the latter is absent
+        if "metrics" in meta and meta["metrics"]:
+            metrics = meta["metrics"]
+            if "rho_spent" in metrics and (
+                "privacy_spend_running" not in entry or 
+                entry["privacy_spend_running"] is None or
+                (isinstance(entry["privacy_spend_running"], float) and np.isnan(entry["privacy_spend_running"]))
+            ):
+                entry["privacy_spend_running"] = metrics["rho_spent"]
+                
+            # Mirror sigma_step to sigma_step_theory if not already present
+            if "sigma_step" in metrics and (
+                "sigma_step_theory" not in entry or 
+                entry["sigma_step_theory"] is None or
+                (isinstance(entry["sigma_step_theory"], float) and np.isnan(entry["sigma_step_theory"]))
+            ):
+                entry["sigma_step_theory"] = metrics["sigma_step"]
 
     # Get model metrics if available
     model_metrics = {}
