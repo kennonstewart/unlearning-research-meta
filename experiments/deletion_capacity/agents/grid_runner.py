@@ -776,6 +776,9 @@ def process_seed_output(
                     rho_spent = float(df["privacy_spend_running"].iloc[-1])
                 elif "privacy_spend" in df.columns:
                     rho_spent = float(df["privacy_spend"].iloc[-1])
+                elif "rho_spent" in df.columns:
+                    # Fallback to rho_spent for zCDP adapter compatibility
+                    rho_spent = float(df["rho_spent"].iloc[-1])
 
                 # Errors
                 PT_err = abs(PT_final / tPT - 1.0) if (not np.isnan(PT_final) and not np.isnan(tPT) and tPT != 0) else np.nan
