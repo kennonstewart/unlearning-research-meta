@@ -768,21 +768,53 @@ def process_seed_output(
 
                 # Observables
                 PT_final = float(df["P_T_true"].iloc[-1]) if "P_T_true" in df.columns else np.nan
+                # Prefer ST_running over S_scalar to disambiguate theory-stream ST_running vs learner S_scalar
                 ST_final = float(df["ST_running"].iloc[-1]) if "ST_running" in df.columns else (float(df["S_scalar"].iloc[-1]) if "S_scalar" in df.columns else np.nan)
                 max_g = float(df["g_norm"].max()) if "g_norm" in df.columns else np.nan
                 clip_rate = float(df["clip_applied"].mean()) if "clip_applied" in df.columns else np.nan
-                rho_spent = np.nan
+                
+                # Privacy spend source selection: Prefer rho_spent (odometer) for AT-6, store both sources for transparency
+                privacy_spend_odometer = np.nan
+                privacy_spend_stream = np.nan
+                rho_spent = np.nan  # For AT-6 check (uses preferred source)
+                
+                if "rho_spent" in df.columns:
+                    # Prefer odometer's rho_spent for AT-6 acceptance
+                    privacy_spend_odometer = float(df["rho_spent"].iloc[-1])
+                    rho_spent = privacy_spend_odometer
                 if "privacy_spend_running" in df.columns:
-                    rho_spent = float(df["privacy_spend_running"].iloc[-1])
-                elif "privacy_spend" in df.columns:
-                    rho_spent = float(df["privacy_spend"].iloc[-1])
-                elif "rho_spent" in df.columns:
-                    # Fallback to rho_spent for zCDP adapter compatibility
-                    rho_spent = float(df["rho_spent"].iloc[-1])
+                    # Store stream-based privacy spend for transparency
+                    privacy_spend_stream = float(df["privacy_spend_running"].iloc[-1])
+                    if np.isnan(rho_spent):  # Fall back if odometer not available
+                        rho_spent = privacy_spend_stream
+                elif "privacy_spend" in df.columns and np.isnan(privacy_spend_stream):
+                    # Final fallback to privacy_spend
+                    privacy_spend_stream = float(df["privacy_spend"].iloc[-1])
+                    if np.isnan(rho_spent):
+                        rho_spent = privacy_spend_stream
 
                 # Errors
                 PT_err = abs(PT_final / tPT - 1.0) if (not np.isnan(PT_final) and not np.isnan(tPT) and tPT != 0) else np.nan
                 ST_err = abs(ST_final / tST - 1.0) if (not np.isnan(ST_final) and not np.isnan(tST) and tST != 0) else np.nan
+
+                # γ-regret acceptance checks
+                gamma_bar = mandatory_fields.get("gamma_bar", np.nan)
+                gamma_split = mandatory_fields.get("gamma_split", np.nan)
+                
+                # Compute gamma budgets for insert/delete operations
+                gamma_ins = gamma_bar * gamma_split if not np.isnan(gamma_bar) and not np.isnan(gamma_split) else np.nan
+                gamma_del = gamma_bar * (1.0 - gamma_split) if not np.isnan(gamma_bar) and not np.isnan(gamma_split) else np.nan
+                
+                # Compute op-wise average regret
+                avg_regret_empirical = df["regret"].mean() if "regret" in df.columns else np.nan
+                avg_regret_insert = np.nan
+                avg_regret_delete = np.nan
+                
+                if "regret" in df.columns and "op" in df.columns:
+                    insert_regrets = df[df["op"] == "insert"]["regret"]
+                    delete_regrets = df[df["op"] == "delete"]["regret"]
+                    avg_regret_insert = insert_regrets.mean() if len(insert_regrets) > 0 else np.nan
+                    avg_regret_delete = delete_regrets.mean() if len(delete_regrets) > 0 else np.nan
 
                 # AT checks
                 reasons = []
@@ -794,6 +826,19 @@ def process_seed_output(
                     reasons.append(f"AT-5 ST err {ST_err*100:.1f}%")
                 if not np.isnan(rho_tot) and not np.isnan(rho_spent) and rho_spent > rho_tot + 1e-9:
                     reasons.append("AT-6 privacy overspend")
+                
+                # γ-regret acceptance flags and checks
+                AT_gamma_overall = not np.isnan(avg_regret_empirical) and not np.isnan(gamma_bar) and avg_regret_empirical <= gamma_bar
+                AT_gamma_insert = not np.isnan(avg_regret_insert) and not np.isnan(gamma_ins) and avg_regret_insert <= gamma_ins
+                AT_gamma_delete = not np.isnan(avg_regret_delete) and not np.isnan(gamma_del) and avg_regret_delete <= gamma_del
+                
+                # Add gamma regret failures to reasons
+                if not np.isnan(avg_regret_empirical) and not np.isnan(gamma_bar) and avg_regret_empirical > gamma_bar:
+                    reasons.append(f"AT-gamma overall regret {avg_regret_empirical:.3f} > {gamma_bar:.3f}")
+                if not np.isnan(avg_regret_insert) and not np.isnan(gamma_ins) and avg_regret_insert > gamma_ins:
+                    reasons.append(f"AT-gamma insert regret {avg_regret_insert:.3f} > {gamma_ins:.3f}")
+                if not np.isnan(avg_regret_delete) and not np.isnan(gamma_del) and avg_regret_delete > gamma_del:
+                    reasons.append(f"AT-gamma delete regret {avg_regret_delete:.3f} > {gamma_del:.3f}")
 
                 # Store metrics
                 summary_row["PT_final"] = PT_final
@@ -802,7 +847,20 @@ def process_seed_output(
                 summary_row["ST_error"] = None if np.isnan(ST_err) else ST_err
                 summary_row["max_g_norm"] = max_g
                 summary_row["avg_clip_rate"] = clip_rate
-                summary_row["rho_spent_final"] = rho_spent
+                
+                # Privacy spend instrumentation - store both sources for transparency
+                summary_row["privacy_spend_odometer_final"] = None if np.isnan(privacy_spend_odometer) else privacy_spend_odometer
+                summary_row["privacy_spend_stream_final"] = None if np.isnan(privacy_spend_stream) else privacy_spend_stream
+                summary_row["rho_spent_final"] = None if np.isnan(rho_spent) else rho_spent  # Backward compatibility (alias of preferred source)
+                
+                # γ-regret metrics
+                summary_row["avg_regret_insert"] = None if np.isnan(avg_regret_insert) else avg_regret_insert
+                summary_row["avg_regret_delete"] = None if np.isnan(avg_regret_delete) else avg_regret_delete
+                summary_row["gamma_ins"] = None if np.isnan(gamma_ins) else gamma_ins
+                summary_row["gamma_del"] = None if np.isnan(gamma_del) else gamma_del
+                summary_row["AT_gamma_overall"] = AT_gamma_overall
+                summary_row["AT_gamma_insert"] = AT_gamma_insert
+                summary_row["AT_gamma_delete"] = AT_gamma_delete
 
                 # Blocked reason if any failures (append to any existing reason)
                 if reasons:
