@@ -1,0 +1,117 @@
+# Snakemake workflow for incremental rollups of experiment data
+# Converts CSV results to Parquet and creates DuckDB views
+
+import os
+from pathlib import Path
+
+# Configuration
+configfile: "snakemake_config.yaml"
+
+# Default configuration values
+BASE_OUT = config.get("base_out", "results")
+CSV_DIR = config.get("csv_dir", "experiments/deletion_capacity/results")
+GRANULARITY = config.get("granularity", "seed")
+
+# Find all CSV files to process
+CSV_FILES, = glob_wildcards(os.path.join(CSV_DIR, "{csv_file}.csv"))
+
+rule all:
+    input:
+        seeds_parquet = os.path.join(BASE_OUT, "seeds", "_SUCCESS"),
+        events_parquet = os.path.join(BASE_OUT, "events", "_SUCCESS"),
+        duckdb_views = os.path.join(BASE_OUT, "views", "initialized.flag")
+
+rule convert_csvs:
+    input:
+        csvs = expand(os.path.join(CSV_DIR, "{csv_file}.csv"), csv_file=CSV_FILES)
+    output:
+        seeds_success = os.path.join(BASE_OUT, "seeds", "_SUCCESS"),
+        events_success = os.path.join(BASE_OUT, "events", "_SUCCESS")
+    params:
+        csv_dir = CSV_DIR,
+        base_out = BASE_OUT
+    shell:
+        """
+        python exp_engine/converter.py {params.csv_dir} {params.base_out} --granularity seed
+        python exp_engine/converter.py {params.csv_dir} {params.base_out} --granularity event
+        touch {output.seeds_success}
+        touch {output.events_success}
+        """
+
+rule create_duckdb_views:
+    input:
+        seeds_success = os.path.join(BASE_OUT, "seeds", "_SUCCESS"),
+        events_success = os.path.join(BASE_OUT, "events", "_SUCCESS")
+    output:
+        views_flag = os.path.join(BASE_OUT, "views", "initialized.flag")
+    params:
+        base_out = BASE_OUT
+    run:
+        import sys
+        sys.path.insert(0, "exp_engine")
+        
+        from engine.duck import create_connection_and_views
+        
+        # Create DuckDB views
+        conn = create_connection_and_views(params.base_out)
+        
+        # Create views directory and flag
+        os.makedirs(os.path.dirname(output.views_flag), exist_ok=True)
+        
+        # Save connection info
+        with open(output.views_flag, 'w') as f:
+            f.write(f"DuckDB views created for {params.base_out}\n")
+            f.write("Available views: seeds, events, seeds_summary, events_summary\n")
+
+rule summary_report:
+    input:
+        views_flag = os.path.join(BASE_OUT, "views", "initialized.flag")
+    output:
+        report = os.path.join(BASE_OUT, "summary_report.txt")
+    params:
+        base_out = BASE_OUT
+    run:
+        import sys
+        sys.path.insert(0, "exp_engine")
+        
+        from engine.duck import create_connection_and_views, query_seeds
+        
+        # Create connection and generate summary
+        conn = create_connection_and_views(params.base_out)
+        
+        with open(output.report, 'w') as f:
+            f.write("Experiment Data Summary Report\n")
+            f.write("=" * 40 + "\n\n")
+            
+            try:
+                # Count seeds
+                seed_count = conn.execute("SELECT COUNT(*) FROM seeds").fetchone()[0]
+                f.write(f"Total seeds: {seed_count}\n")
+                
+                # Count events
+                event_count = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+                f.write(f"Total events: {event_count}\n")
+                
+                # Grid summary
+                grid_count = conn.execute("SELECT COUNT(DISTINCT grid_id) FROM seeds").fetchone()[0]
+                f.write(f"Unique grids: {grid_count}\n\n")
+                
+                # Algorithm summary
+                algo_summary = conn.execute("""
+                    SELECT algo, accountant, COUNT(*) as seeds, AVG(avg_regret_empirical) as mean_regret
+                    FROM seeds 
+                    WHERE avg_regret_empirical IS NOT NULL
+                    GROUP BY algo, accountant
+                    ORDER BY algo, accountant
+                """).fetchall()
+                
+                f.write("Algorithm Summary:\n")
+                for row in algo_summary:
+                    f.write(f"  {row[0]}/{row[1]}: {row[2]} seeds, mean regret = {row[3]:.6f}\n")
+                    
+            except Exception as e:
+                f.write(f"Error generating summary: {e}\n")
+
+rule clean:
+    shell:
+        f"rm -rf {BASE_OUT}/seeds {BASE_OUT}/events {BASE_OUT}/grids {BASE_OUT}/views"
