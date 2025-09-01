@@ -812,6 +812,90 @@ def process_seed_output(
             except Exception:
                 pass
 
+            # === γ-adherence checking (Experiment A pass/fail) ===
+            try:
+                # Get γ parameters from mandatory fields
+                gamma_bar = mandatory_fields.get("gamma_bar", np.nan)
+                gamma_split = mandatory_fields.get("gamma_split", np.nan)
+                
+                # Compute derived thresholds
+                gamma_insert_threshold = gamma_bar * gamma_split if not np.isnan(gamma_bar) and not np.isnan(gamma_split) else np.nan
+                gamma_delete_threshold = gamma_bar * (1.0 - gamma_split) if not np.isnan(gamma_bar) and not np.isnan(gamma_split) else np.nan
+                
+                # Robust computation of avg_regret_final
+                avg_regret_final = np.nan
+                
+                # Method 1: Try explicit avg_regret column if present
+                if "avg_regret" in df.columns and len(df) > 0:
+                    avg_regret_final = float(df["avg_regret"].iloc[-1])
+                # Method 2: Try cum_regret with event index
+                elif "cum_regret" in df.columns and len(df) > 0:
+                    cum_regret_final = float(df["cum_regret"].iloc[-1])
+                    if "event" in df.columns:
+                        event_last = int(df["event"].iloc[-1])
+                        avg_regret_final = cum_regret_final / max(event_last + 1, len(df))
+                    else:
+                        avg_regret_final = cum_regret_final / len(df)
+                # Method 3: Fallback to mean of regret increments
+                elif "regret" in df.columns and len(df) > 0:
+                    avg_regret_final = float(df["regret"].mean())
+                
+                # γ-adherence check: overall pass/fail
+                gamma_pass_overall = False
+                gamma_error = np.nan
+                if not np.isnan(avg_regret_final) and not np.isnan(gamma_bar) and gamma_bar > 0:
+                    gamma_pass_overall = avg_regret_final <= gamma_bar
+                    gamma_error = max(0.0, avg_regret_final / gamma_bar - 1.0)
+                
+                # Decomposition checks for insert/delete (when regret_increment is present)
+                avg_regret_insert_only = np.nan
+                avg_regret_delete_only = np.nan
+                gamma_pass_insert = np.nan
+                gamma_pass_delete = np.nan
+                
+                if "regret_increment" in df.columns and "op" in df.columns:
+                    insert_regrets = df[df["op"] == "insert"]["regret_increment"]
+                    delete_regrets = df[df["op"] == "delete"]["regret_increment"]
+                    
+                    if len(insert_regrets) > 0:
+                        avg_regret_insert_only = float(insert_regrets.mean())
+                        if not np.isnan(gamma_insert_threshold) and gamma_insert_threshold > 0:
+                            gamma_pass_insert = avg_regret_insert_only <= gamma_insert_threshold
+                    
+                    if len(delete_regrets) > 0:
+                        avg_regret_delete_only = float(delete_regrets.mean())
+                        if not np.isnan(gamma_delete_threshold) and gamma_delete_threshold > 0:
+                            gamma_pass_delete = avg_regret_delete_only <= gamma_delete_threshold
+                
+                # Store γ-adherence metrics in summary row
+                summary_row["avg_regret_final"] = avg_regret_final
+                summary_row["gamma_bar_threshold"] = gamma_bar
+                summary_row["gamma_split_threshold"] = gamma_split
+                summary_row["gamma_insert_threshold"] = gamma_insert_threshold
+                summary_row["gamma_delete_threshold"] = gamma_delete_threshold
+                summary_row["gamma_pass_overall"] = gamma_pass_overall
+                summary_row["gamma_pass_insert"] = gamma_pass_insert
+                summary_row["gamma_pass_delete"] = gamma_pass_delete
+                summary_row["gamma_error"] = gamma_error
+                
+                # Add AT-γ blocked reason if overall check fails
+                if not gamma_pass_overall and not np.isnan(avg_regret_final) and not np.isnan(gamma_bar):
+                    prev_reason = summary_row.get("blocked_reason", "") or ""
+                    at_gamma_reason = f"AT-γ avg regret {avg_regret_final:.3g} > γ̄ {gamma_bar:.3g}"
+                    summary_row["blocked_reason"] = prev_reason + ("; " if prev_reason else "") + at_gamma_reason
+                    
+            except Exception:
+                # Ensure columns exist even if computation fails
+                summary_row["avg_regret_final"] = np.nan
+                summary_row["gamma_bar_threshold"] = mandatory_fields.get("gamma_bar", np.nan)
+                summary_row["gamma_split_threshold"] = mandatory_fields.get("gamma_split", np.nan)
+                summary_row["gamma_insert_threshold"] = np.nan
+                summary_row["gamma_delete_threshold"] = np.nan
+                summary_row["gamma_pass_overall"] = False
+                summary_row["gamma_pass_insert"] = np.nan
+                summary_row["gamma_pass_delete"] = np.nan
+                summary_row["gamma_error"] = np.nan
+
             # Write seed summary file
             seed_output_file = os.path.join(output_dir, f"seed_{seed:03d}.csv")
             pd.DataFrame([summary_row]).to_csv(seed_output_file, index=False)
