@@ -839,6 +839,12 @@ def process_seed_output(
                 summary_row["max_g_norm"] = max_g
                 summary_row["avg_clip_rate"] = clip_rate
                 summary_row["rho_spent_final"] = rho_spent
+                
+                # Compute rho_util for capacity utilization analysis
+                if (not np.isnan(rho_spent) and not np.isnan(rho_tot) and rho_tot > 0):
+                    summary_row["rho_util"] = rho_spent / rho_tot
+                else:
+                    summary_row["rho_util"] = np.nan
 
                 # Blocked reason if any failures (append to any existing reason)
                 if reasons:
