@@ -545,7 +545,7 @@ def plot_regret_ratio_ecdf(
         x=1.0, color="red", linestyle="--", linewidth=2, label="r = 1 (pass threshold)"
     )
 
-    ax.set_xlabel("Regret Ratio r = avg_regret_final / $\bar{\gamma}$")
+    ax.set_xlabel("Regret Ratio r = avg_regret_final / gamma_bar")
     ax.set_ylabel("Cumulative Probability")
     ax.set_title("ECDF of Regret Ratio")
     ax.legend()
@@ -702,7 +702,7 @@ def plot_pass_rate_heatmaps(df: pd.DataFrame) -> None:
                 ax=axes[0],
                 cbar_kws={"label": "Pass Rate"},
             )
-            axes[0].set_title("Pass Rate by ($\bar{\gamma}$, γ_split)")
+            axes[0].set_title("Pass Rate by (gamma_bar, gamma_split)")
             axes[0].set_xlabel("gamma_split_threshold")
             axes[0].set_ylabel("gamma_bar_threshold")
         else:
@@ -772,7 +772,7 @@ def plot_regret_vs_gamma_scatter(
     df: pd.DataFrame, figsize: Tuple[int, int] = (10, 8)
 ) -> None:
     """
-    Plot scatter of avg_regret_final vs $\bar{\gamma}$ with y=x reference and pass/fail coloring.
+    Plot scatter of avg_regret_final vs gamma_bar with y=x reference and pass/fail coloring.
 
     Args:
         df: DataFrame with gamma metrics
