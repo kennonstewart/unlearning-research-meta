@@ -7,7 +7,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from exp_engine.cli import convert
+from exp_engine.converter import convert_csv_to_parquet
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
@@ -16,8 +16,11 @@ if __name__ == "__main__":
     ap.add_argument("--granularity", choices=["seed","event","both"], default="both")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
-    # Delegate to exp_engine CLI
+    
+    # Delegate to exp_engine converter
     if args.granularity in ("seed","both"):
-        convert(args.csv_dir, args.parquet_out, granularity="seed", dry_run=args.dry_run)
+        convert_csv_to_parquet(args.csv_dir, args.parquet_out, granularity="seed")
+        print(f"✓ Converted seed data: {args.csv_dir} -> {args.parquet_out}")
     if args.granularity in ("event","both"):
-        convert(args.csv_dir, args.parquet_out, granularity="event", dry_run=args.dry_run)
+        convert_csv_to_parquet(args.csv_dir, args.parquet_out, granularity="event")
+        print(f"✓ Converted event data: {args.csv_dir} -> {args.parquet_out}")

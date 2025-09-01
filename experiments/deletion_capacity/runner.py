@@ -308,6 +308,17 @@ class ExperimentRunner:
         summary_path = os.path.join(self.cfg.out_dir, f"seed_summary_{self.cfg.algo}.json")
         write_seed_summary_json(summaries, summary_path)
         
+        # Optional: Save to Parquet if enabled
+        parquet_out = getattr(self.cfg, "parquet_out", None)
+        if parquet_out:
+            try:
+                from exp_integration import build_params_from_config, write_seed_summary_parquet
+                params_with_grid = build_params_from_config(self.cfg.__dict__)
+                write_seed_summary_parquet(summaries, parquet_out, params_with_grid)
+                print(f"✓ Seed summaries also saved to Parquet: {parquet_out}/seeds/")
+            except Exception as e:
+                print(f"Warning: Could not save seed summaries to Parquet: {e}")
+        
         # Create plots
         figs_dir = os.path.join(self.cfg.out_dir, "figs")
         create_plots(csv_paths, figs_dir)
