@@ -136,5 +136,10 @@ def test_missing_partition_columns_handled():
     
     with tempfile.TemporaryDirectory() as tmpdir:
         # Should not crash despite missing columns
-        seeds_path = write_seed_rows(seed_data, tmpdir)
+        params = {
+            "algo": "memorypair",
+            "gamma_bar": 1.0,
+            "accountant": "zcdp"
+        }
+        seeds_path = write_seed_rows(seed_data, tmpdir, params)
         assert os.path.exists(seeds_path)
