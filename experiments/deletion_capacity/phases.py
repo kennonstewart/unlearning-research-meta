@@ -267,6 +267,30 @@ def _create_extended_log_entry(
         ):
             entry[key] = val
 
+    # PRIVACY METRICS FIX: Force-set accurate accountant fields from model metrics
+    # to prevent stale zero values from being preserved
+    if model_metrics:
+        # Force-set rho_spent from model metrics when available
+        if "rho_spent" in model_metrics and model_metrics["rho_spent"] is not None:
+            entry["rho_spent"] = model_metrics["rho_spent"]
+        
+        # Mirror to privacy_spend_running for downstream compatibility
+        if "rho_spent" in model_metrics and model_metrics["rho_spent"] is not None:
+            entry["privacy_spend_running"] = model_metrics["rho_spent"]
+        
+        # Ensure sigma_step is populated from model metrics
+        if "sigma_step" in model_metrics and model_metrics["sigma_step"] is not None:
+            entry["sigma_step"] = model_metrics["sigma_step"]
+        
+        # On delete rows, add sigma_delete equal to the sigma used for that delete
+        if (entry.get("op") == "delete" and 
+            "sigma_step" in model_metrics and 
+            model_metrics["sigma_step"] is not None):
+            entry["sigma_delete"] = model_metrics["sigma_step"]
+        else:
+            # Set to NaN for non-delete operations
+            entry["sigma_delete"] = np.nan
+
     # Ensure legacy 'regret' column reflects instantaneous comparator regret
     try:
         if (
