@@ -112,6 +112,9 @@ class Config:
     path_style: str = "rotating"
     rho_total: float = 1.0  # Make this required for zCDP
 
+    # Debug and testing options
+    disable_regret_gate: bool = False  # Bypass regret gate for debugging privacy accounting
+
     @property
     def gamma_insert(self) -> float:
         """Gamma budget allocated to insertions (learning)."""
