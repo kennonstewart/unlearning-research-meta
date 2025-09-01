@@ -520,7 +520,9 @@ class MemoryPair:
                 getattr(self.cfg, "delta_b", 0.05),
             )
             proj_avg = (ins_reg + del_reg) / max(self.events_seen or 1, 1)
-            if proj_avg > getattr(self.cfg, "gamma_delete", float("inf")):
+            gamma_delete = getattr(self.cfg, "gamma_delete", float("inf"))
+            # Allow bypassing regret gate for debugging/testing
+            if proj_avg > gamma_delete and not getattr(self.cfg, "disable_regret_gate", False):
                 return "regret_gate"
 
         self.accountant.spend(sensitivity, sigma)
