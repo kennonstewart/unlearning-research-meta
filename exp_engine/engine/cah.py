@@ -1,6 +1,7 @@
 from __future__ import annotations
 import hashlib
 import json
+import re
 from typing import Any, Dict
 
 _VOLATILE_KEYS = {
@@ -23,13 +24,31 @@ _VOLATILE_KEYS = {
 
 _FLOAT_PRECISION = 10  # round floats to 10 decimal places deterministically
 
+# Regex pattern for path-like keys using word boundaries to avoid false positives
+_PATH_LIKE_PATTERN = re.compile(
+    r'(^|_)(path|paths|dir|directory|directories|folder|folders|file|filename|files)($|_)', 
+    re.IGNORECASE
+)
+
 
 def _is_path_like_key(k: str) -> bool:
-    kl = k.lower()
-    return any(s in kl for s in ("path", "dir", "folder", "file"))
+    """Check if a key is path-like using word boundaries to avoid false positives.
+    
+    This avoids incorrectly flagging keys like 'profile' (contains 'file') or 
+    'coordinated' (contains 'dir') as path-like.
+    """
+    return bool(_PATH_LIKE_PATTERN.search(k))
 
 
 def _round_float(v: float) -> float:
+    """Round float to fixed precision and convert near-integers to clean integers.
+    
+    This ensures deterministic hashing by:
+    1. Rounding to _FLOAT_PRECISION decimal places
+    2. Converting values very close to integers (e.g., 1.0000000001) to clean integers
+    
+    Note: This means 1.0000000001 becomes 1.0, which may surprise some users.
+    """
     try:
         rounded = float(round(float(v), _FLOAT_PRECISION))
         # If rounding resulted in insignificant change, return clean integer if applicable
@@ -81,16 +100,19 @@ def canonicalize_params(params: Dict[str, Any]) -> Dict[str, Any]:
 def grid_hash(params: Dict[str, Any]) -> str:
     """Generate a content-addressed hash for grid parameters.
     
+    Uses SHA-256 and returns a 12-character hex prefix to reduce collision 
+    probability in long-running research projects.
+    
     Args:
         params: Parameter dictionary
         
     Returns:
-        8-character hex hash of canonicalized parameters
+        12-character hex hash of canonicalized parameters
     """
     canonical = canonicalize_params(params)
     json_str = json.dumps(canonical, sort_keys=True, separators=(',', ':'), ensure_ascii=True)
     hash_obj = hashlib.sha256(json_str.encode('utf-8'))
-    return hash_obj.hexdigest()[:8]
+    return hash_obj.hexdigest()[:12]
 
 
 def attach_grid_id(params: Dict[str, Any]) -> Dict[str, Any]:

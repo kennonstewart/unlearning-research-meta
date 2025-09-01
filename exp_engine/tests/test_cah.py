@@ -54,7 +54,7 @@ def test_grid_hash_deterministic():
     hash2 = grid_hash(params)
     
     assert hash1 == hash2
-    assert len(hash1) == 8  # 8-character hex hash
+    assert len(hash1) == 12  # 12-character hex hash
 
 
 def test_grid_hash_different_for_different_params():
@@ -90,7 +90,7 @@ def test_attach_grid_id():
     assert "grid_id" in result
     assert result["algo"] == "memorypair"  # Original params preserved
     assert result["gamma_bar"] == 1.0
-    assert len(result["grid_id"]) == 8  # 8-character hash
+    assert len(result["grid_id"]) == 12  # 12-character hash
 
 
 def test_canonicalize_nested_structures():
@@ -113,3 +113,74 @@ def test_canonicalize_nested_structures():
     # Lists should be processed recursively
     assert canonical["nested"]["values"] == [1.5, 2.7, 3.9]
     assert canonical["list_param"][0]["val"] == 1.1234567890
+
+
+def test_path_like_key_false_positives():
+    """Test that path-like key detection avoids false positives."""
+    from exp_engine.engine.cah import _is_path_like_key
+    
+    # These should NOT be treated as path-like (false positives)
+    assert not _is_path_like_key("profile")  # contains "file" but not as word boundary
+    assert not _is_path_like_key("coordinated")  # contains "dir" but not as word boundary 
+    assert not _is_path_like_key("simplified")  # contains "file" but not as word boundary
+    assert not _is_path_like_key("model")  # regular parameter
+    
+    # These SHOULD be treated as path-like (true positives)
+    assert _is_path_like_key("config_file")
+    assert _is_path_like_key("data_path")
+    assert _is_path_like_key("output_dir")
+    assert _is_path_like_key("log_folder")
+    assert _is_path_like_key("file_name")
+    assert _is_path_like_key("paths")
+    assert _is_path_like_key("directories")
+
+
+def test_profile_regression():
+    """Regression test: ensure 'profile' parameter is preserved in canonicalization."""
+    params = {
+        "algo": "memorypair",
+        "profile": "large_model",  # Should be preserved
+        "config_file": "/path/to/config",  # Should be removed
+        "gamma_bar": 1.0,
+        "model": "transformer",  # Should be preserved
+    }
+    
+    canonical = canonicalize_params(params)
+    
+    # Non-path parameters should be preserved
+    assert canonical["profile"] == "large_model"
+    assert canonical["model"] == "transformer"
+    assert canonical["algo"] == "memorypair"
+    assert canonical["gamma_bar"] == 1.0
+    
+    # Path-like parameters should be removed
+    assert "config_file" not in canonical
+
+
+def test_float_precision_edge_cases():
+    """Test float precision handling edge cases."""
+    params = {
+        "near_integer": 1.0000000001,  # Should stay as is (difference > 1e-10)
+        "exact_integer": 1.0,  # Should stay 1.0
+        "very_near_integer": 1.0000000000001,  # Should become 1.0 (difference < 1e-10)
+        "precise_float": 1.1234567890123456789,  # Should be rounded to 10 decimal places
+        "nested": {
+            "float_list": [1.0000000000001, 2.5555555555555555555],
+            "mixed": [1.0, 2.1234567890123456789, 3]
+        }
+    }
+    
+    canonical = canonicalize_params(params)
+    
+    # Near-integers behavior depends on precision
+    assert canonical["near_integer"] == 1.0000000001  # Stays as is
+    assert canonical["exact_integer"] == 1.0
+    assert canonical["very_near_integer"] == 1.0  # Gets cleaned to integer
+    
+    # Precise floats should be rounded
+    assert canonical["precise_float"] == 1.123456789  # rounded to 10 places
+    
+    # Nested structures should be handled recursively
+    assert canonical["nested"]["float_list"][0] == 1.0  # very near-integer cleaned
+    assert canonical["nested"]["float_list"][1] == 2.5555555556  # rounded to 10 places
+    assert canonical["nested"]["mixed"] == [1.0, 2.123456789, 3]
