@@ -141,11 +141,20 @@ def compute_regret_ratio_and_flags(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
     
-    # Compute regret ratio
-    df['regret_ratio'] = df['avg_regret_final'] / df['gamma_bar_threshold']
+    # Handle empty DataFrame
+    if df.empty:
+        df['regret_ratio'] = pd.Series(dtype=float)
+        df['regret_ratio_capped'] = pd.Series(dtype=float)
+        return df
     
-    # Capped version for visualization (cap extreme outliers)
-    df['regret_ratio_capped'] = df['regret_ratio'].clip(upper=5.0)
+    # Compute regret ratio (handle missing columns gracefully)
+    if 'avg_regret_final' in df.columns and 'gamma_bar_threshold' in df.columns:
+        df['regret_ratio'] = df['avg_regret_final'] / df['gamma_bar_threshold']
+        # Capped version for visualization (cap extreme outliers)
+        df['regret_ratio_capped'] = df['regret_ratio'].clip(upper=5.0)
+    else:
+        df['regret_ratio'] = np.nan
+        df['regret_ratio_capped'] = np.nan
     
     return df
 
@@ -161,6 +170,12 @@ def compute_at_clean_flags(df: pd.DataFrame) -> pd.DataFrame:
         DataFrame with added AT filter columns
     """
     df = df.copy()
+    
+    # Handle empty DataFrame
+    if df.empty:
+        for col in ['AT1_clean', 'AT2_clean', 'AT5_clean', 'AT6_clean', 'AT_clean_overall']:
+            df[col] = pd.Series(dtype=bool)
+        return df
     
     # AT1: PT_error ≤ 0.05
     if 'PT_error' in df.columns:
