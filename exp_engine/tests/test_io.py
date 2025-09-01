@@ -116,7 +116,7 @@ def test_write_empty_data():
     """Test handling of empty data."""
     with tempfile.TemporaryDirectory() as tmpdir:
         # Empty seed data
-        seeds_path = write_seed_rows([], tmpdir)
+        seeds_path = write_seed_rows([], tmpdir, {})
         assert seeds_path == ""
         
         # Empty event data
