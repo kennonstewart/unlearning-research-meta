@@ -120,7 +120,7 @@ def test_write_empty_data():
         assert seeds_path == ""
         
         # Empty event data
-        events_path = write_event_rows([], tmpdir)
+        events_path = write_event_rows([], tmpdir, {})
         assert events_path == ""
 
 
