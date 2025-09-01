@@ -89,7 +89,7 @@ def grid_hash(params: Dict[str, Any]) -> str:
     """
     canonical = canonicalize_params(params)
     json_str = json.dumps(canonical, sort_keys=True, separators=(',', ':'), ensure_ascii=True)
-    hash_obj = hashlib.md5(json_str.encode('utf-8'))
+    hash_obj = hashlib.sha256(json_str.encode('utf-8'))
     return hash_obj.hexdigest()[:8]
 
 
