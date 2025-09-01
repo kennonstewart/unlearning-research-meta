@@ -2,9 +2,60 @@ import pytest
 import tempfile
 import os
 import pandas as pd
-from exp_engine.converter import convert_csv_to_parquet, parse_csv_filename, extract_params_from_grid_dir
+from exp_engine.converter import convert_csv_to_parquet
 
 
+def parse_csv_filename(filename):
+    """
+    Extract parameters from a CSV filename of the form:
+    'seed_001_memorypair_gamma1.0-split0.5_zcdp.csv'
+    Returns a dict with keys: seed, algo, gamma, split, accountant.
+    """
+    import re
+    # Example: seed_001_memorypair_gamma1.0-split0.5_zcdp.csv
+    pattern = r"seed_(\d+)_(\w+)(?:_gamma([\d\.]+)-split([\d\.]+))?_(\w+)\.csv"
+    match = re.match(pattern, filename)
+    if not match:
+        raise ValueError(f"Filename does not match expected pattern: {filename}")
+    seed = int(match.group(1))
+    algo = match.group(2)
+    gamma = float(match.group(3)) if match.group(3) else None
+    split = float(match.group(4)) if match.group(4) else None
+    accountant = match.group(5)
+    result = {"seed": seed, "algo": algo}
+    if gamma is not None:
+        result["gamma"] = gamma
+    if split is not None:
+        result["split"] = split
+    result["accountant"] = accountant
+    return result
+
+def extract_params_from_grid_dir(grid_dir):
+    """
+    Extract parameters from a grid directory name of the form:
+    'split_0.7-0.3_q0.95_k10_default'
+    Returns a dict with keys: gamma_bar, gamma_split, quantile, delete_ratio, accountant.
+    """
+    import os
+    import re
+    dirname = os.path.basename(grid_dir)
+    # Example: split_0.7-0.3_q0.95_k10_default
+    pattern = r"split_(\d+\.\d+)-(\d+\.\d+)_q(\d+\.\d+)_k(\d+)_([\w]+)"
+    match = re.match(pattern, dirname)
+    if not match:
+        raise ValueError(f"Grid dir name does not match expected pattern: {dirname}")
+    gamma_bar = float(match.group(1))
+    gamma_split = float(match.group(2))
+    quantile = float(match.group(3))
+    delete_ratio = int(match.group(4))
+    accountant = match.group(5)
+    return {
+        "gamma_bar": gamma_bar,
+        "gamma_split": gamma_split,
+        "quantile": quantile,
+        "delete_ratio": delete_ratio,
+        "accountant": accountant,
+    }
 def test_parse_csv_filename():
     """Test extracting parameters from CSV filename."""
     result = parse_csv_filename("seed_001_memorypair_gamma1.0-split0.5_zcdp.csv")
