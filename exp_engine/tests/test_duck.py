@@ -2,7 +2,7 @@ import pytest
 import tempfile
 import os
 import pandas as pd
-from exp_engine.engine.duck import create_connection_and_views
+from exp_engine.engine.duck import create_connection_and_views, query_seeds, query_events
 from exp_engine.engine.io import write_seed_rows, write_event_rows
 
 # Skip DuckDB tests if not available

@@ -41,6 +41,9 @@ def write_seed_rows(
 ) -> str:
     """Write seed-level summary data to partitioned Parquet.
     
+    Uses minimal partitioning (grid_id only) to avoid small file explosion.
+    All experiment parameters are available via the grid_id lookup.
+    
     Args:
         seed_data: List of dictionaries with seed-level metrics
         base_out: Base output directory
@@ -60,12 +63,8 @@ def write_seed_rows(
         params_with_grid = attach_grid_id(params)
         df['grid_id'] = params_with_grid['grid_id']
     
-    # Standard partition columns for seeds
-    partition_cols = [
-        'algo', 'accountant', 'gamma_bar', 'gamma_split', 
-        'target_PT', 'target_ST', 'delete_ratio', 'rho_total',
-        'grid_id', 'seed'
-    ]
+    # Minimal partitioning for seeds: only grid_id to avoid directory explosion
+    partition_cols = ['grid_id']
     
     # Ensure partition columns exist
     df = _ensure_partition_columns(df, partition_cols)
@@ -95,6 +94,9 @@ def write_event_rows(
 ) -> str:
     """Write event-level data to partitioned Parquet.
     
+    Uses minimal partitioning (grid_id, seed) to balance query performance
+    with avoiding directory explosion from too many partition columns.
+    
     Args:
         event_data: List of dictionaries with event-level data
         base_out: Base output directory
@@ -114,12 +116,9 @@ def write_event_rows(
         params_with_grid = attach_grid_id(params)
         df['grid_id'] = params_with_grid['grid_id']
     
-    # Partition columns for events (same as seeds plus event columns)
-    partition_cols = [
-        'algo', 'accountant', 'gamma_bar', 'gamma_split',
-        'target_PT', 'target_ST', 'delete_ratio', 'rho_total', 
-        'grid_id', 'seed'
-    ]
+    # Minimal partitioning for events: grid_id and seed only
+    # This avoids directory explosion while enabling efficient queries
+    partition_cols = ['grid_id', 'seed']
     
     # Ensure partition columns exist
     df = _ensure_partition_columns(df, partition_cols)
