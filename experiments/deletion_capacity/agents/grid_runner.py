@@ -29,6 +29,19 @@ from plots import (
     plot_capacity_vs_noise_tradeoff,
 )
 
+# Import exp_engine integration
+from exp_integration import build_params_from_config, write_seed_summary_parquet, write_event_rows_parquet
+
+# Module flag default path for Parquet
+PARQUET_OUT = os.environ.get("PARQUET_OUT", "results_parquet")
+
+
+def iter_df_in_chunks(df, chunk_size=50000):
+    """Iterate over DataFrame in chunks to avoid large in-memory conversions."""
+    n = len(df)
+    for i in range(0, n, chunk_size):
+        yield df.iloc[i:i+chunk_size]
+
 
 def load_grid(grid_file: str) -> Dict[str, Any]:
     """Load parameter grid from YAML file.
@@ -434,6 +447,9 @@ def run_parameter_combination(
     base_out_dir: str,
     output_granularity: str = "seed",
     parallel: int = 1,
+    parquet_out: str = "results_parquet",
+    parquet_write_events: bool = False,
+    no_legacy_csv: bool = False,
 ) -> List[str]:
     """Run all seeds for a single parameter combination."""
     grid_id = create_grid_id(params)
@@ -531,19 +547,25 @@ def run_parameter_combination(
 
         json.dump(params, f, indent=2)
 
+    # Build params for Parquet writing (content-addressed hashing)
+    params_with_grid = build_params_from_config(params)
+
     # Process outputs based on granularity
     processed_files = []
     if output_granularity == "seed":
         processed_files = process_seed_output(
-            csv_paths, grid_id, grid_output_dir, mandatory_fields
+            csv_paths, grid_id, grid_output_dir, mandatory_fields,
+            parquet_out, params_with_grid, no_legacy_csv
         )
     elif output_granularity == "event":
         processed_files = process_event_output(
-            csv_paths, grid_id, grid_output_dir, mandatory_fields
+            csv_paths, grid_id, grid_output_dir, mandatory_fields,
+            parquet_out, params_with_grid, parquet_write_events, no_legacy_csv
         )
     elif output_granularity == "aggregate":
         aggregate_file = process_aggregate_output(
-            csv_paths, grid_id, grid_output_dir, mandatory_fields
+            csv_paths, grid_id, grid_output_dir, mandatory_fields,
+            parquet_out, params_with_grid, no_legacy_csv
         )
         if aggregate_file:
             processed_files = [aggregate_file]
@@ -668,9 +690,13 @@ def process_seed_output(
     grid_id: str,
     output_dir: str,
     mandatory_fields: Dict[str, Any],
+    parquet_out: str = "results_parquet",
+    params_with_grid: Dict[str, Any] = None,
+    no_legacy_csv: bool = False,
 ) -> List[str]:
     """Process CSV files for seed granularity output."""
     processed_files = []
+    seed_summaries = []  # Collect all seed summaries for Parquet
 
     for csv_file in csv_files:
         if not os.path.exists(csv_file):
@@ -978,13 +1004,25 @@ def process_seed_output(
                 summary_row["gamma_pass_delete"] = np.nan
                 summary_row["gamma_error"] = np.nan
 
-            # Write seed summary file
-            seed_output_file = os.path.join(output_dir, f"seed_{seed:03d}.csv")
-            pd.DataFrame([summary_row]).to_csv(seed_output_file, index=False)
-            processed_files.append(seed_output_file)
+            # Write seed summary file (CSV)
+            if not no_legacy_csv:
+                seed_output_file = os.path.join(output_dir, f"seed_{seed:03d}.csv")
+                pd.DataFrame([summary_row]).to_csv(seed_output_file, index=False)
+                processed_files.append(seed_output_file)
+            
+            # Collect for Parquet writing
+            seed_summaries.append(summary_row)
 
         except Exception as e:
             print(f"Warning: Failed to process {csv_file} for seed output: {e}")
+
+    # Write Parquet for all seed summaries
+    if seed_summaries and params_with_grid:
+        try:
+            write_seed_summary_parquet(seed_summaries, parquet_out, params_with_grid)
+            print(f"✓ Written {len(seed_summaries)} seed summaries to Parquet: {parquet_out}/seeds/")
+        except Exception as e:
+            print(f"Warning: Failed to write seed Parquet: {e}")
 
     return processed_files
 
@@ -994,6 +1032,10 @@ def process_event_output(
     grid_id: str,
     output_dir: str,
     mandatory_fields: Dict[str, Any],
+    parquet_out: str = "results_parquet",
+    params_with_grid: Dict[str, Any] = None,
+    parquet_write_events: bool = False,
+    no_legacy_csv: bool = False,
 ) -> List[str]:
     """Process CSV files for event granularity output."""
     processed_files = []
@@ -1072,10 +1114,23 @@ def process_event_output(
                 else:
                     df["event_type"] = "unknown"
 
-            # Write event-level file
-            event_output_file = os.path.join(output_dir, f"seed_{seed:03d}_events.csv")
-            df.to_csv(event_output_file, index=False)
-            processed_files.append(event_output_file)
+            # Write event-level file (CSV)
+            if not no_legacy_csv:
+                event_output_file = os.path.join(output_dir, f"seed_{seed:03d}_events.csv")
+                df.to_csv(event_output_file, index=False)
+                processed_files.append(event_output_file)
+            
+            # Write events to Parquet if enabled
+            if parquet_write_events and params_with_grid and not df.empty:
+                try:
+                    # Process in chunks to avoid memory issues
+                    for chunk in iter_df_in_chunks(df, 50000):
+                        event_rows = (row._asdict() if hasattr(row, "_asdict") else row.to_dict() 
+                                     for _, row in chunk.iterrows())
+                        write_event_rows_parquet(event_rows, parquet_out, params_with_grid)
+                    print(f"✓ Written {len(df)} events for seed {seed} to Parquet")
+                except Exception as e:
+                    print(f"Warning: Failed to write events for seed {seed} to Parquet: {e}")
 
         except Exception as e:
             print(f"Warning: Failed to process {csv_file} for event output: {e}")
@@ -1088,6 +1143,9 @@ def process_aggregate_output(
     grid_id: str,
     output_dir: str,
     mandatory_fields: Dict[str, Any],
+    parquet_out: str = "results_parquet",
+    params_with_grid: Dict[str, Any] = None,
+    no_legacy_csv: bool = False,
 ) -> Optional[str]:
     """Process CSV files for aggregate granularity output."""
     if not csv_files:
@@ -1220,9 +1278,22 @@ def process_aggregate_output(
             aggregate_row[f"{col}_mean"] = summary_df[col].mean()
             aggregate_row[f"{col}_median"] = summary_df[col].median()
 
-    # Write aggregate file
-    aggregate_output_file = os.path.join(output_dir, "aggregate.csv")
-    pd.DataFrame([aggregate_row]).to_csv(aggregate_output_file, index=False)
+    # Write aggregate file (CSV)
+    if not no_legacy_csv:
+        aggregate_output_file = os.path.join(output_dir, "aggregate.csv")
+        pd.DataFrame([aggregate_row]).to_csv(aggregate_output_file, index=False)
+    else:
+        aggregate_output_file = None
+    
+    # Write aggregate to Parquet (as a seed summary with aggregate=True flag)
+    if params_with_grid:
+        try:
+            aggregate_row_parquet = aggregate_row.copy()
+            aggregate_row_parquet["is_aggregate"] = True
+            write_seed_summary_parquet([aggregate_row_parquet], parquet_out, params_with_grid)
+            print(f"✓ Written aggregate summary to Parquet: {parquet_out}/seeds/")
+        except Exception as e:
+            print(f"Warning: Failed to write aggregate Parquet: {e}")
 
     return aggregate_output_file
 
@@ -1251,6 +1322,21 @@ def main():
         choices=["seed", "event", "aggregate"],
         default="seed",
         help="Output granularity: seed (one row per seed), event (one row per event), aggregate (one row per grid-id)",
+    )
+    parser.add_argument(
+        "--parquet-out",
+        default=PARQUET_OUT,
+        help="Base output directory for Parquet files",
+    )
+    parser.add_argument(
+        "--parquet-write-events",
+        action="store_true",
+        help="Store per-event logs to Parquet (can be large)",
+    )
+    parser.add_argument(
+        "--no-legacy-csv",
+        action="store_true", 
+        help="Skip writing legacy CSV files",
     )
 
     args = parser.parse_args()
@@ -1335,7 +1421,8 @@ def main():
     for i, params in enumerate(combinations):
         print(f"\nProgress: {i + 1}/{len(combinations)}")
         csv_paths = run_parameter_combination(
-            params, seeds, args.base_out, args.output_granularity, args.parallel
+            params, seeds, args.base_out, args.output_granularity, args.parallel,
+            args.parquet_out, args.parquet_write_events, args.no_legacy_csv
         )
         all_csv_paths.extend(csv_paths)
 
