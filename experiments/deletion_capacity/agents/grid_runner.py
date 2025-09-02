@@ -30,7 +30,16 @@ from plots import (
 )
 
 # Import exp_engine integration
-from exp_integration import build_params_from_config, write_seed_summary_parquet, write_event_rows_parquet
+from exp_integration import (
+    build_params_from_config,
+    write_seed_summary_parquet,
+    write_event_rows_parquet,
+)
+# For Parquet-first aggregation
+try:
+    from exp_integration import open_duckdb  # thin wrapper around exp_engine.engine.duck
+except Exception:
+    open_duckdb = None
 
 # Module flag default path for Parquet
 PARQUET_OUT = os.environ.get("PARQUET_OUT", "results_parquet")
@@ -668,6 +677,93 @@ def aggregate_results(sweep_dir: str) -> Optional[str]:
     print(f"Columns: {list(master_df.columns)}")
 
     return master_path
+
+
+def aggregate_results_from_parquet(parquet_dir: str, sweep_dir: str) -> (Optional[str], Optional[str]):
+    """Aggregate Parquet datasets into master outputs.
+
+    Reads Parquet from results_parquet using DuckDB views and writes:
+    - all_runs.csv (for backward compatibility with existing plots)
+    - all_runs.parquet (Parquet-first artifact for downstream use)
+
+    Returns (csv_path, parquet_path) where either may be None on failure.
+    """
+    print("\n=== Aggregating results (Parquet) ===")
+
+    if open_duckdb is None:
+        print("Warning: DuckDB not available; cannot aggregate from Parquet.")
+        return None, None
+
+    try:
+        conn = open_duckdb(parquet_dir)
+    except Exception as e:
+        print(f"Warning: Failed to open DuckDB over Parquet at {parquet_dir}: {e}")
+        return None, None
+
+    # Prefer seed summaries if present; fall back to event summaries
+    master_df = None
+    try:
+        # Try direct seeds view
+        master_df = conn.execute("SELECT * FROM seeds").df()
+    except Exception:
+        master_df = None
+
+    if master_df is None or master_df.empty:
+        try:
+            # Fallback: summarize events to approximate seed-level rows
+            # Assumes event Parquet contains params columns via exp_integration enrichment
+            master_df = conn.execute(
+                """
+                SELECT
+                  grid_id,
+                  COALESCE(seed, 0) AS seed,
+                  AVG(CASE WHEN regret IS NOT NULL THEN regret END) AS avg_regret_empirical,
+                  SUM(CASE WHEN op = 'insert' THEN 1 ELSE 0 END) AS N_star_emp,
+                  SUM(CASE WHEN op = 'delete' THEN 1 ELSE 0 END) AS m_emp,
+                  COUNT(*) AS total_events,
+                  -- Pass through some common params when available
+                  any_value(algo) AS algo,
+                  any_value(accountant) AS accountant,
+                  any_value(gamma_bar) AS gamma_bar,
+                  any_value(gamma_split) AS gamma_split,
+                  any_value(delete_ratio) AS delete_ratio,
+                  any_value(rho_total) AS rho_total,
+                  any_value(target_PT) AS target_PT,
+                  any_value(target_ST) AS target_ST
+                FROM events
+                GROUP BY grid_id, seed
+                """
+            ).df()
+        except Exception as e:
+            print(f"Warning: Failed to summarize events from Parquet: {e}")
+            master_df = None
+
+    if master_df is None or master_df.empty:
+        print("Warning: No Parquet data found to aggregate (seeds/events).")
+        return None, None
+
+    # Ensure output dir exists
+    os.makedirs(sweep_dir, exist_ok=True)
+
+    # Write CSV (compat with plotting) and Parquet artifacts
+    csv_path = os.path.join(sweep_dir, "all_runs.csv")
+    parquet_path = os.path.join(sweep_dir, "all_runs.parquet")
+    try:
+        master_df.to_csv(csv_path, index=False)
+        print(f"Aggregated {len(master_df)} rows into {csv_path}")
+    except Exception as e:
+        print(f"Warning: Failed writing CSV aggregate: {e}")
+        csv_path = None
+
+    try:
+        # If pyarrow is available, write as a single parquet file
+        master_df.to_parquet(parquet_path, index=False)
+        print(f"Aggregated {len(master_df)} rows into {parquet_path}")
+    except Exception as e:
+        print(f"Warning: Failed writing Parquet aggregate: {e}")
+        parquet_path = None
+
+    return csv_path, parquet_path
 
 
 def validate_schema(csv_path: str, expected_accountants: List[str]) -> bool:
@@ -1330,11 +1426,13 @@ def main():
     )
     parser.add_argument(
         "--parquet-write-events",
+        default=True,
         action="store_true",
         help="Store per-event logs to Parquet (can be large)",
     )
     parser.add_argument(
         "--no-legacy-csv",
+        default = True,
         action="store_true", 
         help="Skip writing legacy CSV files",
     )
@@ -1428,10 +1526,18 @@ def main():
 
     # For non-aggregate modes, create master CSV by combining all outputs
     master_csv = None
+    master_parquet = None
     if args.output_granularity != "aggregate":
-        master_csv = aggregate_results(sweep_dir)
+        # Prefer Parquet-first aggregation when parquet_out is available
+        csv_path, pq_path = aggregate_results_from_parquet(args.parquet_out, sweep_dir)
+        master_csv = csv_path
+        master_parquet = pq_path
 
-        # Validate schema
+        # If Parquet aggregation failed, fall back to legacy CSV aggregation
+        if master_csv is None:
+            master_csv = aggregate_results(sweep_dir)
+
+        # Validate schema (CSV path)
         expected_accountants = matrix.get("accountant", ["legacy"])
         if master_csv:
             validate_schema(master_csv, expected_accountants)
@@ -1518,6 +1624,8 @@ def main():
     print(f"Results in: {sweep_dir}")
     if master_csv:
         print(f"Master CSV: {master_csv}")
+    if master_parquet:
+        print(f"Master Parquet: {master_parquet}")
     print(f"Total output files completed: {len(all_csv_paths)}")
     print(f"Output granularity used: {args.output_granularity}")
 

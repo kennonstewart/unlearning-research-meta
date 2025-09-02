@@ -53,3 +53,12 @@ This yields a compact sweep that exercises the core levers without exploding com
 ## Output Structure
 
 Results are written under the chosen `--base-out` directory. See the main README for schema details. The `grid_id` encodes key parameters, including theory-first targets and zCDP settings, for easy filtering in downstream analysis.
+
+## Parquet-First Mode
+
+- Write Parquet seed/event logs while skipping legacy CSV:
+  - `--parquet-out results_parquet --parquet-write-events --no-legacy-csv`
+  - Seed summaries are always saved to Parquet; event logs are saved when `--parquet-write-events` is set.
+- Aggregation reads directly from `results_parquet` and materializes `all_runs.csv` for plot compatibility and `all_runs.parquet` for Parquet-native workflows.
+  - DuckDB is used under the hood; install with `pip install duckdb`.
+  - If Parquet aggregation fails, the runner falls back to legacy CSV aggregation.
