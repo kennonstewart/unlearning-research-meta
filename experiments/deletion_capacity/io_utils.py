@@ -8,7 +8,6 @@ import csv
 import json
 import os
 from typing import List, Dict, Any
-from plots import plot_capacity_curve, plot_regret
 
 
 class EventLogger:
@@ -104,17 +103,6 @@ def write_seed_summary_json(summary: list, path: str):
     """Write seed-level summaries to JSON file."""
     with open(path, "w") as f:
         json.dump(summary, f, indent=2)
-
-
-def create_plots(csv_paths: List[str], figs_dir: str):
-    """Generate plots from CSV data."""
-    os.makedirs(figs_dir, exist_ok=True)
-
-    try:
-        plot_capacity_curve(csv_paths, os.path.join(figs_dir, "capacity_curve.pdf"))
-        plot_regret(csv_paths, os.path.join(figs_dir, "regret.pdf"))
-    except Exception as e:
-        print(f"Warning: Failed to generate plots: {e}")
 
 
 def git_commit_results(summary_path: str, figs_dir: str, dataset: str, algo: str):

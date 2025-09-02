@@ -321,11 +321,9 @@ class ExperimentRunner:
         
         # Create plots
         figs_dir = os.path.join(self.cfg.out_dir, "figs")
-        create_plots(csv_paths, figs_dir)
         
         # Git commit results (optional)
         if getattr(self.cfg, "commit_results", False):
             git_commit_results(summary_path, figs_dir, "synthetic", self.cfg.algo)
         
         print(f"\nResults saved to {summary_path}")
-        print(f"Plots saved to {figs_dir}")
