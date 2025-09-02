@@ -23,11 +23,6 @@ import json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
 from config import Config
 from runner import ExperimentRunner
-from plots import (
-    plot_accountant_comparison,
-    plot_accountant_summary_stats,
-    plot_capacity_vs_noise_tradeoff,
-)
 
 # Import exp_engine integration
 from exp_integration import (
@@ -1524,81 +1519,6 @@ def main():
         )
         all_csv_paths.extend(csv_paths)
 
-    # For non-aggregate modes, create master CSV by combining all outputs
-    master_csv = None
-    master_parquet = None
-    if args.output_granularity != "aggregate":
-        # Prefer Parquet-first aggregation when parquet_out is available
-        csv_path, pq_path = aggregate_results_from_parquet(args.parquet_out, sweep_dir)
-        master_csv = csv_path
-        master_parquet = pq_path
-
-        # If Parquet aggregation failed, fall back to legacy CSV aggregation
-        if master_csv is None:
-            master_csv = aggregate_results(sweep_dir)
-
-        # Validate schema (CSV path)
-        expected_accountants = matrix.get("accountant", ["legacy"])
-        if master_csv:
-            validate_schema(master_csv, expected_accountants)
-
-    # Generate Milestone 5 accountant comparison visualizations
-    try:
-        print("\n=== Generating Milestone 5 Accountant Visualizations ===")
-
-        vis_dir = os.path.join(args.base_out, "visualizations")
-        os.makedirs(vis_dir, exist_ok=True)
-
-        # Generate accountant comparison plots if we have multiple accountant types
-        accountants_in_grid = set()
-        for combo in combinations:
-            accountants_in_grid.add(combo.get("accountant", "default"))
-
-        if len(accountants_in_grid) > 1:
-            print(f"Generating comparisons for accountants: {accountants_in_grid}")
-
-            # Plot regret comparison
-            plot_accountant_comparison(
-                data_dir=sweep_dir,
-                out_path=os.path.join(vis_dir, "accountant_regret_comparison.png"),
-                metric="regret",
-            )
-
-            # Plot capacity comparison
-            plot_accountant_comparison(
-                data_dir=sweep_dir,
-                out_path=os.path.join(vis_dir, "accountant_capacity_comparison.png"),
-                metric="capacity",
-            )
-
-            # Plot noise comparison
-            plot_accountant_comparison(
-                data_dir=sweep_dir,
-                out_path=os.path.join(vis_dir, "accountant_noise_comparison.png"),
-                metric="noise",
-            )
-
-            # Generate summary statistics plots if we have aggregated data
-            if master_csv and os.path.exists(master_csv):
-                plot_accountant_summary_stats(
-                    summary_file=master_csv,
-                    out_path=os.path.join(vis_dir, "accountant_summary_stats.png"),
-                )
-
-                plot_capacity_vs_noise_tradeoff(
-                    summary_file=master_csv,
-                    out_path=os.path.join(vis_dir, "capacity_vs_noise_tradeoff.png"),
-                )
-
-            print(f"✅ Visualizations saved to: {vis_dir}")
-        else:
-            print(
-                f"Skipping visualizations - only one accountant type: {accountants_in_grid}"
-            )
-
-    except Exception as e:
-        print(f"Warning: Failed to generate visualizations: {e}")
-
     # Create sweep manifest (requirement 2)
     try:
         print("\n=== Creating sweep manifest ===")
@@ -1622,10 +1542,6 @@ def main():
 
     print("\nGrid search complete!")
     print(f"Results in: {sweep_dir}")
-    if master_csv:
-        print(f"Master CSV: {master_csv}")
-    if master_parquet:
-        print(f"Master Parquet: {master_parquet}")
     print(f"Total output files completed: {len(all_csv_paths)}")
     print(f"Output granularity used: {args.output_granularity}")
 

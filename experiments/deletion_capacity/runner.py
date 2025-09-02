@@ -22,7 +22,7 @@ from memory_pair.src.calibrator import Calibrator
 from config import Config
 from protocols import AccountantAdapter, ModelAdapter
 from phases import PhaseState, bootstrap_phase, sensitivity_calibration_phase, warmup_phase, finalize_accountant_phase, workload_phase
-from io_utils import EventLogger, write_summary_json, create_plots, git_commit_results, write_seed_summary_json
+from io_utils import EventLogger, write_summary_json, git_commit_results, write_seed_summary_json
 from metrics_utils import aggregate_summaries, get_privacy_metrics
 def _get_data_stream(cfg: Config, seed: int):
     """Get synthetic data stream with unified interface for event records.
