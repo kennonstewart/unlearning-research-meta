@@ -115,6 +115,12 @@ class Config:
     # Debug and testing options
     disable_regret_gate: bool = False  # Bypass regret gate for debugging privacy accounting
 
+    # Finalized regret calculation spec
+    enforce_nonnegative_regret: bool = True  # Ensure regret >= 0 (finalized spec)
+    parquet_only_mode: bool = True  # Write Parquet-only by default (finalized spec)
+    regret_warmup_threshold: Optional[int] = None  # Events before regret tracking starts (post-warmup)
+    regret_comparator_mode: str = "oracle"  # "oracle", "zero", or "ridge" for regret baseline
+
     @property
     def gamma_insert(self) -> float:
         """Gamma budget allocated to insertions (learning)."""

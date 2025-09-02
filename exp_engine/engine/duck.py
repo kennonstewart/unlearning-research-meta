@@ -98,8 +98,20 @@ def create_connection_and_views(base_out: str, connection: Optional = None):
                 agg_cols.append("SUM(CASE WHEN op = 'delete' THEN 1 ELSE 0 END) as deletions")
             if "regret" in events_columns:
                 agg_cols.append("AVG(regret) as avg_regret_per_event")
+                # Add finalized regret analysis
+                agg_cols.append("AVG(CASE WHEN op = 'insert' AND regret >= 0 THEN regret END) as avg_nonneg_regret_insert")
+                agg_cols.append("SUM(CASE WHEN regret < 0 THEN 1 ELSE 0 END) as negative_regret_count")
             if "cum_regret" in events_columns:
                 agg_cols.append("MAX(cum_regret) as final_cum_regret")
+            
+            # Add regret decomposition columns (finalized spec)
+            regret_decomp_cols = ["regret_dynamic", "regret_static_term", "regret_path_term"]
+            for col in regret_decomp_cols:
+                if col in events_columns:
+                    agg_cols.extend([
+                        f"AVG({col}) as avg_{col}",
+                        f"MAX({col}) as max_{col}"
+                    ])
             
             # Only create view if we have required group columns
             if all(col in events_columns for col in group_cols):
@@ -110,6 +122,25 @@ def create_connection_and_views(base_out: str, connection: Optional = None):
                     FROM events
                     GROUP BY {', '.join(group_cols)}
                 """)
+                
+                # Create regret-specific view for detailed analysis (finalized spec)
+                if "regret" in events_columns and "op" in events_columns:
+                    connection.execute(f"""
+                        CREATE OR REPLACE VIEW regret_analysis AS
+                        SELECT
+                            grid_id, seed, op,
+                            COUNT(*) as event_count,
+                            AVG(regret) as avg_regret,
+                            STDDEV(regret) as std_regret,
+                            MIN(regret) as min_regret,
+                            MAX(regret) as max_regret,
+                            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY regret) as median_regret,
+                            SUM(CASE WHEN regret < 0 THEN 1 ELSE 0 END) as negative_count,
+                            AVG(CASE WHEN regret >= 0 THEN regret END) as avg_nonneg_regret
+                        FROM events
+                        WHERE regret IS NOT NULL
+                        GROUP BY grid_id, seed, op
+                    """)
         except Exception:
             # Skip creating events_summary if there's an issue
             pass
@@ -151,3 +182,53 @@ def query_events(connection, where_clause: str = "1=1", limit: Optional[int] = N
         query += f" LIMIT {limit}"
     
     return connection.execute(query).df()
+
+
+def query_regret_analysis(connection, where_clause: str = "1=1", limit: Optional[int] = None) -> "pd.DataFrame":
+    """Query regret analysis view for detailed regret statistics.
+    
+    Args:
+        connection: DuckDB connection with views configured
+        where_clause: SQL WHERE clause (default: no filtering)
+        limit: Optional limit on number of rows
+        
+    Returns:
+        Pandas DataFrame with regret analysis results
+    """
+    try:
+        query = f"SELECT * FROM regret_analysis WHERE {where_clause}"
+        if limit:
+            query += f" LIMIT {limit}"
+        
+        return connection.execute(query).df()
+    except Exception:
+        # Fallback if regret_analysis view doesn't exist
+        import pandas as pd
+        return pd.DataFrame()
+
+
+def get_negative_regret_summary(connection) -> "pd.DataFrame":
+    """Get summary of negative regret occurrences across experiments.
+    
+    Args:
+        connection: DuckDB connection with views configured
+        
+    Returns:
+        Pandas DataFrame with negative regret summary
+    """
+    try:
+        query = """
+            SELECT 
+                grid_id, 
+                COUNT(DISTINCT seed) as seeds_with_neg_regret,
+                SUM(negative_count) as total_negative_events,
+                AVG(negative_count / NULLIF(event_count, 0)) as avg_negative_fraction
+            FROM regret_analysis 
+            WHERE negative_count > 0
+            GROUP BY grid_id
+            ORDER BY total_negative_events DESC
+        """
+        return connection.execute(query).df()
+    except Exception:
+        import pandas as pd
+        return pd.DataFrame()
