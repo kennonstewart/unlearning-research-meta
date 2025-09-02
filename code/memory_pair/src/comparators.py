@@ -274,6 +274,10 @@ class StaticOracle(Comparator):
         self.regret_static += regret_increment
         self.events_seen += 1
 
+        # Ensure non-negative regret if configured (finalized spec requirement)
+        if hasattr(self.cfg, 'enforce_nonnegative_regret') and self.cfg.enforce_nonnegative_regret:
+            regret_increment = max(0.0, regret_increment)
+
         return {"regret_increment": regret_increment}
 
     def _compute_regularized_loss(self, pred: float, y: float, w: np.ndarray) -> float:
@@ -746,6 +750,11 @@ class RollingOracle(Comparator):
         # Path term is difference
         path_increment = regret_increment - static_increment
         self.regret_path_term = self.regret_dynamic - self.regret_static_term
+
+        # Ensure non-negative regret if configured (finalized spec requirement)
+        if hasattr(self.cfg, 'enforce_nonnegative_regret') and self.cfg.enforce_nonnegative_regret:
+            regret_increment = max(0.0, regret_increment)
+            static_increment = max(0.0, static_increment)
 
         return {
             "regret_increment": regret_increment,
