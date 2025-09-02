@@ -5,8 +5,48 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+import numpy as np
 
 from .cah import attach_grid_id
+
+
+def _normalize_regret_columns(df: pd.DataFrame) -> None:
+    """Normalize regret/cum_regret columns to ensure consistent semantics.
+    
+    This ensures that AVG(regret) over events is the mean of the cumulative curve,
+    matching the CSV pipeline semantics where avg_regret_empirical = df["regret"].mean()
+    and the regret column contains the cumulative regret series.
+    
+    Args:
+        df: DataFrame to normalize in-place
+    """
+    has_regret = 'regret' in df.columns
+    has_cum_regret = 'cum_regret' in df.columns
+    has_regret_increment = 'regret_increment' in df.columns
+    
+    # Ensure regret column exists and is properly filled
+    if not has_regret:
+        # No regret column at all - create it
+        if has_cum_regret:
+            df['regret'] = df['cum_regret'].copy()
+        elif has_regret_increment:
+            df['regret'] = df['regret_increment'].copy()
+        else:
+            df['regret'] = np.nan
+    else:
+        # regret column exists but may have NaN values - fill them
+        if has_cum_regret:
+            df['regret'] = df['regret'].fillna(df['cum_regret'])
+        if has_regret_increment:
+            df['regret'] = df['regret'].fillna(df['regret_increment'])
+    
+    # Ensure cum_regret column exists and is properly filled
+    if not has_cum_regret:
+        # No cum_regret column at all - create it from regret
+        df['cum_regret'] = df['regret'].copy()
+    else:
+        # cum_regret column exists but may have NaN values - fill from regret
+        df['cum_regret'] = df['cum_regret'].fillna(df['regret'])
 
 
 def _ensure_partition_columns(df: pd.DataFrame, required_partitions: List[str]) -> pd.DataFrame:
@@ -97,6 +137,9 @@ def write_event_rows(
     Uses minimal partitioning (grid_id, seed) to balance query performance
     with avoiding directory explosion from too many partition columns.
     
+    Normalizes regret/cum_regret columns to ensure DuckDB analytics match
+    CSV pipeline semantics for average regret (mean of cumulative curve).
+    
     Args:
         event_data: List of dictionaries with event-level data
         base_out: Base output directory
@@ -115,6 +158,10 @@ def write_event_rows(
     if 'grid_id' not in df.columns and params:
         params_with_grid = attach_grid_id(params)
         df['grid_id'] = params_with_grid['grid_id']
+    
+    # Normalize regret/cum_regret columns to match CSV semantics
+    # CSV computes avg_regret_empirical as df["regret"].mean() where regret is cumulative
+    _normalize_regret_columns(df)
     
     # Minimal partitioning for events: grid_id and seed only
     # This avoids directory explosion while enabling efficient queries

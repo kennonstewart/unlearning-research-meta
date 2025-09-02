@@ -143,3 +143,142 @@ def test_missing_partition_columns_handled():
         }
         seeds_path = write_seed_rows(seed_data, tmpdir, params)
         assert os.path.exists(seeds_path)
+
+
+def test_normalize_regret_missing_regret_has_cum_regret():
+    """Test normalization when regret is missing but cum_regret exists."""
+    event_data = [
+        {
+            "seed": 1,
+            "event": 1,
+            "cum_regret": 0.1,
+            "op": "insert"
+        },
+        {
+            "seed": 1,
+            "event": 2,
+            "cum_regret": 0.15,
+            "op": "insert"
+        }
+    ]
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        events_path = write_event_rows(event_data, tmpdir)
+        
+        # Read back the data to verify normalization
+        parquet_files = []
+        for root, dirs, files in os.walk(events_path):
+            parquet_files.extend([os.path.join(root, f) for f in files if f.endswith('.parquet')])
+        
+        # Read all parquet files and combine
+        dfs = [pd.read_parquet(f) for f in parquet_files]
+        result_df = pd.concat(dfs, ignore_index=True).sort_values('event')
+        
+        # Should have both regret and cum_regret columns now
+        assert 'regret' in result_df.columns
+        assert 'cum_regret' in result_df.columns
+        # regret should be set from cum_regret
+        assert result_df.iloc[0]['regret'] == 0.1
+        assert result_df.iloc[1]['regret'] == 0.15
+
+
+def test_normalize_regret_missing_cum_regret_has_regret():
+    """Test normalization when cum_regret is missing but regret exists."""
+    event_data = [
+        {
+            "seed": 1,
+            "event": 1,
+            "regret": 0.1,
+            "op": "insert"
+        },
+        {
+            "seed": 1,
+            "event": 2,
+            "regret": 0.15,
+            "op": "insert"
+        }
+    ]
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        events_path = write_event_rows(event_data, tmpdir)
+        
+        # Read back the data to verify normalization
+        parquet_files = []
+        for root, dirs, files in os.walk(events_path):
+            parquet_files.extend([os.path.join(root, f) for f in files if f.endswith('.parquet')])
+        
+        # Read all parquet files and combine
+        dfs = [pd.read_parquet(f) for f in parquet_files]
+        result_df = pd.concat(dfs, ignore_index=True).sort_values('event')
+        
+        # Should have both regret and cum_regret columns now
+        assert 'regret' in result_df.columns
+        assert 'cum_regret' in result_df.columns
+        # cum_regret should be mirrored from regret
+        assert result_df.iloc[0]['cum_regret'] == 0.1
+        assert result_df.iloc[1]['cum_regret'] == 0.15
+
+
+def test_normalize_regret_fallback_to_regret_increment():
+    """Test normalization when only regret_increment exists."""
+    event_data = [
+        {
+            "seed": 1,
+            "event": 1,
+            "regret_increment": 0.05,
+            "op": "insert"
+        },
+        {
+            "seed": 1,
+            "event": 2,
+            "regret_increment": 0.03,
+            "op": "delete"
+        }
+    ]
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        events_path = write_event_rows(event_data, tmpdir)
+        
+        # Read back the data to verify normalization
+        parquet_files = []
+        for root, dirs, files in os.walk(events_path):
+            parquet_files.extend([os.path.join(root, f) for f in files if f.endswith('.parquet')])
+        
+        # Read all parquet files and combine
+        dfs = [pd.read_parquet(f) for f in parquet_files]
+        result_df = pd.concat(dfs, ignore_index=True).sort_values('event')
+        
+        # Should have regret set from regret_increment
+        assert 'regret' in result_df.columns
+        assert result_df.iloc[0]['regret'] == 0.05
+        assert result_df.iloc[1]['regret'] == 0.03
+
+
+def test_normalize_regret_preserves_existing_values():
+    """Test that normalization doesn't overwrite existing values."""
+    event_data = [
+        {
+            "seed": 1,
+            "event": 1,
+            "regret": 0.1,
+            "cum_regret": 0.15,  # Different value
+            "regret_increment": 0.05,
+            "op": "insert"
+        }
+    ]
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        events_path = write_event_rows(event_data, tmpdir)
+        
+        # Read back the data to verify normalization
+        parquet_files = []
+        for root, dirs, files in os.walk(events_path):
+            parquet_files.extend([os.path.join(root, f) for f in files if f.endswith('.parquet')])
+        
+        # Read all parquet files and combine
+        dfs = [pd.read_parquet(f) for f in parquet_files]
+        result_df = pd.concat(dfs, ignore_index=True)
+        
+        # Original values should be preserved (not overwritten)
+        assert result_df.iloc[0]['regret'] == 0.1
+        assert result_df.iloc[0]['cum_regret'] == 0.15

@@ -96,10 +96,21 @@ def create_connection_and_views(base_out: str, connection: Optional = None):
             if "op" in events_columns:
                 agg_cols.append("SUM(CASE WHEN op = 'insert' THEN 1 ELSE 0 END) as inserts")
                 agg_cols.append("SUM(CASE WHEN op = 'delete' THEN 1 ELSE 0 END) as deletions")
+            
+            # Compute avg_regret_empirical to match CSV semantics (mean of cumulative curve)
             if "regret" in events_columns:
-                agg_cols.append("AVG(regret) as avg_regret_per_event")
+                agg_cols.append("AVG(regret) as avg_regret_empirical")
+            elif "cum_regret" in events_columns:
+                agg_cols.append("AVG(cum_regret) as avg_regret_empirical")
+            
+            # Compute final_cum_regret using last-row semantics (not MAX which can be wrong if series decreases)
             if "cum_regret" in events_columns:
-                agg_cols.append("MAX(cum_regret) as final_cum_regret")
+                if "event" in events_columns:
+                    # Use ARG_MAX to get the cum_regret value from the row with the highest event number
+                    agg_cols.append("ARG_MAX(cum_regret, event) as final_cum_regret")
+                else:
+                    # Fallback to MAX if no event column
+                    agg_cols.append("MAX(cum_regret) as final_cum_regret")
             
             # Only create view if we have required group columns
             if all(col in events_columns for col in group_cols):
@@ -110,6 +121,41 @@ def create_connection_and_views(base_out: str, connection: Optional = None):
                     FROM events
                     GROUP BY {', '.join(group_cols)}
                 """)
+                
+                # Create seeds_from_events view that reproduces CSV per-seed rollup from events
+                # This replicates the CSV pipeline logic purely from events Parquet
+                seeds_agg_cols = []
+                seeds_group_cols = ["grid_id", "seed"]
+                
+                # avg_regret_empirical: mean of cumulative curve (same logic as events_summary)
+                if "regret" in events_columns:
+                    seeds_agg_cols.append("AVG(regret) as avg_regret_empirical")
+                elif "cum_regret" in events_columns:
+                    seeds_agg_cols.append("AVG(cum_regret) as avg_regret_empirical")
+                
+                # N_star_emp: count of insert operations
+                if "op" in events_columns:
+                    seeds_agg_cols.append("SUM(CASE WHEN op = 'insert' THEN 1 ELSE 0 END) as N_star_emp")
+                    seeds_agg_cols.append("SUM(CASE WHEN op = 'delete' THEN 1 ELSE 0 END) as m_emp")
+                
+                # total_events: count all events
+                seeds_agg_cols.append("COUNT(*) as total_events")
+                
+                # final_acc: last accuracy value using ARG_MAX semantics
+                if "acc" in events_columns:
+                    if "event" in events_columns:
+                        seeds_agg_cols.append("ARG_MAX(acc, event) as final_acc")
+                    else:
+                        seeds_agg_cols.append("MAX(acc) as final_acc")
+                
+                if seeds_agg_cols:  # Only create if we have columns to aggregate
+                    connection.execute(f"""
+                        CREATE OR REPLACE VIEW seeds_from_events AS
+                        SELECT
+                            {', '.join(seeds_group_cols + seeds_agg_cols)}
+                        FROM events
+                        GROUP BY {', '.join(seeds_group_cols)}
+                    """)
         except Exception:
             # Skip creating events_summary if there's an issue
             pass
