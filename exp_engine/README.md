@@ -1,52 +1,91 @@
 # Experiment Engine (exp_engine)
 
-A minimal, production-ready experiment engine that provides content-addressed hashing, Parquet datasets with HIVE partitioning, instant DuckDB views, and incremental rollups via Snakemake.
+A minimal, production-ready experiment engine that writes event-level Parquet with HIVE partitioning, instant DuckDB views, and content-addressed parameter hashing.
 
-## Features
+## What's included
 
-- **Content-addressed hashing**: Deduplicates experiment runs via stable parameter hashing
-- **Parquet datasets**: HIVE-partitioned for efficient querying and storage
-- **Instant DuckDB views**: Query experimental data without loading into memory
-- **Incremental rollups**: Snakemake workflows for processing large experiment sweeps
-- **Non-invasive integration**: Add to existing runners with minimal code changes
+- Event-level Parquet dataset only (no CSV, no seed-level aggregation)
+- HIVE-partitioned Parquet by grid_id and seed for scalable storage
+- Instant DuckDB views to query events without loading to memory
+- Content-addressed hashing for reproducible grid IDs and deduplication
 
 ## Quick Start
 
 ```python
-from exp_engine.engine import write_seed_rows, write_event_rows, attach_grid_id
+from exp_engine.engine import write_event_rows, attach_grid_id
+from exp_engine.engine.duck import create_connection_and_views
 
-# 1. Define experiment parameters
+# 1) Define run parameters and attach a content-addressed grid_id
 params = {
     "algo": "memorypair",
-    "accountant": "zcdp", 
+    "accountant": "zcdp",
     "gamma_bar": 1.0,
     "gamma_split": 0.5,
-    "rho_total": 1.0
+    "rho_total": 1.0,
 }
+params = attach_grid_id(params)
 
-# 2. Generate content-addressed grid_id
-params_with_grid = attach_grid_id(params)
-print(f"Grid ID: {params_with_grid['grid_id']}")
+# 2) Write event-level data
+event_rows = [
+    {
+        **params,
+        "seed": 1,
+        "event_id": 0,
+        "op": "insert",
+        "regret": 0.037,
+        "acc": 0.81,
+    },
+    # ... more events ...
+]
+write_event_rows(event_rows, base_out="results_parquet", params=params)
 
-# 3. Write seed-level results
-seed_data = [{
-    **params_with_grid,
-    "seed": 1,
-    "avg_regret_empirical": 0.15,
-    "N_star_emp": 100,
-    "m_emp": 10
-}]
-write_seed_rows(seed_data, "results")
+# 3) Query with DuckDB
+conn = create_connection_and_views("results_parquet")
+df = conn.execute("SELECT * FROM events WHERE regret < 0.05 LIMIT 20").df()
+print(df)
+```
 
-# 4. Write event-level results  
-event_data = [{
-    **params_with_grid,
-    "seed": 1,
-    "op": "insert",
-    "regret": 0.05,
-    "acc": 0.8
-}]
-write_event_rows(event_data, "results")
+## Data layout
+
+```
+{base_out}/
+├── events/       # Event-level data only (HIVE partitioned)
+│   └── grid_id=abc12345/
+│       └── seed=1/
+│           └── data.parquet
+└── grids/        # Immutable parameter metadata by grid_id
+    └── grid_id=abc12345/
+        └── params.json
+```
+
+## Partition columns (events only)
+
+- grid_id: content-addressed parameter hash
+- seed: random seed of the run
+
+## Command Line Interface
+
+```bash
+# Query event-level Parquet via DuckDB
+python -m exp_engine.cli query --base-out results_parquet --where "regret < 0.1"
+
+# Show dataset information
+python -m exp_engine.cli info --base-out results_parquet
+```
+
+## Demo
+
+Run the demo to see end-to-end functionality:
+
+```bash
+python exp_engine/demo.py
+```
+
+## Notes
+
+- CSV is not supported.
+- Seed-level or aggregated outputs are not supported.
+- There is no singular master manifest file of all events.
 
 # 5. Query with DuckDB
 from exp_engine.engine.duck import create_connection_and_views, query_seeds
