@@ -12,3 +12,6 @@ PyYAML>=6.0
 click
 tqdm>=4.62
 torch>=2.2
+pyarrow>=6.0
+duckdb>=0.8
+snakemake >= 7.0

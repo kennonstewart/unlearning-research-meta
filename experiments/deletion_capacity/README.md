@@ -49,15 +49,6 @@ Where:
 
 The solution provides optimal deletion capacity and noise scale.
 
-## Usage
-
-### Basic Execution
-
-```bash
-cd experiments/deletion_capacity
-python run.py --algo memorypair --schedule burst --seed 42
-```
-
 ### Grid Search with Output Granularity
 
 For systematic parameter sweeps, use the grid runner with configurable output granularity:
@@ -239,19 +230,6 @@ Each experiment run generates comprehensive output:
 - Tests robustness to deletion timing uncertainty
 - Evaluates average-case performance
 
-## Baseline Comparisons
-
-The experiment compares Memory-Pair against:
-
-1. **Baseline 1**: Naive deletion without privacy (upper bound)
-2. **Baseline 2**: Fixed privacy budget allocation (non-adaptive)
-
-Comparison metrics:
-- **Deletion Capacity**: Maximum deletions before regret violation
-- **Privacy Cost**: ε/δ expenditure per deletion
-- **Accuracy Degradation**: Performance loss from deletions
-- **Runtime Efficiency**: Computational overhead
-
 ## Theoretical Validation
 
 The experiment validates theoretical predictions:
@@ -261,35 +239,4 @@ The experiment validates theoretical predictions:
 3. **Privacy Guarantees**: Validate DP parameters through composition
 4. **Sample Complexity**: Confirm N* provides sufficient learning
 
-## Output and Commit Protocol
 
-Results are automatically committed with structured messages:
-
-```bash
-# Successful run
-EXP:deletion_capacity memorypair-burst a1b2c3d
-
-# Failed run (for debugging)
-FAIL:deletion_capacity memorypair-burst error-details
-```
-
-Files generated:
-- `results/<timestamp>_<algo>_<schedule>.json`: Detailed results
-- `figs/<timestamp>_<algo>_<schedule>.png`: Performance plots  
-- `runs/<timestamp>_<algo>_<schedule>.log`: Execution logs
-
-## Error Handling
-
-The experiment includes robust error handling:
-
-- **Insufficient Calibration**: Falls back to conservative defaults
-- **Capacity Overflow**: Gracefully degrades to m=1 minimum
-- **Numerical Instability**: Clips extreme values and warns
-- **Privacy Violation**: Fails fast with clear error messages
-
-## See Also
-
-- `AGENTS.md`: Complete API specification and developer guide
-- `test_odometer.py`: Unit tests for privacy odometer
-- `plots.py`: Visualization utilities for results analysis
-- `metrics.py`: Performance metric computation

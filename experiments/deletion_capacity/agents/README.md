@@ -6,8 +6,8 @@ This directory contains the grid search automation for deletion capacity experim
 
 ```bash
 # Run with provided theory-first grid (synthetic-only, MemoryPair+zCDP)
-python agents/grid_runner.py \
-  --grid-file agents/grids.yaml \
+python experiments/deletion_capacity/agents/grid_runner.py \
+  --grid-file experiments/deletion_capacity/agents/grids.yaml \
   --seeds 5 \
   --base-out results/grid_$(date +%Y_%m_%d)
 
