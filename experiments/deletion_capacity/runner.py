@@ -82,7 +82,6 @@ ALGO_MAP = {
 class SeedResult:
     """Result from one seed run."""
     summary: Dict[str, Any]
-    csv_path: str
 
 
 def estimate_lbfgs_bounds(model) -> Tuple[float, float]:
@@ -118,20 +117,13 @@ class ExperimentRunner:
     def run_all(self):
         """Run experiment across all seeds and aggregate results."""
         summaries = []
-        csv_paths = []
         
         for seed in range(self.cfg.seeds):
             print(f"\n=== Running seed {seed + 1}/{self.cfg.seeds} ===")
             result = self.run_one_seed(seed)
             summaries.append(result.summary)
-            csv_paths.append(result.csv_path)
         
-        self.aggregate_and_save(summaries, csv_paths)
-    
-    def run_single_seed(self, seed: int) -> str:
-        """Run experiment for a single seed and return CSV path."""
-        result = self.run_one_seed(seed)
-        return result.csv_path
+        self.aggregate_and_save(summaries)
     
     def run_one_seed(self, seed: int) -> SeedResult:
         """Run experiment for one seed."""
@@ -175,11 +167,10 @@ class ExperimentRunner:
         state, events_used = workload_phase(model, gen, self.cfg, logger, state, max_events_left)
         
         # Save results and create summary
-        csv_path = self._save_seed_results(seed, logger, state, model)
         summary = self._create_seed_summary(state, model)
         
-        return SeedResult(summary=summary, csv_path=csv_path)
-    
+        return SeedResult(summary=summary)
+            
     def _create_model(self, first_x):
         """Create model with zCDP accountant."""
         accountant = get_adapter(
@@ -293,7 +284,7 @@ class ExperimentRunner:
         
         return summary
     
-    def aggregate_and_save(self, summaries: List[Dict[str, Any]], csv_paths: List[str]):
+    def aggregate_and_save(self, summaries: List[Dict[str, Any]]):
         """Aggregate results across seeds and save final outputs."""
         # Aggregate summaries
         aggregated = aggregate_summaries(summaries)

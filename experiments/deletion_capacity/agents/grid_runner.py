@@ -298,24 +298,6 @@ def create_grid_id(params: Dict[str, Any]) -> str:
     import hashlib
     import json
 
-    gamma_bar = params.get("gamma_bar", 1.0)
-    gamma_split = params.get("gamma_split", 0.5)
-    quantile = params.get("quantile", 0.95)
-    delete_ratio = params.get("delete_ratio", 10)
-    rho_total = params.get("rho_total", 1.0)
-    # Drift & scale knobs (optional)
-    path_type = params.get("path_type", "rotating")
-    rotate_angle = params.get("rotate_angle", 0.01)
-    drift_rate = params.get("drift_rate", 0.001)
-    feature_scale = params.get("feature_scale", 1.0)
-    # Shorten path_type for ID
-    p = {"static": "st", "rotating": "rot", "drift": "dr"}.get(
-        str(path_type), str(path_type)[:3]
-    )
-
-    comparator = params.get("comparator", "dynamic")
-    oracle_flag = "on" if params.get("enable_oracle", False) else "off"
-
     # Create a short, stable hash that reflects ALL parameters, so that grid ids are unique
     # across combinations even when not explicitly encoded in the human-readable prefix.
     def _normalize(x):
@@ -338,49 +320,8 @@ def create_grid_id(params: Dict[str, Any]) -> str:
     hash_src = json.dumps(
         norm, sort_keys=True, separators=(",", ":"), ensure_ascii=True
     )
-    short_h = hashlib.md5(hash_src.encode("utf-8")).hexdigest()[:8]
-
-    # Theory-first compact suffix (only include if provided)
-    tf_parts = []
-    tg = params.get("target_G", None)
-    tD = params.get("target_D", None)
-    tc = params.get("target_c", None)
-    tC = params.get("target_C", None)
-    tl = params.get("target_lambda", None)
-    tpt = params.get("target_PT", None)
-    tst = params.get("target_ST", None)
-    ps = params.get("path_style", params.get("path_type", None))
-
-    if tpt is not None:
-        tf_parts.append(f"PT{tpt:g}")
-    if tst is not None:
-        tf_parts.append(f"ST{tst:g}")
-    if tg is not None:
-        tf_parts.append(f"G{tg:.2f}")
-    if tl is not None:
-        tf_parts.append(f"lam{tl:.3g}")
-    if tc is not None and tC is not None:
-        tf_parts.append(f"c{tc:.3g}-C{tC:.3g}")
-    elif tc is not None:
-        tf_parts.append(f"c{tc:.3g}")
-    elif tC is not None:
-        tf_parts.append(f"C{tC:.3g}")
-    if ps:
-        p = {
-            "static": "st",
-            "rotating": "rot",
-            "drift": "dr",
-            "brownian": "br",
-            "piecewise-constant": "pc",
-        }.get(str(ps), str(ps)[:3])
-
-    return (
-        f"gamma_{gamma_bar:.1f}-split_{gamma_split:.1f}_q{quantile:.2f}_k{delete_ratio:.0f}_"
-        f"zcdp_rho{rho_total:.1f}_cmp{comparator}_orc{oracle_flag}_"
-        f"p{p}_ang{rotate_angle:.3g}_dr{drift_rate:.3g}_fs{feature_scale:.3g}_"
-        + ("_".join(tf_parts) + "_" if tf_parts else "")
-        + f"h{short_h}"
-    )
+    short_h = hashlib.md5(hash_src.encode("utf-8")).hexdigest()
+    return short_h
 
 
 def run_single_experiment(
@@ -424,21 +365,9 @@ def run_single_experiment(
         runner = ExperimentRunner(cfg)
 
         # Run for this specific seed
-        runner.run_single_seed(seed)
+        runner.run_one_seed(seed)
 
-        # The runner should create a CSV file directly in the out_dir
-        # Look for files matching the expected pattern
-        csv_pattern = os.path.join(run_out_dir, f"*{seed}*.csv")
-        csv_files = glob.glob(csv_pattern)
-
-        if csv_files:
-            # Return the CSV file path
-            return csv_files[0]
-        else:
-            print(
-                f"Warning: No CSV file found for seed {seed} with pattern {csv_pattern}"
-            )
-            return None
+        return
 
     except Exception as e:
         print(f"Error running experiment for seed {seed} with params {params}: {e}")
@@ -465,16 +394,13 @@ def run_parameter_combination(
     grid_output_dir = os.path.join(base_out_dir, "sweep", grid_id)
     os.makedirs(grid_output_dir, exist_ok=True)
 
-    csv_paths = []
-
     if parallel == 1:
         # Sequential execution
         for seed in seeds:
-            result = run_single_experiment(
+            run_single_experiment(
                 params, seed, base_out_dir, output_granularity
             )
-            if result:
-                csv_paths.append(result)
+
     else:
         # Parallel execution
         with mp.Pool(parallel) as pool:
@@ -484,8 +410,7 @@ def run_parameter_combination(
                 base_out_dir=base_out_dir,
                 output_granularity=output_granularity,
             )
-            results = pool.map(run_func, seeds)
-            csv_paths = [r for r in results if r is not None]
+            pool.map(run_func, seeds)
 
     # Ensure ALL mandatory fields that should be consistent across all seeds
     mandatory_fields = {
@@ -519,31 +444,6 @@ def run_parameter_combination(
         "rho_total": params.get("rho_total", np.nan),
         "path_style": params.get("path_style", params.get("path_type", None)),
     }
-
-    if csv_paths:
-        try:
-            # Read first CSV to extract calibration fields that aren't in params
-            first_df = pd.read_csv(csv_paths[0])
-            if len(first_df) > 0:
-                last_row = first_df.iloc[-1]
-                # Extract calibration/diagnostic fields from the last row
-                for field in [
-                    "G_hat",
-                    "D_hat",
-                    "c_hat",
-                    "C_hat",
-                    "lambda_est",
-                    "S_scalar",
-                    "sigma_step_theory",
-                    "N_star_live",
-                    "m_theory_live",
-                    "blocked_reason",
-                ]:
-                    if field in last_row and not pd.isna(last_row[field]):
-                        mandatory_fields[field] = last_row[field]
-        except Exception as e:
-            print(f"Warning: Could not extract calibration fields from CSV: {e}")
-
     # Save params.json for this grid cell
     params_file = os.path.join(grid_output_dir, "params.json")
     with open(params_file, "w") as f:
@@ -555,225 +455,22 @@ def run_parameter_combination(
     params_with_grid = build_params_from_config(params)
 
     # Process outputs based on granularity
-    processed_files = []
     if output_granularity == "seed":
-        processed_files = process_seed_output(
-            csv_paths, grid_id, grid_output_dir, mandatory_fields,
-            parquet_out, params_with_grid, no_legacy_csv
+        process_seed_output(
+            grid_id, grid_output_dir, mandatory_fields,
+            parquet_out, params_with_grid
         )
     elif output_granularity == "event":
-        processed_files = process_event_output(
-            csv_paths, grid_id, grid_output_dir, mandatory_fields,
-            parquet_out, params_with_grid, parquet_write_events, no_legacy_csv
+        process_event_output(
+            grid_id, grid_output_dir, mandatory_fields,
+            parquet_out, params_with_grid, parquet_write_events
         )
     elif output_granularity == "aggregate":
-        aggregate_file = process_aggregate_output(
-            csv_paths, grid_id, grid_output_dir, mandatory_fields,
-            parquet_out, params_with_grid, no_legacy_csv
+        process_aggregate_output(
+            grid_id, grid_output_dir, mandatory_fields,
+            parquet_out, params_with_grid
         )
-        if aggregate_file:
-            processed_files = [aggregate_file]
-
-    print(f"Completed {len(csv_paths)}/{len(seeds)} seeds for {grid_id}")
-    print(
-        f"Generated {len(processed_files)} output files with {output_granularity} granularity"
-    )
-
-    return processed_files
-
-
-def aggregate_results(sweep_dir: str) -> Optional[str]:
-    """Aggregate all CSV results into a master file."""
-    print("\n=== Aggregating results ===")
-
-    # Find all seed CSV files
-    csv_files = glob.glob(os.path.join(sweep_dir, "*", "seed_*.csv"))
-
-    if not csv_files:
-        print("Warning: No CSV files found to aggregate")
-        return None
-
-    print(f"Found {len(csv_files)} CSV files to aggregate")
-
-    # Read and concatenate all CSV files
-    import json
-
-    dfs = []
-    for csv_file in csv_files:
-        try:
-            df = pd.read_csv(csv_file)
-            grid_id = os.path.basename(os.path.dirname(csv_file))
-            seed_file = os.path.basename(csv_file)
-            seed = int(seed_file.split("_")[1].split(".")[0])
-
-            # Add metadata columns
-            df["grid_id"] = grid_id
-            df["seed"] = seed
-
-            # Read grid parameters from params.json
-            params_path = os.path.join(os.path.dirname(csv_file), "params.json")
-            params = {}
-            if os.path.exists(params_path):
-                with open(params_path, "r") as f:
-                    params = json.load(f)
-            # Attach relevant parameters as columns
-            for k in [
-                "gamma_bar",
-                "gamma_split",
-                "quantile",
-                "delete_ratio",
-                "accountant",
-                "eps_total",
-                "rho_total",
-                "delta_total",
-                # Drift/scale/feature controls
-                "path_type",
-                "path_style",
-                "rotate_angle",
-                "drift_rate",
-                "feature_scale",
-                "w_scale",
-                "fix_w_norm",
-                "noise_std",
-                # Theory-first targets
-                "target_G",
-                "target_D",
-                "target_c",
-                "target_C",
-                "target_lambda",
-                "target_PT",
-                "target_ST",
-            ]:
-                if k in params:
-                    df[k] = params[k]
-                else:
-                    # Only add column if present in at least one params.json
-                    if k in ["eps_total", "rho_total", "delta_total"]:
-                        # skip if not present
-                        continue
-                    else:
-                        df[k] = None
-            dfs.append(df)
-        except Exception as e:
-            print(f"Warning: Failed to read {csv_file}: {e}")
-
-    if not dfs:
-        print("Error: No valid CSV files could be read")
-        return None
-
-    # Concatenate all dataframes
-    master_df = pd.concat(dfs, ignore_index=True)
-
-    # Write master CSV
-    master_path = os.path.join(sweep_dir, "all_runs.csv")
-    master_df.to_csv(master_path, index=False)
-
-    print(f"Aggregated {len(master_df)} rows into {master_path}")
-    print(f"Columns: {list(master_df.columns)}")
-
-    return master_path
-
-
-def aggregate_results_from_parquet(parquet_dir: str, sweep_dir: str) -> (Optional[str], Optional[str]):
-    """Aggregate Parquet datasets into master outputs.
-
-    Reads Parquet from results_parquet using DuckDB views and writes:
-    - all_runs.csv (for backward compatibility with existing plots)
-    - all_runs.parquet (Parquet-first artifact for downstream use)
-
-    Returns (csv_path, parquet_path) where either may be None on failure.
-    """
-    print("\n=== Aggregating results (Parquet) ===")
-
-    if open_duckdb is None:
-        print("Warning: DuckDB not available; cannot aggregate from Parquet.")
-        return None, None
-
-    try:
-        conn = open_duckdb(parquet_dir)
-    except Exception as e:
-        print(f"Warning: Failed to open DuckDB over Parquet at {parquet_dir}: {e}")
-        return None, None
-
-    # Prefer seed summaries if present; fall back to event summaries
-    master_df = None
-    try:
-        # Try direct seeds view
-        master_df = conn.execute("SELECT * FROM seeds").df()
-    except Exception:
-        master_df = None
-
-    if master_df is None or master_df.empty:
-        try:
-            # Fallback: summarize events to approximate seed-level rows
-            # Assumes event Parquet contains params columns via exp_integration enrichment
-            master_df = conn.execute(
-                """
-                SELECT
-                  grid_id,
-                  COALESCE(seed, 0) AS seed,
-                  AVG(CASE WHEN regret IS NOT NULL THEN regret END) AS avg_regret_empirical,
-                  SUM(CASE WHEN op = 'insert' THEN 1 ELSE 0 END) AS N_star_emp,
-                  SUM(CASE WHEN op = 'delete' THEN 1 ELSE 0 END) AS m_emp,
-                  COUNT(*) AS total_events,
-                  -- Pass through some common params when available
-                  any_value(algo) AS algo,
-                  any_value(accountant) AS accountant,
-                  any_value(gamma_bar) AS gamma_bar,
-                  any_value(gamma_split) AS gamma_split,
-                  any_value(delete_ratio) AS delete_ratio,
-                  any_value(rho_total) AS rho_total,
-                  any_value(target_PT) AS target_PT,
-                  any_value(target_ST) AS target_ST
-                FROM events
-                GROUP BY grid_id, seed
-                """
-            ).df()
-        except Exception as e:
-            print(f"Warning: Failed to summarize events from Parquet: {e}")
-            master_df = None
-
-    if master_df is None or master_df.empty:
-        print("Warning: No Parquet data found to aggregate (seeds/events).")
-        return None, None
-
-    # Ensure output dir exists
-    os.makedirs(sweep_dir, exist_ok=True)
-
-    # Write CSV (compat with plotting) and Parquet artifacts
-    csv_path = os.path.join(sweep_dir, "all_runs.csv")
-    parquet_path = os.path.join(sweep_dir, "all_runs.parquet")
-    try:
-        master_df.to_csv(csv_path, index=False)
-        print(f"Aggregated {len(master_df)} rows into {csv_path}")
-    except Exception as e:
-        print(f"Warning: Failed writing CSV aggregate: {e}")
-        csv_path = None
-
-    try:
-        # If pyarrow is available, write as a single parquet file
-        master_df.to_parquet(parquet_path, index=False)
-        print(f"Aggregated {len(master_df)} rows into {parquet_path}")
-    except Exception as e:
-        print(f"Warning: Failed writing Parquet aggregate: {e}")
-        parquet_path = None
-
-    return csv_path, parquet_path
-
-
-def validate_schema(csv_path: str, expected_accountants: List[str]) -> bool:
-    """Validate that aggregated CSV has expected schema (simplified for zCDP-only)."""
-    if not csv_path or not os.path.exists(csv_path):
-        return False
-
-    # Simple validation - just check that file exists and is readable
-    try:
-        df = pd.read_csv(csv_path)
-        print("Schema validation passed (zCDP-only mode)")
-        return True
-    except Exception as e:
-        print(f"Schema validation failed: {e}")
-        return False
+    return
 
 
 def process_seed_output(
@@ -783,10 +480,8 @@ def process_seed_output(
     mandatory_fields: Dict[str, Any],
     parquet_out: str = "results_parquet",
     params_with_grid: Dict[str, Any] = None,
-    no_legacy_csv: bool = False,
 ) -> List[str]:
     """Process CSV files for seed granularity output."""
-    processed_files = []
     seed_summaries = []  # Collect all seed summaries for Parquet
 
     for csv_file in csv_files:
@@ -1094,12 +789,6 @@ def process_seed_output(
                 summary_row["gamma_pass_insert"] = np.nan
                 summary_row["gamma_pass_delete"] = np.nan
                 summary_row["gamma_error"] = np.nan
-
-            # Write seed summary file (CSV)
-            if not no_legacy_csv:
-                seed_output_file = os.path.join(output_dir, f"seed_{seed:03d}.csv")
-                pd.DataFrame([summary_row]).to_csv(seed_output_file, index=False)
-                processed_files.append(seed_output_file)
             
             # Collect for Parquet writing
             seed_summaries.append(summary_row)
@@ -1107,15 +796,10 @@ def process_seed_output(
         except Exception as e:
             print(f"Warning: Failed to process {csv_file} for seed output: {e}")
 
-    # Write Parquet for all seed summaries
-    if seed_summaries and params_with_grid:
-        try:
-            write_seed_summary_parquet(seed_summaries, parquet_out, params_with_grid)
-            print(f"✓ Written {len(seed_summaries)} seed summaries to Parquet: {parquet_out}/seeds/")
-        except Exception as e:
-            print(f"Warning: Failed to write seed Parquet: {e}")
+        write_seed_summary_parquet(seed_summaries, parquet_out, params_with_grid)
+        print(f"✓ Written {len(seed_summaries)} seed summaries to Parquet: {parquet_out}/seeds/")
 
-    return processed_files
+    return None
 
 
 def process_event_output(
@@ -1227,166 +911,6 @@ def process_event_output(
             print(f"Warning: Failed to process {csv_file} for event output: {e}")
 
     return processed_files
-
-
-def process_aggregate_output(
-    csv_files: List[str],
-    grid_id: str,
-    output_dir: str,
-    mandatory_fields: Dict[str, Any],
-    parquet_out: str = "results_parquet",
-    params_with_grid: Dict[str, Any] = None,
-    no_legacy_csv: bool = False,
-) -> Optional[str]:
-    """Process CSV files for aggregate granularity output."""
-    if not csv_files:
-        return None
-
-    all_summaries = []
-
-    for csv_file in csv_files:
-        if not os.path.exists(csv_file):
-            continue
-
-        try:
-            df = pd.read_csv(csv_file)
-            if len(df) == 0:
-                continue
-
-            # Extract seed from filename
-            seed_file = os.path.basename(csv_file)
-            seed_match = [part for part in seed_file.split("_") if part.isdigit()]
-            if not seed_match:
-                continue
-            seed = int(seed_match[0])
-
-            # Create per-seed summary
-            summary = {
-                "seed": seed,
-                "avg_regret_empirical": df["regret"].mean()
-                if "regret" in df.columns
-                else np.nan,
-                "N_star_emp": len(df[df["op"] == "insert"])
-                if "op" in df.columns
-                else np.nan,
-                "m_emp": len(df[df["op"] == "delete"])
-                if "op" in df.columns
-                else np.nan,
-                "final_acc": df["acc"].iloc[-1]
-                if "acc" in df.columns and len(df) > 0
-                else np.nan,
-                "total_events": len(df),
-            }
-
-            # Add privacy metrics from last row
-            if len(df) > 0:
-                last_row = df.iloc[-1]
-                for col in [
-                    "eps_spent",
-                    "capacity_remaining",
-                    "eps_converted",
-                    "eps_remaining",
-                    "delta_total",
-                ]:
-                    if col in last_row:
-                        summary[col] = last_row[col]
-
-            all_summaries.append(summary)
-
-        except Exception as e:
-            print(f"Warning: Failed to process {csv_file} for aggregate: {e}")
-
-    if not all_summaries:
-        return None
-
-    # Create aggregate statistics
-    summary_df = pd.DataFrame(all_summaries)
-
-    aggregate_row = {
-        "grid_id": grid_id,
-        "num_seeds": len(all_summaries),
-        "avg_regret_mean": summary_df["avg_regret_empirical"].mean(),
-        "avg_regret_median": summary_df["avg_regret_empirical"].median(),
-        "avg_regret_std": summary_df["avg_regret_empirical"].std(),
-        "N_star_mean": summary_df["N_star_emp"].mean(),
-        "N_star_median": summary_df["N_star_emp"].median(),
-        "m_mean": summary_df["m_emp"].mean(),
-        "m_median": summary_df["m_emp"].median(),
-        "final_acc_mean": summary_df["final_acc"].mean(),
-        "final_acc_median": summary_df["final_acc"].median(),
-    }
-
-    # Ensure ALL mandatory fields are present, even if NaN
-    mandatory_field_names = [
-        "gamma_bar",
-        "gamma_split",
-        "accountant",
-        "G_hat",
-        "D_hat",
-        "c_hat",
-        "C_hat",
-        "lambda_est",
-        "S_scalar",
-        "sigma_step_theory",
-        "N_star_live",
-        "m_theory_live",
-        "blocked_reason",
-        # Drift/scale/feature controls
-        "path_type",
-        "rotate_angle",
-        "drift_rate",
-        "feature_scale",
-        "w_scale",
-        "fix_w_norm",
-        "noise_std",
-        # Theory-first targets
-        "target_G",
-        "target_D",
-        "target_c",
-        "target_C",
-        "target_lambda",
-        "target_PT",
-        "target_ST",
-        "rho_total",
-        "path_style",
-    ]
-
-    for field in mandatory_field_names:
-        if field in mandatory_fields:
-            aggregate_row[field] = mandatory_fields[field]
-        else:
-            aggregate_row[field] = np.nan if field != "blocked_reason" else ""
-
-    # Add privacy metrics aggregates
-    for col in [
-        "eps_spent",
-        "capacity_remaining",
-        "eps_converted",
-        "eps_remaining",
-        "delta_total",
-    ]:
-        if col in summary_df.columns:
-            aggregate_row[f"{col}_mean"] = summary_df[col].mean()
-            aggregate_row[f"{col}_median"] = summary_df[col].median()
-
-    # Write aggregate file (CSV)
-    if not no_legacy_csv:
-        aggregate_output_file = os.path.join(output_dir, "aggregate.csv")
-        pd.DataFrame([aggregate_row]).to_csv(aggregate_output_file, index=False)
-    else:
-        aggregate_output_file = None
-    
-    # Write aggregate to Parquet (as a seed summary with aggregate=True flag)
-    if params_with_grid:
-        try:
-            aggregate_row_parquet = aggregate_row.copy()
-            aggregate_row_parquet["is_aggregate"] = True
-            write_seed_summary_parquet([aggregate_row_parquet], parquet_out, params_with_grid)
-            print(f"✓ Written aggregate summary to Parquet: {parquet_out}/seeds/")
-        except Exception as e:
-            print(f"Warning: Failed to write aggregate Parquet: {e}")
-
-    return aggregate_output_file
 
 
 def main():
@@ -1510,14 +1034,12 @@ def main():
     )
     print(f"Output granularity: {args.output_granularity}")
 
-    all_csv_paths = []
     for i, params in enumerate(combinations):
         print(f"\nProgress: {i + 1}/{len(combinations)}")
-        csv_paths = run_parameter_combination(
+        run_parameter_combination(
             params, seeds, args.base_out, args.output_granularity, args.parallel,
             args.parquet_out, args.parquet_write_events, args.no_legacy_csv
         )
-        all_csv_paths.extend(csv_paths)
 
     # Create sweep manifest (requirement 2)
     try:
@@ -1542,7 +1064,6 @@ def main():
 
     print("\nGrid search complete!")
     print(f"Results in: {sweep_dir}")
-    print(f"Total output files completed: {len(all_csv_paths)}")
     print(f"Output granularity used: {args.output_granularity}")
 
     return 0
