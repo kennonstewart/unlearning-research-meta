@@ -2,8 +2,8 @@ import pytest
 import tempfile
 import os
 import pandas as pd
-from exp_engine.engine.duck import create_connection_and_views, query_seeds, query_events
-from exp_engine.engine.io import write_seed_rows, write_event_rows
+from exp_engine.engine.duck import create_connection_and_views, query_events
+from exp_engine.engine.io import write_event_rows
 
 # Skip DuckDB tests if not available
 try:
@@ -26,25 +26,11 @@ def test_create_connection_and_views_empty_dir():
         # Views should not exist yet
         tables = conn.execute("SHOW TABLES").fetchall()
         table_names = [row[0] for row in tables]
-        assert "seeds" not in table_names
         assert "events" not in table_names
 
 
 def test_create_connection_and_views_with_data():
     """Test creating connection and views with actual data."""
-    seed_data = [
-        {
-            "seed": 1,
-            "algo": "memorypair",
-            "accountant": "zcdp",
-            "gamma_bar": 1.0,
-            "gamma_split": 0.5,
-            "avg_regret_empirical": 0.1,
-            "N_star_emp": 100,
-            "m_emp": 10
-        }
-    ]
-    
     event_data = [
         {
             "seed": 1,
@@ -61,7 +47,6 @@ def test_create_connection_and_views_with_data():
     
     with tempfile.TemporaryDirectory() as tmpdir:
         # Write some data first
-        write_seed_rows(seed_data, tmpdir)
         write_event_rows(event_data, tmpdir)
         
         # Create connection and views
@@ -70,49 +55,7 @@ def test_create_connection_and_views_with_data():
         # Views should exist now
         tables = conn.execute("SHOW TABLES").fetchall()
         table_names = [row[0] for row in tables]
-        assert "seeds" in table_names
         assert "events" in table_names
-        assert "seeds_summary" in table_names
-        assert "events_summary" in table_names
-
-
-def test_query_seeds():
-    """Test querying seeds view."""
-    seed_data = [
-        {
-            "seed": 1,
-            "algo": "memorypair",
-            "accountant": "zcdp",
-            "gamma_bar": 1.0,
-            "avg_regret_empirical": 0.1
-        },
-        {
-            "seed": 2,
-            "algo": "memorypair", 
-            "accountant": "zcdp",
-            "gamma_bar": 1.0,
-            "avg_regret_empirical": 0.2
-        }
-    ]
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        write_seed_rows(seed_data, tmpdir)
-        conn = create_connection_and_views(tmpdir)
-        
-        # Query all seeds
-        df = query_seeds(conn)
-        assert len(df) == 2
-        assert "seed" in df.columns
-        assert "avg_regret_empirical" in df.columns
-        
-        # Query with filter
-        df_filtered = query_seeds(conn, "seed = 1")
-        assert len(df_filtered) == 1
-        assert df_filtered.iloc[0]["seed"] == 1
-        
-        # Query with limit
-        df_limited = query_seeds(conn, limit=1)
-        assert len(df_limited) == 1
 
 
 def test_query_events():

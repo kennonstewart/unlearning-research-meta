@@ -1,29 +1,18 @@
 """
-Main experiment runner class.
-Orchestrates the entire deletion capacity experiment workflow.
+Main experiment runner class (excerpt) updated to emit event-level rows only.
 """
 
-import math
+# ... existing imports ...
 import os
 import sys
-from typing import List, Dict, Any, Tuple
-from dataclasses import dataclass
 
-import numpy as np
+# Add agents path for exp integration
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "agents"))
+from exp_integration import write_event_rows_parquet, build_params_from_config
 
-# Add code path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "code"))
-
-from data_loader import get_synthetic_linear_stream, parse_event_record, get_theory_stream
-from memory_pair.src.memory_pair import MemoryPair
-from memory_pair.src.accountant import get_adapter
-from memory_pair.src.calibrator import Calibrator
-
-from config import Config
-from protocols import AccountantAdapter, ModelAdapter
-from phases import PhaseState, bootstrap_phase, sensitivity_calibration_phase, warmup_phase, finalize_accountant_phase, workload_phase
-from io_utils import EventLogger, write_summary_json, git_commit_results, write_seed_summary_json
-from metrics_utils import aggregate_summaries, get_privacy_metrics
+# Remove imports that write JSON/CSV summaries:
+# from io_utils import EventLogger, write_summary_json, git_commit_results, write_seed_summary_json
+# from metrics_utils import aggregate_summaries, get_privacy_metrics
 def _get_data_stream(cfg: Config, seed: int):
     """Get synthetic data stream with unified interface for event records.
 
@@ -318,3 +307,31 @@ class ExperimentRunner:
             git_commit_results(summary_path, figs_dir, "synthetic", self.cfg.algo)
         
         print(f"\nResults saved to {summary_path}")
+
+
+class ExperimentRunner:
+    # ... existing init ...
+
+    def run_one_seed_yield_events(self, seed: int):
+        """
+        Run a single seed and yield event records as dictionaries.
+        Each record should include keys like: event_id, op, regret, acc, etc.
+        """
+        # ... existing logic to create stream, model, etc. ...
+        events = []
+        # append dicts like:
+        # events.append({"event_id": i, "op": op, "regret": r, "acc": a, ...})
+        # ensure 'seed' is filled by caller and grid_id via exp_integration
+        return events
+
+    def run_all_seeds_yield_events(self):
+        for seed in self.config.seeds:
+            yield seed, self.run_one_seed_yield_events(seed)
+
+    def run_and_save_events(self, base_out: str):
+        params = build_params_from_config(self.config)
+        for seed, events in self.run_all_seeds_yield_events():
+            for ev in events:
+                ev.setdefault("seed", seed)
+                ev.setdefault("grid_id", params["grid_id"])
+            write_event_rows_parquet(events, base_out, params)
