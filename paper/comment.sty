@@ -1,9 +1,0 @@
-% Minimal comment.sty for LaTeX comment environment
-\NeedsTeXFormat{LaTeX2e}
-\ProvidesPackage{comment}[2025/07/25 Minimal comment package]
-
-% Swallow everything between \begin{comment} and \end{comment}
-\makeatletter
-\newenvironment{comment}{\begingroup\@comment}{\endgroup}
-\long\def\@comment#1\endcomment{}%
-\makeatother
