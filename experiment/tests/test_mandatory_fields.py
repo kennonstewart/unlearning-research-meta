@@ -98,7 +98,7 @@ def test_all_granularities_have_mandatory_fields():
         
         # Test processing functions
         sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'agents'))
-        from grid_runner import process_seed_output, process_event_output, process_aggregate_output
+        from experiment.grid_runner import process_seed_output, process_event_output, process_aggregate_output
         
         mandatory_fields = {'G_hat': 2.5, 'D_hat': 1.8, 'sigma_step_theory': 0.05}
         output_dir = os.path.join(temp_dir, "output")

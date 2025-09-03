@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 def test_privacy_metrics_force_update():
     """Test that privacy metrics are force-updated from model metrics even when stale values exist."""
     from phases import _create_extended_log_entry
-    from config import Config
+    from experiment.utils.configs.config import Config
     
     # Create a mock PhaseState with minimal structure
     class MockPhaseState:
@@ -62,7 +62,7 @@ def test_privacy_metrics_force_update():
 def test_sigma_delete_column():
     """Test that sigma_delete column is added for delete operations."""
     from phases import _create_extended_log_entry
-    from config import Config
+    from experiment.utils.configs.config import Config
     
     class MockPhaseState:
         def __init__(self):
@@ -100,7 +100,7 @@ def test_sigma_delete_column():
 
 def test_rho_util_computation():
     """Test rho_util computation in grid_runner process_seed_output."""
-    from agents.grid_runner import process_seed_output
+    from experiment.grid_runner import process_seed_output
     
     # Create temporary directory
     with tempfile.TemporaryDirectory() as temp_dir:

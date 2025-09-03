@@ -14,7 +14,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from experiments.deletion_capacity.duck_helpers import connect, q_seeds, q_events
+from experiment.utils.duck_helpers import connect, q_seeds, q_events
 
 
 def demo_basic_queries(base_out="results_parquet"):

@@ -11,7 +11,7 @@ import numpy as np
 import sys
 sys.path.append(os.path.dirname(__file__))
 
-from agents.grid_runner import process_seed_output
+from experiment.grid_runner import process_seed_output
 
 def create_realistic_mock_csv(path: str, regret_pattern: str = "increasing"):
     """Create a realistic mock CSV that simulates actual experiment output"""

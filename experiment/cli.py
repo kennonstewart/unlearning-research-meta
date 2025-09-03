@@ -4,8 +4,8 @@ Parses arguments and delegates to ExperimentRunner.
 """
 
 import click
-from config import Config
-from runner import ExperimentRunner, ALGO_MAP
+from experiment.utils.configs.config import Config
+from experiment.runner import ExperimentRunner, ALGO_MAP
 
 
 @click.command()

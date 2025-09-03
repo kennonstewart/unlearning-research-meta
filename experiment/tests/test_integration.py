@@ -82,7 +82,7 @@ eps_total: [1.0]
             
             # Import processing functions
             sys.path.append(os.path.join(os.path.dirname(__file__), "."))
-            from agents.grid_runner import process_seed_output, process_event_output, process_aggregate_output
+            from experiment.grid_runner import process_seed_output, process_event_output, process_aggregate_output
             
             mandatory_fields = {
                 'G_hat': 2.5,

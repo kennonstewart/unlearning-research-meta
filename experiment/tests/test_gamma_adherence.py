@@ -11,7 +11,7 @@ import numpy as np
 import sys
 sys.path.append(os.path.dirname(__file__))
 
-from agents.grid_runner import process_seed_output
+from experiment.grid_runner import process_seed_output
 
 def create_mock_csv_with_regret(path: str, num_events: int = 10, avg_regret_final: float = 0.5):
     """Create a mock CSV file with specific regret pattern for testing γ-adherence"""

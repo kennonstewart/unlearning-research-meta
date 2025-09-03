@@ -1,70 +1,51 @@
 #!/usr/bin/env python3
 """
-Grid search runner for deletion capacity experiments (Parquet events only).
+Grid search runner for deletion capacity experiments.
+Implements the workflow described in AGENTS.md.
 """
 
+import itertools
 import yaml
 import os
 import sys
 import argparse
 from typing import Dict, List, Any, Optional
+import multiprocessing as mp
+from functools import partial
+
+import math
+import json
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + "/..")
-from config import Config
+from experiment.utils.configs.config import Config
 from runner import ExperimentRunner
 
-# Parquet integration
-from exp_integration import build_params_from_config, write_event_rows_parquet
+# Import exp_engine integration
+from exp_integration import (
+    build_params_from_config,
+)
 
-# Default Parquet out
+# For Parquet-first aggregation
+try:
+    from exp_integration import (
+        open_duckdb,
+    )  # thin wrapper around exp_engine.engine.duck
+except Exception:
+    open_duckdb = None
+
+# Module flag default path for Parquet
 PARQUET_OUT = os.environ.get("PARQUET_OUT", "results_parquet")
 
 
+def iter_df_in_chunks(df, chunk_size=50000):
+    """Iterate over DataFrame in chunks to avoid large in-memory conversions."""
+    n = len(df)
+    for i in range(0, n, chunk_size):
+        yield df.iloc[i : i + chunk_size]
+
+
 def load_grid(grid_file: str) -> Dict[str, Any]:
-    with open(grid_file, "r") as f:
-        raw = yaml.safe_load(f) or {}
-    return raw if isinstance(raw, dict) else {"matrix": {}}
-
-
-def generate_param_combinations(matrix: Dict[str, Any]) -> List[Dict[str, Any]]:
-    # Simple cartesian product
-    keys = list(matrix.keys())
-    if not keys:
-        return [{}]
-    combos = [{}]
-    for k in keys:
-        values = matrix[k] if isinstance(matrix[k], (list, tuple)) else [matrix[k]]
-        combos = [dict(c, **{k: v}) for c in combos for v in values]
-    return combos
-
-
-def main(argv=None):
-    p = argparse.ArgumentParser()
-    p.add_argument("--grid", required=True, help="YAML file with a 'matrix' of parameters")
-    p.add_argument("--max-procs", type=int, default=1)
-    p.add_argument("--parquet-out", default=PARQUET_OUT)
-    args = p.parse_args(argv)
-
-    grid = load_grid(args.grid)
-    combos = generate_param_combinations(grid.get("matrix", {}))
-
-    for combo in combos:
-        cfg = Config(**combo)
-        runner = ExperimentRunner(cfg)
-        params = build_params_from_config(cfg)
-
-        # Run one seed per config (runner controls seeds internally)
-        for seed, events in runner.run_all_seeds_yield_events():
-            # events: List[Dict[str, Any]] enriched with required fields
-            for ev in events:
-                ev.setdefault("seed", seed)
-                ev.setdefault("grid_id", params["grid_id"])
-            write_event_rows_parquet(events, args.parquet_out, params)
-
-
-if __name__ == "__main__":
-    main()
     """Load parameter grid from YAML file.
 
     Supports legacy flat format (treated as matrix) and structured format
@@ -414,9 +395,7 @@ def run_parameter_combination(
     if parallel == 1:
         # Sequential execution
         for seed in seeds:
-            run_single_experiment(
-                params, seed, base_out_dir, output_granularity
-            )
+            run_single_experiment(params, seed, base_out_dir, output_granularity)
 
     else:
         # Parallel execution
@@ -433,10 +412,7 @@ def run_parameter_combination(
     params_with_grid = build_params_from_config(params)
 
     # Process outputs based on granularity
-    process_event_output(
-            grid_id, grid_output_dir,
-            parquet_out, params_with_grid
-        )
+    process_event_output(grid_id, grid_output_dir, parquet_out, params_with_grid)
 
     return
 
@@ -479,8 +455,8 @@ def main():
     )
     parser.add_argument(
         "--no-legacy-csv",
-        default = True,
-        action="store_true", 
+        default=True,
+        action="store_true",
         help="Skip writing legacy CSV files",
     )
 
@@ -565,8 +541,14 @@ def main():
     for i, params in enumerate(combinations):
         print(f"\nProgress: {i + 1}/{len(combinations)}")
         run_parameter_combination(
-            params, seeds, args.base_out, args.output_granularity, args.parallel,
-            args.parquet_out, args.parquet_write_events, args.no_legacy_csv
+            params,
+            seeds,
+            args.base_out,
+            args.output_granularity,
+            args.parallel,
+            args.parquet_out,
+            args.parquet_write_events,
+            args.no_legacy_csv,
         )
 
     # Create sweep manifest (requirement 2)

@@ -10,8 +10,8 @@ REPO_ROOT = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.join(REPO_ROOT, 'code'))
 
-from config import Config
-from runner import _get_data_stream
+from experiment.utils.configs.config import Config
+from experiment.runner import _get_data_stream
 from data_loader import parse_event_record
 
 def main():
