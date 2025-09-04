@@ -5,8 +5,8 @@ Breaks down monolithic main loop into testable functions.
 
 import numpy as np
 from typing import Tuple, Generator
-from experiment.utils.configs.config import Config
-from experiment.utils.io_utils import EventLogger
+from configs.config import Config
+from utils.io_utils import EventLogger
 
 # Import local modules from deletion_capacity experiment directory
 import importlib.util

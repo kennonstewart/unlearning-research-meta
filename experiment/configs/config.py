@@ -118,6 +118,7 @@ class Config:
     # Finalized regret calculation spec
     enforce_nonnegative_regret: bool = True  # Ensure regret >= 0 (finalized spec)
     parquet_only_mode: bool = True  # Write Parquet-only by default (finalized spec)
+    parquet_out: str = "results_parquet"  # Base directory for Parquet datasets
     regret_warmup_threshold: Optional[int] = None  # Events before regret tracking starts (post-warmup)
     regret_comparator_mode: str = "oracle"  # "oracle", "zero", or "ridge" for regret baseline
 
