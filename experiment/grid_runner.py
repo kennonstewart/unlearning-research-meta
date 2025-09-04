@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Main experiment runner class and helpers
-for experiment grid searches.
+for experiment grid searches.git 
 """
 
 from __future__ import annotations
