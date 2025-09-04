@@ -332,8 +332,6 @@ def run_single_experiment(
     seed: int,
     base_out_dir: str,
     output_granularity: str = "seed",
-    parquet_out: str = PARQUET_OUT,
-    parquet_write_events: bool = True,
 ) -> Optional[str]:
     """Run a single experiment with given parameters and seed."""
     import re
@@ -342,7 +340,6 @@ def run_single_experiment(
     config_kwargs = params.copy()
     config_kwargs["seeds"] = 1  # Single seed per run
     config_kwargs["output_granularity"] = output_granularity  # Pass through granularity
-    config_kwargs["parquet_out"] = parquet_out
 
     # Set output directory for this specific run
     grid_id = create_grid_id(params)
@@ -370,7 +367,6 @@ def run_single_experiment(
         cfg = Config.from_cli_args(**config_kwargs)
         runner = ExperimentRunner(cfg)
 
-        # Run for this specific seed
         # Run for this specific seed
         runner.run_one_seed(seed)
 
@@ -414,8 +410,6 @@ def run_parameter_combination(
                 params,
                 base_out_dir=base_out_dir,
                 output_granularity=output_granularity,
-                parquet_out=parquet_out,
-                parquet_write_events=parquet_write_events,
             )
             pool.map(run_func, seeds)
 
