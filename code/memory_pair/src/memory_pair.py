@@ -172,6 +172,18 @@ class MemoryPair:
         self.drift_boost_remaining = 0
         self.base_eta_t = 0.0
 
+    @property
+    def odometer(self):
+        """
+        Expose the odometer from the accountant for privacy accounting diagnostics.
+        
+        Returns the ZCDPOdometer instance if using zCDP accountant, None otherwise.
+        This allows the experiment workflow to access privacy accounting diagnostics.
+        """
+        if hasattr(self.accountant, 'odometer'):
+            return self.accountant.odometer
+        return None
+
     # ---- helpers to sanitize cfg values ----
     def _safe_pos_float(self, val, default):
         try:
@@ -788,7 +800,7 @@ class MemoryPair:
             diagnostics["gamma_ins"] = getattr(self.cfg, "gamma_insert", None)
             diagnostics["gamma_del"] = getattr(self.cfg, "gamma_delete", None)
 
-        if hasattr(self.odometer, "G_hat") and hasattr(self.odometer, "D_hat"):
+        if self.odometer and hasattr(self.odometer, "G_hat") and hasattr(self.odometer, "D_hat"):
             G_hat = getattr(self.odometer, "G_hat", None)
             D_hat = getattr(self.odometer, "D_hat", None)
             c_hat = getattr(self.odometer, "c_hat", None)
@@ -825,6 +837,7 @@ class MemoryPair:
         if (
             self.recal_window is None
             or self.phase != Phase.INTERLEAVING
+            or not self.odometer
             or not hasattr(self.odometer, "supports_recalibration")
             or not self.odometer.supports_recalibration()
         ):
@@ -846,7 +859,8 @@ class MemoryPair:
         try:
             new_stats = self.calibrator.get_updated_stats(self)
             remaining_T = max(1000, self.events_seen)
-            self.odometer.recalibrate_with(new_stats, remaining_T)
+            if self.odometer:
+                self.odometer.recalibrate_with(new_stats, remaining_T)
             self.recalibrations_count += 1
             print(f"[MemoryPair] Recalibration #{self.recalibrations_count} completed.")
         except Exception as e:
