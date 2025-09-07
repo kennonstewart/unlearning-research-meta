@@ -17,21 +17,30 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from exp_engine.engine import write_event_rows, attach_grid_id
+from exp_engine.engine.cah import canonicalize_params
 
 
 def build_params_from_config(cfg) -> Dict[str, Any]:
-    # Pick canonical fields used for content addressing and partitioning
-    params = {
-        "algo": "memorypair",
-        "accountant": getattr(cfg, "accountant", "zcdp"),
-        "gamma_bar": getattr(cfg, "gamma_bar", None),
-        "gamma_split": getattr(cfg, "gamma_split", None),
-        "rho_total": getattr(cfg, "rho_total", None),
-        "target_PT": getattr(cfg, "target_PT", None),
-        "target_ST": getattr(cfg, "target_ST", None),
-        "delete_ratio": getattr(cfg, "delete_ratio", None),
-        # Add more stable params as needed...
-    }
+    """Build a parameter dict for content-addressed hashing.
+
+    Uses the full configuration (minus volatile/path-like fields via
+    canonicalize_params) so that each unique parameter combination gets a
+    distinct grid_id without embedding parameters in the ID string.
+    """
+    # Accept either a dataclass-like object or a raw dict
+    if isinstance(cfg, dict):
+        raw = dict(cfg)
+    else:
+        # Fallback for objects: use __dict__ if available
+        raw = dict(getattr(cfg, "__dict__", {}))
+
+    # Ensure algo is present for downstream context
+    raw.setdefault("algo", "memorypair")
+
+    # Canonicalize to drop volatile keys and normalize floats
+    params = canonicalize_params(raw)
+
+    # Attach content-addressed grid_id
     return attach_grid_id(params)
 
 

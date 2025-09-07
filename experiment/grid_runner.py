@@ -311,7 +311,7 @@ def create_grid_id(params: Dict[str, Any]) -> str:
             return [_normalize(v) for v in x]
         # Convert numpy scalars to Python scalars if present
         try:
-            import numpy as _np  # local import to avoid top-level dependency
+            import numpy as _np  # local import to avoid top-level dependency results/grid_2025_09_04/parquet/grids/grid_id=135b111ea800
 
             if isinstance(x, _np.generic):
                 return x.item()
