@@ -27,7 +27,6 @@ wheels/
 .cache/
 # Test files
 !tests/test_*.py
-*.yaml
 
 
 # cache files

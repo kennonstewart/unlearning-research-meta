@@ -1,0 +1,85 @@
+version: 1
+
+# Final sweep to probe remaining questions:
+# - Geometry vs deletions (m, σ)
+# - Readiness threshold (N_gamma) sensitivity
+# - Strong-convexity regime activation (sc_active variation)
+# - Dynamic regret path length P_T (oracle-enabled subset)
+# - Recalibration effect
+
+matrix:
+  # Core
+  algo: memorypair
+  accountant: zcdp
+  max_events: 20000
+  bootstrap_iters: 1000
+  parquet_only_mode: true
+  parquet_out: results_parquet
+  regret_comparator_mode: zero         # simpler baseline when oracle is off
+
+  # Gamma budgets (PAIRED by index)
+  gamma_bar:   [0.22, 0.28, 0.32, 0.36]
+  gamma_split: [0.64, 0.67, 0.70, 0.74]
+
+  # Deletion workload and privacy budget
+  delete_ratio: [1, 5, 20]             # light to heavy
+  rho_total: [0.25, 0.5, 1.0, 2.0]
+  delta_total: 1e-5
+  delta_b: 0.05
+  m_max: [null]                        # let odometer choose
+
+  # Strong convexity regime: vary activation ease and regularization
+  strong_convexity: [true, false]
+  lambda_reg: [0.0, 0.05]              # also tests λ_reg’s effect on sensitivity and regret gate
+  lambda_: 0.05                        # passed to zCDP odometer
+  lambda_min_threshold: [1.0e-6, 1.0e-3]  # easier vs stricter stability
+  lambda_stability_K: [25, 100]           # earlier vs later SC activation
+
+  # Recalibration (odometer + calibrator) toggle
+  recal_window: [null, 2000]
+  recal_threshold: 0.3
+  ema_beta: 0.9
+
+  # Theory-first synthetic stream (vary PT to induce drift; keep S_T fixed)
+  dim: 20
+  path_style: rotating
+  target_G: 2.0
+  target_D: 2.0
+  target_c: 0.1
+  target_C: 10.0
+  target_lambda: 0.05
+  target_PT: [100.0, 250.0, 400.0]
+  target_ST: [40000.0]
+
+  # Oracle: enable on a subset via include/cases below; default off to control runtime
+  enable_oracle: [false]
+
+  # Misc
+  quantile: 0.95
+  D_cap: 10.0
+  adagrad_eps: 1.0e-12
+  D_bound: 1.0
+  trim_quantile: 0.95
+  lambda_floor: 1.0e-6
+  lambda_cap: 1.0e3
+  eta_max: 1.0
+  comparator: dynamic
+  enforce_nonnegative_regret: true
+
+# Add oracle-enabled probes (kept small by selector)
+selectors:
+  - name: oracle_probe
+    where:
+      enable_oracle: true
+      strong_convexity: [true, false]
+      lambda_stability_K: [25]
+      lambda_min_threshold: [1.0e-6]
+      target_PT: [100.0, 400.0]
+      rho_total: [0.5, 1.0]
+      delete_ratio: [1, 20]
+      gamma_bar: [0.28, 0.36]
+      gamma_split: [0.67, 0.74]
+
+# Merge the oracle probes into the main sweep
+include:
+  - oracle_probe
