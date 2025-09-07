@@ -51,8 +51,8 @@ matrix:
   target_PT: [100.0, 250.0, 400.0]
   target_ST: [40000.0]
 
-  # Oracle: enable on a subset via include/cases below; default off to control runtime
-  enable_oracle: [false]
+  # Oracle: default off for full sweep; add small oracle-enabled subset via include below
+  enable_oracle: [false, true]
 
   # Misc
   quantile: 0.95
@@ -80,6 +80,14 @@ selectors:
       gamma_bar: [0.28, 0.36]
       gamma_split: [0.67, 0.74]
 
-# Merge the oracle probes into the main sweep
+# Merge the oracle probes into the main sweep:
+# - include all base combinations with enable_oracle=false
+# - plus the small oracle-enabled probe subset defined above
 include:
+  - where:
+      enable_oracle: [false]
   - oracle_probe
+
+# Optional: randomly subsample N combinations for a quick run
+sample_n: 250
+sample_seed: 123

@@ -16,6 +16,7 @@ from functools import partial
 
 import math
 import json
+import random
 
 """
 Ensure local, self-contained imports when running as a script:
@@ -638,6 +639,20 @@ def main():
         help="Skip writing legacy CSV files",
     )
 
+    # Random subsampling controls (override YAML sample_n/sample_seed)
+    parser.add_argument(
+        "--sample-n",
+        type=int,
+        default=None,
+        help="Randomly subsample N parameter combinations after filters",
+    )
+    parser.add_argument(
+        "--sample-seed",
+        type=int,
+        default=None,
+        help="Random seed for subsampling parameter combinations",
+    )
+
     args = parser.parse_args()
 
     # Validate output granularity (redundant but kept for clarity)
@@ -662,6 +677,9 @@ def main():
     cases = grid_raw.get("cases", [])
     excludes = grid_raw.get("exclude", [])
     limit = grid_raw.get("limit", None)
+    # Optional random subsampling controls from YAML
+    yaml_sample_n = grid_raw.get("sample_n", None)
+    yaml_sample_seed = grid_raw.get("sample_seed", None)
 
     print(f"Matrix parameters: {list(matrix.keys())}")
 
@@ -688,9 +706,27 @@ def main():
     else:
         combinations = list(combinations_full)
 
-    # Apply excludes and limit
+    # Apply excludes
     combinations = _apply_excludes(combinations, excludes)
-    if isinstance(limit, int) and limit > 0:
+
+    # Determine sampling parameters: CLI overrides YAML
+    sample_n = getattr(args, "sample_n", None)
+    if sample_n is None:
+        sample_n = yaml_sample_n
+    sample_seed = getattr(args, "sample_seed", None)
+    if sample_seed is None:
+        sample_seed = yaml_sample_seed
+
+    # Random subsample if requested; otherwise apply deterministic limit
+    if isinstance(sample_n, int) and sample_n > 0:
+        if len(combinations) > 0:
+            rng = random.Random(sample_seed if isinstance(sample_seed, int) else None)
+            k = min(sample_n, len(combinations))
+            combinations = rng.sample(combinations, k)
+        print(
+            f"Applying random subsample: kept {len(combinations)} combos (sample_n={sample_n}, seed={sample_seed})"
+        )
+    elif isinstance(limit, int) and limit > 0:
         combinations = combinations[:limit]
 
     print(f"Selected {len(combinations)} parameter combinations after filters")
