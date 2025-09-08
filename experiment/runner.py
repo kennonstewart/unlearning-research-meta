@@ -18,14 +18,14 @@ _EXP_DIR = os.path.dirname(__file__)
 if _EXP_DIR not in sys.path:
     sys.path.insert(0, _EXP_DIR)
 
-from configs.config import Config
-from utils.io_utils import (
+from .configs.config import Config
+from .utils.io_utils import (
     EventLogger,
     write_summary_json,
     write_seed_summary_json,
     git_commit_results,
 )
-from utils.phases import (
+from .utils.phases import (
     PhaseState,
     bootstrap_phase,
     sensitivity_calibration_phase,
@@ -33,7 +33,7 @@ from utils.phases import (
     finalize_accountant_phase,
     workload_phase,
 )
-from utils.phases import get_privacy_metrics  # delegated import in phases
+from .utils.phases import get_privacy_metrics  # delegated import in phases
 
 # code/ modules (data loader + algorithm)
 _CODE_DIR = os.path.abspath(os.path.join(_EXP_DIR, "..", "code"))

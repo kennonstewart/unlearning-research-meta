@@ -28,8 +28,8 @@ _EXP_DIR = os.path.dirname(os.path.abspath(__file__))
 if _EXP_DIR not in sys.path:
     sys.path.insert(0, _EXP_DIR)
 
-from configs.config import Config
-from runner import ExperimentRunner
+from .configs.config import Config
+from .runner import ExperimentRunner
 
 # Import exp_engine integration
 from exp_integration import build_params_from_config

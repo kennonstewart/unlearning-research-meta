@@ -32,7 +32,8 @@
         "ms-python.debugpy",
         "charliermarsh.ruff",
         "ms-toolsai.jupyter",
-        "mutantdino.resourcemonitor"
+        "mutantdino.resourcemonitor",
+        "openai.chatgpt"
       ]
     }
   },
