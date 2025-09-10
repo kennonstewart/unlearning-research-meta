@@ -5,8 +5,8 @@ Breaks down monolithic main loop into testable functions.
 
 import numpy as np
 from typing import Tuple, Generator
-from ..configs.config import Config
-from .io_utils import EventLogger
+from configs.config import Config
+from utils.io_utils import EventLogger
 
 # Import local modules from deletion_capacity experiment directory
 import importlib.util
@@ -114,33 +114,41 @@ def _create_extended_log_entry(
             entry["x_norm"] = meta["metrics"]["x_norm"]
         else:
             entry["x_norm"] = None
-            
+
         # Merge all keys from the current record's meta["metrics"] into the log entry
         # This ensures all event-level diagnostics from the data loader are persisted
         if "metrics" in meta and meta["metrics"]:
             for key, val in meta["metrics"].items():
                 # Don't clobber existing populated values
-                if key not in entry or entry[key] is None or (
-                    isinstance(entry[key], float) and np.isnan(entry[key])
+                if (
+                    key not in entry
+                    or entry[key] is None
+                    or (isinstance(entry[key], float) and np.isnan(entry[key]))
                 ):
                     entry[key] = val
-                    
+
         # Normalize privacy field names for downstream compatibility
         # Mirror rho_spent to privacy_spend_running if the latter is absent
         if "metrics" in meta and meta["metrics"]:
             metrics = meta["metrics"]
             if "rho_spent" in metrics and (
-                "privacy_spend_running" not in entry or 
-                entry["privacy_spend_running"] is None or
-                (isinstance(entry["privacy_spend_running"], float) and np.isnan(entry["privacy_spend_running"]))
+                "privacy_spend_running" not in entry
+                or entry["privacy_spend_running"] is None
+                or (
+                    isinstance(entry["privacy_spend_running"], float)
+                    and np.isnan(entry["privacy_spend_running"])
+                )
             ):
                 entry["privacy_spend_running"] = metrics["rho_spent"]
-                
+
             # Mirror sigma_step to sigma_step_theory if not already present
             if "sigma_step" in metrics and (
-                "sigma_step_theory" not in entry or 
-                entry["sigma_step_theory"] is None or
-                (isinstance(entry["sigma_step_theory"], float) and np.isnan(entry["sigma_step_theory"]))
+                "sigma_step_theory" not in entry
+                or entry["sigma_step_theory"] is None
+                or (
+                    isinstance(entry["sigma_step_theory"], float)
+                    and np.isnan(entry["sigma_step_theory"])
+                )
             ):
                 entry["sigma_step_theory"] = metrics["sigma_step"]
 
@@ -262,8 +270,10 @@ def _create_extended_log_entry(
     # log entry rather than being dropped.
     combined_metrics = {**privacy_metrics, **model_metrics}
     for key, val in combined_metrics.items():
-        if key not in entry or entry[key] is None or (
-            isinstance(entry[key], float) and np.isnan(entry[key])
+        if (
+            key not in entry
+            or entry[key] is None
+            or (isinstance(entry[key], float) and np.isnan(entry[key]))
         ):
             entry[key] = val
 
@@ -273,19 +283,21 @@ def _create_extended_log_entry(
         # Force-set rho_spent from model metrics when available
         if "rho_spent" in model_metrics and model_metrics["rho_spent"] is not None:
             entry["rho_spent"] = model_metrics["rho_spent"]
-        
+
         # Mirror to privacy_spend_running for downstream compatibility
         if "rho_spent" in model_metrics and model_metrics["rho_spent"] is not None:
             entry["privacy_spend_running"] = model_metrics["rho_spent"]
-        
+
         # Ensure sigma_step is populated from model metrics
         if "sigma_step" in model_metrics and model_metrics["sigma_step"] is not None:
             entry["sigma_step"] = model_metrics["sigma_step"]
-        
+
         # On delete rows, add sigma_delete equal to the sigma used for that delete
-        if (entry.get("op") == "delete" and 
-            "sigma_step" in model_metrics and 
-            model_metrics["sigma_step"] is not None):
+        if (
+            entry.get("op") == "delete"
+            and "sigma_step" in model_metrics
+            and model_metrics["sigma_step"] is not None
+        ):
             entry["sigma_delete"] = model_metrics["sigma_step"]
         else:
             # Set to NaN for non-delete operations
@@ -512,7 +524,7 @@ def warmup_phase(
 def finalize_accountant_phase(model, cfg: Config):
     """Finalize accountant and prepare for interleaving phase."""
     print("[Finalize] Finalizing accountant (zCDP-only)...")
-    
+
     # If already interleaving, MemoryPair finalized the accountant
     if getattr(model, "phase", None) == MPPhase.INTERLEAVING:
         print("[Finalize] Accountant already finalized during phase transition")
