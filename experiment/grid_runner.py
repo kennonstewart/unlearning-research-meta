@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Main experiment runner class and helpers
-for experiment grid searches.git 
+for experiment grid searches.git
 """
 
 from __future__ import annotations
@@ -32,7 +32,6 @@ from .configs.config import Config
 from .runner import ExperimentRunner
 
 # Import exp_engine integration
-from exp_integration import build_params_from_config
 
 # Optional: Parquet utilities (exp_engine), keep lazy/optional
 try:  # pragma: no cover - optional dependency
@@ -434,9 +433,13 @@ def run_parameter_combination(
             }
 
             if output_granularity == "seed":
-                process_seed_output(csv_files, grid_id, grid_output_dir, mandatory_fields)
+                process_seed_output(
+                    csv_files, grid_id, grid_output_dir, mandatory_fields
+                )
             elif output_granularity == "event":
-                process_event_output(csv_files, grid_id, grid_output_dir, mandatory_fields)
+                process_event_output(
+                    csv_files, grid_id, grid_output_dir, mandatory_fields
+                )
             elif output_granularity == "aggregate":
                 process_aggregate_output(
                     csv_files, grid_id, grid_output_dir, mandatory_fields
@@ -492,7 +495,9 @@ def process_seed_output(
         df = _ensure_mandatory_fields(df, mandatory_fields or {})
 
         # Basic empirical metrics
-        avg_regret_emp = float(df["regret"].mean()) if "regret" in df.columns else float("nan")
+        avg_regret_emp = (
+            float(df["regret"].mean()) if "regret" in df.columns else float("nan")
+        )
         n_star_emp = int(df.shape[0])  # Simple proxy: events processed
         m_emp = int((df["op"] == "delete").sum()) if "op" in df.columns else 0
 
@@ -507,7 +512,7 @@ def process_seed_output(
         }
 
         # Carry mandatory fields into the seed row
-        for k in (mandatory_fields or {}):
+        for k in mandatory_fields or {}:
             row[k] = df[k].iloc[0] if k in df.columns else mandatory_fields[k]
 
         rows.append(row)
@@ -533,6 +538,7 @@ def process_event_output(
     Ensures required columns exist: event, event_type, op, regret, acc, seed, grid_id.
     """
     import pandas as pd
+
     frames = []
     for path in csv_files:
         try:
@@ -581,8 +587,12 @@ def process_aggregate_output(
         "avg_regret_mean": float(seeds_df["avg_regret_empirical"].mean())
         if "avg_regret_empirical" in seeds_df.columns
         else float("nan"),
-        "N_star_mean": float(seeds_df["N_star_emp"].mean()) if "N_star_emp" in seeds_df.columns else float("nan"),
-        "m_mean": float(seeds_df["m_emp"].mean()) if "m_emp" in seeds_df.columns else float("nan"),
+        "N_star_mean": float(seeds_df["N_star_emp"].mean())
+        if "N_star_emp" in seeds_df.columns
+        else float("nan"),
+        "m_mean": float(seeds_df["m_emp"].mean())
+        if "m_emp" in seeds_df.columns
+        else float("nan"),
     }
 
     for k, v in (mandatory_fields or {}).items():

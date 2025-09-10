@@ -1,93 +1,95 @@
-version: 1
-
-# Final sweep to probe remaining questions:
-# - Geometry vs deletions (m, σ)
-# - Readiness threshold (N_gamma) sensitivity
-# - Strong-convexity regime activation (sc_active variation)
-# - Dynamic regret path length P_T (oracle-enabled subset)
-# - Recalibration effect
+# Less‑restrictive grid for running experiments with the regret gate ENABLED.
+# Goal:
+#   (1) Raise/relax the deletion regret gate (gamma_delete) so deletes stop failing.
+#   (2) Reduce projected per‑delete regret by:
+#       - Increasing lambda_reg (shrinks influence norm & deletion regret term)
+#       - Increasing lambda_ (odometer strong convexity; shrinks sensitivity G/λ)
+#       - Slightly increasing rho_total (lets odometer choose smaller sigma for same m)
+#       - Modestly lowering gradient / geometry targets to keep S_scalar growth moderate.
+#
+# Structure:
+#   We keep the combination count modest (<= 3*2*2*2 = 24) to stay manageable.
+#
+# Key Params Explained:
+#   gamma_delete  : Threshold for (insertion_regret + projected_delete_regret)/events_seen.
+#                   Raising this is the most direct way to stop regret gate rejections.
+#   gamma         : Average regret target used in zCDP odometer joint m-σ optimization.
+#                   Slightly higher gamma allows a feasible (m, σ) with lower σ per delete.
+#   lambda_reg    : L2 regularization in learner; larger => smaller effective deletion influence.
+#   lambda_       : Strong convexity assumption fed to odometer; larger => smaller sensitivity bound.
+#   rho_total     : Total zCDP budget; larger => smaller σ for a fixed m (since σ ∝ √(m / (2ρ_total))).
+#   delta_b       : Regret bound failure prob. Larger (e.g. 0.1) lowers sqrt(2 log(1/delta_b)).
+#   target_*      : Theory stream targets (keep moderate to avoid large S_T growth).
+#
+# Usage:
+#   python experiment/grid_runner.py --grid-file grids.yaml --seeds 3 --output-granularity seed
+#
+# Notes:
+#   - If deletes STILL hit the regret gate, first inspect logged proj_avg vs gamma_delete.
+#   - You can add a wider gamma_delete (e.g. 2.5, 3.0) or temporarily test with disable_regret_gate:true
+#     (not included here because you requested the gate remain enabled).
+#   - Start with the mid tier (gamma_delete=1.75) rows; escalate only if necessary.
 
 matrix:
-  # Core
-  algo: memorypair
-  accountant: zcdp
-  max_events: 20000
-  bootstrap_iters: 1000
-  parquet_only_mode: true
-  parquet_out: results_parquet
-  regret_comparator_mode: zero         # simpler baseline when oracle is off
+  # Core regret / capacity controls
+  gamma_delete:    [1.5, 1.75, 2.0]     # Wider than typical projected averages; raise further if needed
+  gamma:           [0.8, 1.0]           # Slightly relaxed vs very tight defaults (e.g. 0.5)
+  lambda_reg:      [0.01, 0.05]         # Adds curvature; reduces deletion influence norm
+  lambda_:         [0.05, 0.1]          # Odometer strong convexity assumption (affects sens_bound & σ)
+  rho_total:       [1.0, 1.5]           # More zCDP budget => smaller σ for same m
+  delta_b:         [0.05, 0.10]         # Larger delta_b lowers log term in noise regret
 
-  # Gamma budgets (PAIRED by index)
-  gamma_bar:   [0.22, 0.28, 0.32, 0.36]
-  gamma_split: [0.64, 0.67, 0.70, 0.74]
+  # Deletion / insertion phase geometry (moderate bounds to tame S_scalar)
+  target_G:        [2.0]                # Keep G modest
+  target_D:        [2.0]                # Smaller diameter lowers insertion regret components
+  target_c:        [0.05]               # Lower curvature bound (still > 0)
+  target_C:        [20.0]               # Upper curvature bound
+  target_lambda:   [0.05]               # Theory strong convexity (align loosely with lambda_)
+  target_PT:       [30.0]               # Smaller path length to reduce path regret
+  target_ST:       [200000.0]           # Moderate AdaGrad energy target (keep S_T controlled)
 
-  # Deletion workload and privacy budget
-  delete_ratio: [1, 5, 20]             # light to heavy
-  rho_total: [0.25, 0.5, 1.0, 2.0]
-  delta_total: 1e-5
-  delta_b: 0.05
-  m_max: [null]                        # let odometer choose
+  # Stream / path style
+  path_style:      ["rotating"]
+  dim:             [20]
+  T:               [50000]              # Horizon (affects odometer joint optimization)
+  accountant:      ["zcdp"]
+  seed:            [42]
 
-  # Strong convexity regime: vary activation ease and regularization
-  strong_convexity: [true, false]
-  lambda_reg: [0.0, 0.05]              # also tests λ_reg’s effect on sensitivity and regret gate
-  lambda_: 0.05                        # passed to zCDP odometer
-  lambda_min_threshold: [1.0e-6, 1.0e-3]  # easier vs stricter stability
-  lambda_stability_K: [25, 100]           # earlier vs later SC activation
+  # Sample complexity & gating helpers
+  gamma_insert:    [0.9]                # For live N_star estimates (if used)
+  gamma_bar:       [0.9]                # Keep aligned with insert target
+  gamma_split:     [0.5]                # If splitter logic used elsewhere
 
-  # Recalibration (odometer + calibrator) toggle
-  recal_window: [null, 2000]
-  recal_threshold: 0.3
-  ema_beta: 0.9
+  # L-BFGS / optimization stability
+  m_max:           [8]                  # L-BFGS memory pairs (tune if curvature unstable)
+  eta_max:         [1.0]                # Cap step size
+  adagrad_eps:     [1e-12]
+  D_bound:         [2.0]
 
-  # Theory-first synthetic stream (vary PT to induce drift; keep S_T fixed)
-  dim: 20
-  path_style: rotating
-  target_G: 2.0
-  target_D: 2.0
-  target_c: 0.1
-  target_C: 10.0
-  target_lambda: 0.05
-  target_PT: [100.0, 250.0, 400.0]
-  target_ST: [40000.0]
+  # Privacy / deletion odometer tuning
+  m_max_deletion:  [null]               # Placeholder if your Config uses a separate key (leave null if unused)
 
-  # Oracle: default off for full sweep; add small oracle-enabled subset via include below
-  enable_oracle: [false, true]
+  # Logging / diagnostics toggles (safe defaults; adjust as needed)
+  drift_adaptation: [false]
+  enable_oracle:    [false]
 
-  # Misc
-  quantile: 0.95
-  D_cap: 10.0
-  adagrad_eps: 1.0e-12
-  D_bound: 1.0
-  trim_quantile: 0.95
-  lambda_floor: 1.0e-6
-  lambda_cap: 1.0e3
-  eta_max: 1.0
-  comparator: dynamic
-  enforce_nonnegative_regret: true
+# Optionally you can define selectors or include blocks if you want only a subset,
+# but initially run full to see which combos pass regret gate comfortably.
+#
+# Example of narrowing later:
+# include:
+#   - where:
+#       gamma_delete: 1.75
+#       rho_total: 1.5
+#       lambda_reg: 0.05
 
-# Add oracle-enabled probes (kept small by selector)
-selectors:
-  - name: oracle_probe
-    where:
-      enable_oracle: true
-      strong_convexity: [true, false]
-      lambda_stability_K: [25]
-      lambda_min_threshold: [1.0e-6]
-      target_PT: [100.0, 400.0]
-      rho_total: [0.5, 1.0]
-      delete_ratio: [1, 20]
-      gamma_bar: [0.28, 0.36]
-      gamma_split: [0.67, 0.74]
-
-# Merge the oracle probes into the main sweep:
-# - include all base combinations with enable_oracle=false
-# - plus the small oracle-enabled probe subset defined above
-include:
-  - where:
-      enable_oracle: [false]
-  - oracle_probe
-
-# Optional: randomly subsample N combinations for a quick run
-sample_n: 250
-sample_seed: 123
+# To further relax the gate if needed:
+#  1. Add a higher tier: gamma_delete: [1.5, 1.75, 2.0, 2.5]
+#  2. Increase lambda_reg to 0.1 (watch for underfitting).
+#  3. Raise lambda_ to 0.15 (only if curvature assumptions remain realistic).
+#  4. Increase rho_total (e.g. 2.0) if deletion capacity still tight.
+#
+# If regret gate still blocks early deletions:
+#  - Delay deletions until after INTERLEAVING warmup (ensure N_star reached).
+#  - Check the logged value of (ins_reg + del_reg)/events_seen just before failure.
+#  - Reduce target_ST or target_G slightly to shrink insertion regret growth.
