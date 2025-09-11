@@ -25,6 +25,12 @@ import pathlib
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import yaml
+from sklearn.preprocessing import StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.linear_model import ElasticNet
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import GroupKFold, GridSearchCV
 
 sns.set_context("talk")
 sns.set_style("whitegrid")
@@ -93,6 +99,7 @@ df["del_ratio"] = df["deletes_cum"] / df["inserts_cum"].clip(lower=1)
 
 print(df[["grid_id", "seed"]].drop_duplicates().shape[0], "runs loaded")
 
+
 # %% [markdown]
 # ## 2) Helper utilities
 
@@ -126,6 +133,51 @@ def per_run_summary(frame: pd.DataFrame) -> pd.DataFrame:
 
 runs = per_run_summary(df)
 runs.head()
+
+# %% [markdown]
+# ## 0b) Grid parameter manifest
+# Load the sweep/grid definition and (when possible) attach parameter values to runs.
+
+# %%
+GRID_FILE = pathlib.Path("configs/grids.yaml")
+if GRID_FILE.exists():
+    with open(GRID_FILE, "r") as f:
+        grid_raw = yaml.safe_load(f)
+    if isinstance(grid_raw, dict) and "matrix" in grid_raw:
+        param_section = grid_raw.get("matrix", {})
+    elif isinstance(grid_raw, dict):
+        param_section = grid_raw
+    else:
+        param_section = {}
+    param_keys = list(param_section.keys())
+    # Build full cartesian product of parameter matrix for reference
+    # (only if all values are list-like)
+    matrix_lists = []
+    for k, v in param_section.items():
+        matrix_lists.append(v if isinstance(v, list) else [v])
+    from itertools import product as _prod
+
+    grid_matrix_df = (
+        pd.DataFrame([dict(zip(param_keys, vals)) for vals in _prod(*matrix_lists)])
+        if param_keys
+        else pd.DataFrame()
+    )
+    print(f"Loaded grid matrix with {len(grid_matrix_df)} combinations")
+    # Infer parameter values per grid_id from event logs if columns present
+    present_cols = [k for k in param_keys if k in df.columns]
+    if present_cols:
+        grid_params = (
+            df.sort_values("event")
+            .groupby("grid_id")[present_cols]
+            .agg(lambda s: s.ffill().bfill().iloc[-1])
+            .reset_index()
+        )
+        runs = runs.merge(grid_params, on="grid_id", how="left")
+        print(f"Attached parameter columns to runs: {present_cols}")
+    else:
+        print("Grid file loaded but no parameter columns found in event logs to merge.")
+else:
+    print(f"Grid file not found at {GRID_FILE}; skipping parameter join.")
 
 # %% [markdown]
 # ## 3) Within-grid between-seed variance (sanity)
@@ -300,52 +352,77 @@ plt.show()
 # %%
 # Assumes df (event-level) and runs (per-run summaries) are already built
 
+
 def last_nonnull(s):
     s = s.dropna()
     return s.iloc[-1] if len(s) else np.nan
 
+
 # Per-run extras from event stream
 per_run_extras = (
     df.sort_values("event")
-      .groupby("run_id")
-      .agg(
-          N=("event", "max"),
-          sc_frac=("sc_active", "mean"),
-          sigma_last=("sigma_step", last_nonnull),
-          rho_spent_last=("rho_spent", last_nonnull),
-          rho_remaining_last=("rho_remaining", last_nonnull),
-          stepsize_sc_share=("stepsize_policy", lambda s: np.mean(s == "strongly-convex")),
-          P_T_last=("P_T", last_nonnull),
-          P_T_est_last=("P_T_est", last_nonnull),
-          sens_delete_q95=("sens_delete", lambda s: np.nan if s.isna().all() else np.nanquantile(s.dropna(), 0.95)),
-          deletes_total=("event_type", lambda s: np.sum(s == "delete")),
-          inserts_total=("event_type", lambda s: np.sum(s == "insert")),
-      )
-      .reset_index()
+    .groupby("run_id")
+    .agg(
+        N=("event", "max"),
+        sc_frac=("sc_active", "mean"),
+        sigma_last=("sigma_step", last_nonnull),
+        rho_spent_last=("rho_spent", last_nonnull),
+        rho_remaining_last=("rho_remaining", last_nonnull),
+        stepsize_sc_share=(
+            "stepsize_policy",
+            lambda s: np.mean(s == "strongly-convex"),
+        ),
+        P_T_last=("P_T", last_nonnull),
+        P_T_est_last=("P_T_est", last_nonnull),
+        sens_delete_q95=(
+            "sens_delete",
+            lambda s: np.nan if s.isna().all() else np.nanquantile(s.dropna(), 0.95),
+        ),
+        deletes_total=("event_type", lambda s: np.sum(s == "delete")),
+        inserts_total=("event_type", lambda s: np.sum(s == "insert")),
+    )
+    .reset_index()
 )
 
 feat = runs.merge(per_run_extras, on="run_id", how="left")
 
 # Ratios/normalizations
 feat["del_ratio"] = feat["deletes_total"] / feat["inserts_total"].clip(lower=1)
-feat["rho_frac"] = feat["rho_spent_last"] / (feat["rho_spent_last"].fillna(0) + feat["rho_remaining_last"].fillna(0)).replace(0, np.nan)
+feat["rho_frac"] = feat["rho_spent_last"] / (
+    feat["rho_spent_last"].fillna(0) + feat["rho_remaining_last"].fillna(0)
+).replace(0, np.nan)
 feat["sigma_eff"] = feat["sigma_last"]
 feat["m_per_N"] = feat["final_m_used"] / feat["N"].replace(0, np.nan)
-feat["Ssqrt_per_N"] = np.sqrt(feat["final_S_scalar"].fillna(0)) / feat["N"].replace(0, np.nan)
+feat["Ssqrt_per_N"] = np.sqrt(feat["final_S_scalar"].fillna(0)) / feat["N"].replace(
+    0, np.nan
+)
 feat["P_T_final"] = feat["P_T_last"].fillna(feat["P_T_est_last"])
 # Optional: join sweep/manifest.json for grid parameters if not in metrics
 # manifest = json.load(open("results/.../sweep/manifest.json"))
 # manifest_df = pd.DataFrame([{"grid_id": gid, **params} for gid, params in manifest.items()])
 # feat = feat.merge(manifest_df, on="grid_id", how="left")
 
-target = feat["final_avg_regret"] 
+target = feat["final_avg_regret"]
 # %%
 # Choose numeric candidate features (drop ID columns and the target)
 cand = [
-    "del_ratio", "deletes_total", "m_per_N", "rho_frac", "sigma_eff",
-    "Ssqrt_per_N", "final_S_scalar", "sc_frac", "stepsize_sc_share",
-    "P_T_final", "N_gamma", "final_m_capacity", "final_m_used",
-    "G_hat", "D_hat", "c_hat", "C_hat"
+    "del_ratio",
+    "deletes_total",
+    "m_per_N",
+    "rho_frac",
+    "sigma_eff",
+    "Ssqrt_per_N",
+    "final_S_scalar",
+    "sc_frac",
+    "stepsize_sc_share",
+    "P_T_final",
+    "N_gamma",
+    "final_m_capacity",
+    "final_m_used",
+    "G_hat",
+    "D_hat",
+    "c_hat",
+    "C_hat",
 ]
 cand = [c for c in cand if c in feat.columns]
 
@@ -361,16 +438,18 @@ print("\nTop positive (Spearman):")
 print(spearman.sort_values(ascending=False).head(10))
 
 # Heatmap of correlations among features and with target
-import seaborn as sns, matplotlib.pyplot as plt
+# (imports already at top)
 corr_mat = feat[cand + ["final_avg_regret"]].corr(method="spearman")
 plt.figure(figsize=(10, 8))
 sns.heatmap(corr_mat, annot=False, cmap="vlag", center=0)
 plt.title("Spearman correlations (features + final_avg_regret)")
 plt.show()
 
+
 # Within-grid (demean per grid_id) to isolate within-cell signal
 def demean_by_group(s, g):
     return s - s.groupby(g).transform("mean")
+
 
 g = feat["grid_id"]
 X_w = X.apply(lambda col: demean_by_group(col, g))
@@ -385,17 +464,20 @@ print(spearman_w.sort_values(ascending=False))
 controls = ["del_ratio", "Ssqrt_per_N"]
 controls = [c for c in controls if c in X.columns]
 
+
 def partial_corr(x, y, C):
     import statsmodels.api as sm
+
     # Residualize x and y on controls C, then correlate residuals
     Xc = sm.add_constant(C)
     rx = x - sm.OLS(x, Xc, missing="drop").fit().fittedvalues
     ry = y - sm.OLS(y, Xc, missing="drop").fit().fittedvalues
     return rx.corr(ry)
 
+
 pcorrs = {}
 for col in cand:
-    if col in controls: 
+    if col in controls:
         continue
     xcol = X[col]
     C = X[controls]
@@ -404,19 +486,16 @@ for col in cand:
 print("\nPartial correlations (control: del_ratio, Ssqrt_per_N):")
 print(pd.Series(pcorrs).sort_values(ascending=False))
 # %%
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import ElasticNet
-from sklearn.pipeline import Pipeline
-from sklearn.model_selection import GroupKFold, GridSearchCV
-import numpy as np
+# (imports moved to top of file)
 
 # Features: numeric + (optional) categorical grid_id as fixed effects proxy
 num_cols = cand  # numeric features prepared above
-cat_cols = []    # optionally include 'grid_id' as one-hot; with 25 samples this may be too many dummies
+cat_cols = []  # optionally include 'grid_id' as one-hot; with 25 samples this may be too many dummies
 
 # Drop rows with missing y or all-NaN in X
-data = feat.dropna(subset=["final_avg_regret"])[num_cols + ["final_avg_regret", "grid_id"]].copy()
+data = feat.dropna(subset=["final_avg_regret"])[
+    num_cols + ["final_avg_regret", "grid_id"]
+].copy()
 X_num = data[num_cols]
 y = data["final_avg_regret"].values
 groups = data["grid_id"].values
@@ -439,9 +518,7 @@ param_grid = {
 pipe = Pipeline(steps=[("prep", pre), ("model", enet)])
 cv = GroupKFold(n_splits=min(5, len(np.unique(groups))))
 
-grid = GridSearchCV(
-    pipe, param_grid, scoring="r2", cv=cv, n_jobs=-1, refit=True
-)
+grid = GridSearchCV(pipe, param_grid, scoring="r2", cv=cv, n_jobs=-1, refit=True)
 grid.fit(X_num, y, groups=groups)
 print("Best params:", grid.best_params_, "CV R2:", grid.best_score_)
 
