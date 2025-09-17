@@ -594,19 +594,12 @@ In the worst case, our formulas reduce to the familiar
 $O(\sqrt{T})$ static analysis, so no guarantees are lost.
 \section{Experimental Analysis}
 
-\subsection{Sublinear Regret Experiment}
+\subsection{Methods: Designing a Simulated Data Stream}
 
-We evaluate the performance of the memory pair against AdaGrad, Stochastic Gradient Descent, and the Online Newton Step.
-While Stochastic Gradient Descent and the Online Newton Step did not achieve bounded regret, the Memory Pair and AdaGrad converge to a near-zero instantaneous regret.
-We construct the MNIST dataset as a stream of insert events in order to evaluate the model's performance as it learns.
-\begin{figure}
-    \centering
-    \includegraphics[width=1\linewidth]{rotmnist_drift_memorypair_loglog_fit.png}
-    \caption{The cumulative regret of the Memory Pair has vanishing instantaneous regret.}
-    \label{fig:enter-label}
-\end{figure}
+Testing a stream-native learner in nonstationary conditions requires robust experiments. We need to mimic the nonstationary environment of production data streams to ensure the learner's accuracy doesn't degrade. Even further, we have a host of theoretical values (eigenvalue bounds, strong convexity parameters) that would need to be fixed. Designing the data stream and logging infrastructure for such a problem easily outweighs the technical complexity of the memory pair algorithm itself.
 
-Further experiments are forthcoming that test the deletion capacity of the algorithm.
+\subsection{Results: A Better-Than-Theory Regret Decomposition}
+
 \section{Conclusion}
 
 We have introduced the Memory Pair framework, the first online learning–unlearning algorithm that achieves sublinear regret while providing $(\varepsilon, \delta)$-certified unlearning under an interleaved stream of insert, delete, and predict operations.
@@ -985,7 +978,7 @@ $O(\sqrt{T})$, the overall regret remains sublinear in $T$.
 
 \subsection{Proof of Theorem 5: $\gamma$-Deletion Capacity Bound}
 \begin{proof}
-By the adaptive regret bound (Eq.~(1), §5.3) and the deletion noise contribution (§5.3),
+By the adaptive regret bound and the deletion noise contribution,
 the cumulative regret after $m$ deletions satisfies (on the event of probability $\ge 1-\delta_B$)
 $$
 R_{N}(m) \;\le\;
@@ -1001,10 +994,10 @@ Solving for $m$ gives \eqref{eq:cap-main}. If the right-hand side is negative, t
 otherwise any integer $m$ not exceeding the bound suffices.
 
 For the worst-case simplification, use $S_{N}\le G^{2} N$, so
-$GD\sqrt{c\,C\,S_{N}}\le G^{2} D \sqrt{c\,C}\,\sqrt{N}$.
+$GD\sqrt{c\,C\,S_{N}}\le G^{2} D \sqrt{c\,CN}$.
 Substituting into \eqref{eq:cap-main} yields
 $$
-m \;\le\; \frac{\gamma N - G^{2} D \sqrt{c\,C}\,\sqrt{N}}
+m \;\le\; \frac{\gamma N - G^{2} D \sqrt{c\,CN}}
 {G\,\sigma_{\text{step}}\sqrt{2\ln(1/\delta_B)}}
 \;=\; \frac{\sqrt{N}\bigl(\gamma\sqrt{N}-G^{2} D \sqrt{c\,C}\bigr)}
 {G\,\sigma_{\text{step}}\sqrt{2\ln(1/\delta_B)}}\,,
