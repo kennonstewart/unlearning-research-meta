@@ -1,4 +1,0 @@
-Analysis log file: logs/analysis_20250911_142039.log
-To follow logs live, run in terminal:
-tail -f 'logs/analysis_20250911_142039.log'
-2025-09-11 14:20:39 | INFO     | analysis | 144908148:79 | Analysis logging initialized.
