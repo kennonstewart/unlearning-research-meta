@@ -611,7 +611,7 @@ def main():
         description="Grid search runner for deletion capacity experiments"
     )
     parser.add_argument(
-        "--grid-file", default="grids.yaml", help="YAML file with parameter grid"
+        "--grid-file", default="grids/01_regret_decomposition.yaml", help="YAML file with parameter grid"
     )
     parser.add_argument(
         "--parallel", type=int, default=1, help="Number of parallel processes"
@@ -674,11 +674,18 @@ def main():
 
     # Load parameter grid
     print(f"Loading grid from {args.grid_file}")
-    if not os.path.exists(args.grid_file):
-        print(f"Error: Grid file {args.grid_file} not found")
+    
+    # Resolve grid file path relative to experiment directory if not absolute
+    if not os.path.isabs(args.grid_file):
+        grid_file_path = os.path.join(_EXP_DIR, args.grid_file)
+    else:
+        grid_file_path = args.grid_file
+    
+    if not os.path.exists(grid_file_path):
+        print(f"Error: Grid file {grid_file_path} not found")
         return 1
 
-    grid_raw = load_grid(args.grid_file)
+    grid_raw = load_grid(grid_file_path)
 
     # Backwards compat: matrix is either explicit or the entire file
     matrix = grid_raw.get("matrix", grid_raw)

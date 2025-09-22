@@ -5,42 +5,78 @@ This directory contains the grid search automation for deletion capacity experim
 ## Quick Start
 
 ```bash
-# When running the command from the experiment
+# When running the command from the experiment directory
 python grid_runner.py \
-  --grid-file configs/grids.yaml \
+  --grid-file grids/01_regret_decomposition.yaml \
   --parallel 4 \
   --seeds 5 \
   --base-out results/grid_$(date +%Y_%m_%d)
 
 # When running the command from the root directory
 python experiment/grid_runner.py \
-  --grid-file experiment/configs/grids.yaml \
+  --grid-file experiment/grids/01_regret_decomposition.yaml \
   --parallel 4 \
   --seeds 5 \
   --base-out experiment/results/grid_$(date +%Y_%m_%d)
 
+# Using different grid configurations
+python experiment/grid_runner.py \
+  --grid-file experiment/grids/02_privacy_sensitivity.yaml \
+  --seeds 3 \
+  --output-granularity seed \
+  --base-out experiment/results/privacy_sensitivity_$(date +%Y_%m_%d)
+
+python experiment/grid_runner.py \
+  --grid-file experiment/grids/03_deletion_capacity.yaml \
+  --seeds 3 \
+  --output-granularity seed \
+  --base-out experiment/results/deletion_capacity_$(date +%Y_%m_%d)
 
 # Event-level output (one row per event)
-python agents/grid_runner.py \
-  --grid-file agents/grids.yaml \
+python experiment/grid_runner.py \
+  --grid-file experiment/grids/01_regret_decomposition.yaml \
   --seeds 3 \
   --output-granularity event \
-  --base-out results/grid_$(date +%Y_%m_%d)_events
+  --base-out experiment/results/grid_$(date +%Y_%m_%d)_events
 
 # Parallel execution with 4 processes
-python agents/grid_runner.py \
-  --grid-file agents/grids.yaml \
+python experiment/grid_runner.py \
+  --grid-file experiment/grids/01_regret_decomposition.yaml \
   --parallel 4 \
   --seeds 5 \
-  --base-out results/grid_$(date +%Y_%m_%d)_p4
+  --base-out experiment/results/grid_$(date +%Y_%m_%d)_p4
 
 # Dry run to preview parameter combinations
-python agents/grid_runner.py --grid-file agents/grids.yaml --dry-run
+python experiment/grid_runner.py --grid-file experiment/grids/01_regret_decomposition.yaml --dry-run
 ```
 
 ## Grid Configuration
 
-The parameter grid is defined in `agents/grids.yaml`.
+The parameter grids are defined in the `grids/` directory. Multiple grid files are available for different experiment types:
+
+### Available Grid Files
+
+1. **`grids/01_regret_decomposition.yaml`** (default)
+   - Focuses on regret decomposition experiments
+   - Enables oracle functionality for detailed regret analysis
+   - Covers core regret controls, privacy parameters, and theory-first stream targets
+   - ~16K combinations (limited to 50 for focused analysis)
+
+2. **`grids/02_privacy_sensitivity.yaml`**
+   - Analyzes sensitivity to privacy budget variations
+   - Tests different epsilon, delta, and rho_total values
+   - Fixed regret budget with varying privacy allocations
+   - ~100 combinations (limited for focused analysis)
+
+3. **`grids/03_deletion_capacity.yaml`**
+   - Focuses on deletion capacity under different parameter regimes
+   - Tests various deletion ratios and regret budget splits
+   - Analyzes theory parameter impact on capacity
+   - ~150 combinations (limited for focused analysis)
+
+### Legacy Grid File
+
+The original `configs/grids.yaml` is still available for backward compatibility.
 
 Key notes for this synthetic-only setup:
 - Algorithm/accountant: `algo: memorypair`, `accountant: zcdp`.

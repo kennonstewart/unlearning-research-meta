@@ -1,0 +1,73 @@
+# Regret Decomposition Grid Configuration
+# This grid focuses on regret decomposition experiments with various parameter combinations
+# to understand the impact of different settings on regret components.
+
+matrix:
+  # Core regret / capacity controls (reduced for manageable combinations)
+  gamma_bar:       [1.0, 1.2]             # Total regret budget
+  gamma_split:     [0.5, 0.6]             # Fraction allocated to insertions vs deletions
+  
+  # Privacy parameters
+  eps_total:       [1.0, 2.0]             # Total epsilon budget
+  delta_total:     [1e-5]                  # Total delta budget
+  lambda_:          [0.1, 0.2]             # Strong convexity parameter
+  delta_b:          [0.05, 0.1]            # Regret bound failure probability
+  
+  # Theory-first stream targets for regret decomposition
+  target_G:         [2.0, 2.5]             # Gradient norm bound
+  target_D:         [2.0, 2.5]             # Domain diameter
+  target_c:         [0.05, 0.1]            # Lower curvature bound
+  target_C:         [10.0, 20.0]           # Upper curvature bound
+  target_lambda:    [0.05, 0.1]            # Theory strong convexity
+  target_PT:         [30.0, 40.0]          # Total path length
+  target_ST:         [100000.0, 200000.0]   # AdaGrad energy target
+  
+  # Stream configuration
+  path_style:       ["rotating"]            # Path evolution style
+  dim:              [20]                   # Dimensionality
+  T:                [50000]                # Horizon
+  accountant:       ["zcdp"]               # Privacy accountant
+  
+  # Algorithm settings
+  algo:             ["memorypair"]         # Algorithm to use
+  dataset:          ["synthetic"]          # Dataset type
+  
+  # Deletion parameters
+  delete_ratio:     [5.0, 10.0]            # Inserts per delete
+  max_events:       [10000]                # Maximum events
+  
+  # Regularization and stability
+  lambda_reg:       [0.01, 0.05]          # L2 regularization
+  m_max:            [8]                   # L-BFGS memory pairs
+  eta_max:          [1.0]                  # Maximum step size
+  adagrad_eps:      [1e-12]               # AdaGrad epsilon
+  D_bound:          [2.0]                  # Diameter bound
+  
+  # Feature flags for regret decomposition analysis
+  enable_oracle:    [true]                 # Enable oracle for regret decomposition
+  drift_adaptation: [false]                # Disable drift adaptation for cleaner analysis
+  
+  # Output and logging
+  seeds:            [42]                  # Random seed
+  bootstrap_iters:  [500]                  # Bootstrap iterations
+  output_granularity: ["seed"]             # Output granularity
+
+# Optional: Include specific combinations for focused analysis
+include:
+  - where:
+      gamma_bar: 1.0
+      gamma_split: 0.6
+      eps_total: 1.0
+      target_G: 2.0
+      target_D: 2.0
+      enable_oracle: true
+  - where:
+      gamma_bar: 1.2
+      gamma_split: 0.7
+      eps_total: 2.0
+      target_G: 2.5
+      target_D: 2.5
+      enable_oracle: true
+
+# Limit total combinations for manageable execution
+limit: 50

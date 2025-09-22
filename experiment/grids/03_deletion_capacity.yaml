@@ -1,0 +1,54 @@
+# Deletion Capacity Grid Configuration
+# This grid focuses on understanding deletion capacity under different parameter regimes
+# with emphasis on the relationship between regret budgets and deletion performance.
+
+matrix:
+  # Deletion capacity controls
+  delete_ratio:     [1.0, 2.0, 5.0, 10.0, 20.0]  # Inserts per delete
+  gamma_bar:        [0.5, 1.0, 1.5, 2.0]         # Total regret budget
+  gamma_split:      [0.3, 0.5, 0.7]               # Insertion vs deletion split
+  
+  # Privacy parameters
+  eps_total:        [1.0]                         # Fixed epsilon budget
+  delta_total:      [1e-5]                        # Fixed delta budget
+  lambda_:          [0.1]                         # Fixed strong convexity
+  
+  # Theory parameters for capacity analysis
+  target_G:         [1.5, 2.0, 2.5]              # Gradient norm bound
+  target_D:         [1.5, 2.0, 2.5]              # Domain diameter
+  target_c:         [0.05, 0.1]                   # Lower curvature bound
+  target_C:         [10.0, 20.0]                  # Upper curvature bound
+  target_lambda:    [0.05, 0.1]                   # Theory strong convexity
+  target_PT:        [20.0, 30.0, 40.0]            # Total path length
+  target_ST:        [50000.0, 100000.0, 200000.0]  # AdaGrad energy target
+  
+  # Stream configuration
+  path_style:       ["rotating"]                  # Path evolution style
+  dim:              [20]                         # Dimensionality
+  T:                [50000]                      # Horizon
+  accountant:       ["zcdp"]                     # Privacy accountant
+  
+  # Algorithm settings
+  algo:             ["memorypair"]               # Algorithm to use
+  dataset:          ["synthetic"]                # Dataset type
+  
+  # Regularization
+  lambda_reg:       [0.01, 0.05]                # L2 regularization
+  
+  # Stability parameters
+  m_max:            [8]                         # L-BFGS memory pairs
+  eta_max:          [1.0]                        # Maximum step size
+  adagrad_eps:      [1e-12]                     # AdaGrad epsilon
+  D_bound:          [2.0]                        # Diameter bound
+  
+  # Feature flags
+  enable_oracle:    [true]                       # Enable oracle for regret decomposition
+  drift_adaptation: [false]                      # Disable drift adaptation
+  
+  # Output and logging
+  seeds:            [42]                        # Random seed
+  bootstrap_iters:  [500]                        # Bootstrap iterations
+  output_granularity: ["seed"]                   # Output granularity
+
+# Limit combinations for focused analysis
+limit: 150
