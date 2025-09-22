@@ -704,24 +704,7 @@ def main():
     combinations_full = generate_combinations(matrix)
     print(f"Generated {len(combinations_full)} parameter combinations (full product)")
 
-    # Determine selected subset
-    if includes or cases:
-        selected = _select_by_named_selectors(combinations_full, selectors, includes)
-        if cases:
-            case_includes = [{"where": c} for c in cases if isinstance(c, dict)]
-            selected += _select_by_named_selectors(
-                combinations_full, selectors, case_includes
-            )
-        # de-dup
-        seen = set()
-        combinations: List[Dict[str, Any]] = []
-        for c in selected:
-            key = json.dumps(sanitize_params(c), sort_keys=True, separators=(",", ":"))
-            if key not in seen:
-                seen.add(key)
-                combinations.append(c)
-    else:
-        combinations = list(combinations_full)
+    combinations = list(combinations_full)
 
     # Apply excludes
     combinations = _apply_excludes(combinations, excludes)
