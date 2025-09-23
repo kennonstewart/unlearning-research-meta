@@ -138,6 +138,9 @@ class MemoryPair:
 
         # Oracle (optional)
         self.oracle: Optional[Union[RollingOracle, "StaticOracle"]] = None
+        
+        # Track last event for logging oracle_objective
+        self._last_event_info: Optional[Tuple[np.ndarray, float]] = None
         if cfg and getattr(cfg, "enable_oracle", False):
             comparator_type = getattr(cfg, "comparator", "dynamic")
             if comparator_type == "static":
@@ -233,6 +236,33 @@ class MemoryPair:
         if grad_norm > 100.0:
             total_grad = total_grad * (100.0 / grad_norm)
         return total_grad
+
+    def _regret_terms(self, x: np.ndarray, y: float, theta_curr: np.ndarray, theta_comp: np.ndarray, lambda_reg: float) -> Dict[str, float]:
+        """
+        Compute regret terms with the SAME regularized objective for both current and comparator.
+        
+        Args:
+            x: Feature vector
+            y: Target value  
+            theta_curr: Current model parameters
+            theta_comp: Comparator model parameters
+            lambda_reg: Regularization parameter
+            
+        Returns:
+            Dictionary with loss_curr_reg, loss_comp_reg, and regret_inc
+        """
+        # compute both sides with the SAME regularized objective
+        pred_curr = float(theta_curr @ x)
+        pred_comp = float(theta_comp @ x)
+        
+        loss_curr = loss_half_mse(pred_curr, y) + 0.5 * lambda_reg * float(theta_curr @ theta_curr)
+        loss_comp = loss_half_mse(pred_comp, y) + 0.5 * lambda_reg * float(theta_comp @ theta_comp)
+        
+        return {
+            "loss_curr_reg": float(loss_curr),
+            "loss_comp_reg": float(loss_comp),
+            "regret_inc": float(loss_curr - loss_comp),
+        }
 
     def _update_lambda_estimate(
         self,
@@ -425,10 +455,14 @@ class MemoryPair:
                 self.static_regret_increment = incs.get("static_increment", 0.0)
                 self.path_regret_increment = incs.get("path_increment", 0.0)
         else:
-            pred = float(self.theta @ x)
-            zero_pred_loss = loss_half_mse(0.0, y)
-            current_loss = loss_half_mse(pred, y)
-            self.regret_increment = current_loss - zero_pred_loss
+            # Fallback: zero-baseline comparator using same regularized objective
+            theta_comp = np.zeros(self.theta.shape)  # θ* = 0
+            regret_terms = self._regret_terms(x, y, self.theta, theta_comp, self.lambda_reg)
+            self.regret_increment = regret_terms["regret_inc"]
+
+        # Track last event for oracle_objective calculation in logging
+        if self.phase in [Phase.LEARNING, Phase.INTERLEAVING]:
+            self._last_event_info = (x.copy(), y)
 
         if self.regret_increment is not None:
             try:
@@ -873,6 +907,90 @@ class MemoryPair:
             "current_G_ema": getattr(self.calibrator, "G_ema", None),
             "finalized_G": getattr(self.calibrator, "finalized_G", None),
         }
+
+    def get_comparator_metrics(self) -> Dict[str, Any]:
+        """Get current comparator metrics for logging."""
+        if self.oracle is not None:
+            # Oracle is enabled - get metrics from oracle
+            metrics = self.oracle.get_oracle_metrics()
+        else:
+            # Oracle disabled - use zero proxy metrics
+            metrics = {
+                "comparator_type": "zero_proxy",
+                "oracle_refresh_step": 0,
+                "oracle_refreshes": 0,
+                "regret_static": self.cumulative_regret,  # Total regret vs zero baseline
+                "is_calibrated": True,  # Zero oracle is always "calibrated"
+                "events_seen": self.events_seen,
+            }
+        return metrics
+
+    def get_metrics_dict(self) -> Dict[str, Any]:
+        """Get comprehensive metrics for logging, including regret and oracle information."""
+        metrics = {
+            # Core regret metrics
+            "regret_increment": self.regret_increment,
+            "cum_regret": self.cumulative_regret,
+            "static_regret_increment": self.static_regret_increment,
+            "path_regret_increment": self.path_regret_increment,
+            "noise_regret_increment": self.noise_regret_inc,
+            "noise_regret_cum": self.noise_regret_cum,
+            "cum_regret_with_noise": self.cumulative_regret + self.noise_regret_cum,
+            
+            # Basic model state
+            "events_seen": self.events_seen,
+            "inserts_seen": self.inserts_seen,
+            "deletes_seen": self.deletes_seen,
+            "phase": self.phase.name if isinstance(self.phase, Phase) else str(self.phase),
+            "ready_to_predict": self.ready_to_predict,
+            "N_star": self.N_star,
+            "N_gamma": self.N_gamma,
+            
+            # Lambda regularization
+            "lambda_reg": self.lambda_reg,
+            "lambda_raw": self.lambda_raw,
+        }
+        
+        # Add comparator/oracle metrics
+        comparator_metrics = self.get_comparator_metrics()
+        metrics.update(comparator_metrics)
+        
+        # Set oracle_objective to comparator's regularized loss if we have regret info
+        if self.oracle is not None and hasattr(self, '_last_event_info'):
+            # If we tracked the last event, compute the comparator's loss
+            x, y = self._last_event_info
+            if self.oracle.is_calibrated:
+                oracle_params = self.oracle.get_current_oracle()
+                if oracle_params is not None:
+                    pred_comp = float(oracle_params @ x)
+                    oracle_objective = (
+                        loss_half_mse(pred_comp, y) + 
+                        0.5 * self.lambda_reg * float(oracle_params @ oracle_params)
+                    )
+                    metrics["oracle_objective"] = oracle_objective
+        elif self.oracle is None and hasattr(self, '_last_event_info'):
+            # Zero oracle case
+            x, y = self._last_event_info
+            oracle_objective = loss_half_mse(0.0, y)  # Zero prediction, no regularization term
+            metrics["oracle_objective"] = oracle_objective
+            
+        # Add privacy/accountant metrics if available
+        if hasattr(self, 'accountant') and self.accountant is not None:
+            try:
+                accountant_metrics = self.accountant.metrics()
+                metrics.update(accountant_metrics)
+            except Exception:
+                pass
+                
+        # Add calibration metrics if available
+        if hasattr(self, 'calibrator') and self.calibrator is not None:
+            try:
+                calib_metrics = self.get_recalibration_stats()
+                metrics.update(calib_metrics)
+            except Exception:
+                pass
+        
+        return metrics
 
 
 class LambdaEstimator:

@@ -76,6 +76,33 @@ class Comparator(ABC):
         """Current accumulated path length P_T."""
         pass
 
+    def _regret_terms(self, x: np.ndarray, y: float, theta_curr: np.ndarray, theta_comp: np.ndarray, lambda_reg: float) -> Dict[str, float]:
+        """
+        Compute regret terms with the SAME regularized objective for both current and comparator.
+        
+        Args:
+            x: Feature vector
+            y: Target value  
+            theta_curr: Current model parameters
+            theta_comp: Comparator model parameters
+            lambda_reg: Regularization parameter
+            
+        Returns:
+            Dictionary with loss_curr_reg, loss_comp_reg, and regret_inc
+        """
+        # compute both sides with the SAME regularized objective
+        pred_curr = float(theta_curr @ x)
+        pred_comp = float(theta_comp @ x)
+        
+        loss_curr = loss_half_mse(pred_curr, y) + 0.5 * lambda_reg * float(theta_curr @ theta_curr)
+        loss_comp = loss_half_mse(pred_comp, y) + 0.5 * lambda_reg * float(theta_comp @ theta_comp)
+        
+        return {
+            "loss_curr_reg": float(loss_curr),
+            "loss_comp_reg": float(loss_comp),
+            "regret_inc": float(loss_curr - loss_comp),
+        }
+
 
 @dataclass
 class OracleState:
@@ -118,19 +145,28 @@ class StaticOracle(Comparator):
         self.w_star_fixed: Optional[np.ndarray] = None
         self.is_calibrated = False
 
-        # Cumulative sufficient statistics
+        # Cumulative sufficient statistics for ridge ERM
         self.xtx = np.zeros((dim, dim))
         self.xty = np.zeros(dim)
+
+        # Configuration options
+        self.oracle_refresh_period = getattr(cfg, 'oracle_refresh_period', 1) if cfg else 1
+        self.erm_solver = getattr(cfg, 'erm_solver', 'chol') if cfg else 'chol'
 
         # Regret tracking against fixed oracle
         self.regret_static = 0.0
         self.events_seen = 0
+        self.oracle_refreshes = 0
+        self.oracle_refresh_step = 0
 
         # Path-length tracking (always 0 for static oracle)
         self._P_T = 0.0
 
         # Frozen flag (for finalized static oracle)
         self._frozen = False
+        
+        # Buffer for delete support (if rank-one updates not available)
+        self.sample_buffer = []  # List of (x, y) tuples for rebuilding stats if needed
 
     def finalize(self, w_star: Optional[np.ndarray] = None) -> None:
         """Freeze the oracle at provided w_star or current estimate."""
@@ -147,9 +183,99 @@ class StaticOracle(Comparator):
         self.is_calibrated = False
         self.regret_static = 0.0
         self.events_seen = 0
+        self.oracle_refreshes = 0
+        self.oracle_refresh_step = 0
         self._P_T = 0.0
         self.xtx = np.zeros((self.dim, self.dim))
         self.xty = np.zeros(self.dim)
+        self.sample_buffer = []
+
+    def _add_sample_to_stats(self, x: np.ndarray, y: float) -> None:
+        """Add a sample to sufficient statistics."""
+        self.xtx += np.outer(x, x)
+        self.xty += x * y
+        # Also add to buffer for potential delete support
+        self.sample_buffer.append((x.copy(), y))
+
+    def _remove_sample_from_stats(self, x: np.ndarray, y: float) -> bool:
+        """
+        Remove a sample from sufficient statistics.
+        
+        Returns True if successful, False if sample not found in buffer.
+        """
+        # Try to find and remove from buffer
+        for i, (buf_x, buf_y) in enumerate(self.sample_buffer):
+            if np.allclose(buf_x, x) and abs(buf_y - y) < 1e-12:
+                # Remove from buffer
+                self.sample_buffer.pop(i)
+                # Update statistics via rank-one downdate
+                self.xtx -= np.outer(x, x)
+                self.xty -= x * y
+                return True
+        return False
+
+    def _rebuild_stats_from_buffer(self) -> None:
+        """Rebuild statistics from sample buffer (fallback for complex deletes)."""
+        self.xtx = np.zeros((self.dim, self.dim))
+        self.xty = np.zeros(self.dim)
+        for x, y in self.sample_buffer:
+            self.xtx += np.outer(x, x)
+            self.xty += x * y
+
+    def _solve_ridge_erm(self) -> np.ndarray:
+        """Solve ridge ERM using current sufficient statistics."""
+        A = self.xtx + self.lambda_reg * np.eye(self.dim)
+        
+        if self.erm_solver == 'chol':
+            try:
+                # Cholesky decomposition - preferred for stability
+                L = np.linalg.cholesky(A)
+                # Solve L * y = self.xty, then L^T * w = y
+                y = np.linalg.solve(L, self.xty)
+                w_star = np.linalg.solve(L.T, y)
+                return w_star
+            except np.linalg.LinAlgError:
+                # Fall back to regular solve
+                pass
+        
+        if self.erm_solver == 'svd':
+            # SVD - most stable but slower
+            return np.linalg.pinv(A) @ self.xty
+        
+        # Default: regular solve
+        try:
+            return np.linalg.solve(A, self.xty)
+        except np.linalg.LinAlgError:
+            return np.linalg.pinv(A) @ self.xty
+
+    def _should_refresh_oracle(self) -> bool:
+        """Check if oracle should be refreshed based on refresh period."""
+        if self._frozen:
+            return False
+        events_since_refresh = self.events_seen - self.oracle_refresh_step
+        return events_since_refresh >= self.oracle_refresh_period
+
+    def process_delete_event(self, x: np.ndarray, y: float) -> bool:
+        """
+        Process a delete event by removing sample from statistics.
+        
+        Args:
+            x: Feature vector to remove
+            y: Target value to remove
+            
+        Returns:
+            True if delete was successful, False if sample not found
+        """
+        if self._frozen:
+            return False  # Cannot modify frozen oracle
+            
+        success = self._remove_sample_from_stats(x, y)
+        if success and len(self.sample_buffer) > 0:
+            # Force refresh after delete
+            self.w_star_fixed = self._solve_ridge_erm()
+            self.oracle_refresh_step = self.events_seen
+            self.oracle_refreshes += 1
+        return success
 
     def update_target(
         self,
@@ -199,21 +325,18 @@ class StaticOracle(Comparator):
         self, data_buffer: List[Tuple[np.ndarray, float]]
     ) -> None:
         """Calibrate static oracle using initial data from calibration phase."""
+        # Reset statistics
         self.xtx = np.zeros((self.dim, self.dim))
         self.xty = np.zeros(self.dim)
+        self.sample_buffer = []
 
         for x, y in data_buffer:
-            self.xtx += np.outer(x, x)
-            self.xty += x * y
+            self._add_sample_to_stats(x, y)
 
         if len(data_buffer) == 0:
             self.w_star_fixed = np.zeros(self.dim)
         else:
-            A = self.xtx + self.lambda_reg * np.eye(self.dim)
-            try:
-                self.w_star_fixed = np.linalg.solve(A, self.xty)
-            except np.linalg.LinAlgError:
-                self.w_star_fixed = np.linalg.pinv(A) @ self.xty
+            self.w_star_fixed = self._solve_ridge_erm()
 
         self.is_calibrated = True
 
@@ -235,44 +358,34 @@ class StaticOracle(Comparator):
         """
         if not self.is_calibrated:
             return {"regret_increment": 0.0}
+            
         # If frozen, compute regret vs fixed w* without updating stats
         if self._frozen:
-            pred_current = float(current_theta @ x)
-            loss_current = self._compute_regularized_loss(
-                pred_current, y, current_theta
-            )
-            pred_oracle = float(self.w_star_fixed @ x)
-            loss_oracle = self._compute_regularized_loss(
-                pred_oracle, y, self.w_star_fixed
-            )
-            regret_increment = loss_current - loss_oracle
+            regret_terms = self._regret_terms(x, y, current_theta, self.w_star_fixed, self.lambda_reg)
+            regret_increment = regret_terms["regret_inc"]
             self.regret_static += regret_increment
+            # Increment events seen once at end
             self.events_seen += 1
             return {"regret_increment": regret_increment}
 
-        # Update cumulative statistics
-        self.xtx += np.outer(x, x)
-        self.xty += x * y
-
-        # Recompute oracle using ridge closed form
-        A = self.xtx + self.lambda_reg * np.eye(self.dim)
-        try:
-            self.w_star_fixed = np.linalg.solve(A, self.xty)
-        except np.linalg.LinAlgError:
-            self.w_star_fixed = np.linalg.pinv(A) @ self.xty
-
-        # Compute current loss with regularization
-        pred_current = float(current_theta @ x)
-        loss_current = self._compute_regularized_loss(pred_current, y, current_theta)
-
-        # Compute static oracle loss
-        pred_oracle = float(self.w_star_fixed @ x)
-        loss_oracle = self._compute_regularized_loss(pred_oracle, y, self.w_star_fixed)
-
-        # Update static regret
-        regret_increment = loss_current - loss_oracle
-        self.regret_static += regret_increment
+        # Add sample to statistics
+        self._add_sample_to_stats(x, y)
+        
+        # Increment events seen 
         self.events_seen += 1
+        
+        # Check if we should refresh the oracle (after processing this event)
+        if self._should_refresh_oracle():
+            self.w_star_fixed = self._solve_ridge_erm()
+            self.oracle_refresh_step = self.events_seen  # Current count after increment
+            self.oracle_refreshes += 1
+
+        # Compute regret using consistent regularized objective
+        regret_terms = self._regret_terms(x, y, current_theta, self.w_star_fixed, self.lambda_reg)
+        regret_increment = regret_terms["regret_inc"]
+        
+        # Update static regret
+        self.regret_static += regret_increment
 
         # Ensure non-negative regret if configured (finalized spec requirement)
         if hasattr(self.cfg, 'enforce_nonnegative_regret') and self.cfg.enforce_nonnegative_regret:
@@ -292,7 +405,9 @@ class StaticOracle(Comparator):
             "regret_static": self.regret_static,
             "is_calibrated": self.is_calibrated,
             "events_seen": self.events_seen,
-            "comparator_type": "static",
+            "comparator_type": "static_oracle_erm_fullprefix",  # Updated to theory-faithful name
+            "oracle_refresh_step": self.oracle_refresh_step,
+            "oracle_refreshes": self.oracle_refreshes,
         }
 
         if self.w_star_fixed is not None:
@@ -724,27 +839,15 @@ class RollingOracle(Comparator):
                 "path_increment": 0.0,
             }
 
-        # Compute current loss with regularization
-        pred_current = float(current_theta @ x)
-        loss_current = self._compute_regularized_loss(pred_current, y, current_theta)
-
-        # Compute oracle loss with regularization
-        pred_oracle = float(self.oracle_state.w_star @ x)
-        loss_oracle = self._compute_regularized_loss(
-            pred_oracle, y, self.oracle_state.w_star
-        )
-
-        # Update dynamic regret
-        regret_increment = loss_current - loss_oracle
+        # Compute regret using consistent regularized objective
+        regret_terms = self._regret_terms(x, y, current_theta, self.oracle_state.w_star, self.lambda_reg)
+        regret_increment = regret_terms["regret_inc"]
         self.regret_dynamic += regret_increment
 
         static_increment = 0.0
         if self.w_star_first is not None:
-            pred_first = float(self.w_star_first @ x)
-            loss_first = self._compute_regularized_loss(
-                pred_first, y, self.w_star_first
-            )
-            static_increment = loss_current - loss_first
+            static_terms = self._regret_terms(x, y, current_theta, self.w_star_first, self.lambda_reg)
+            static_increment = static_terms["regret_inc"]
             self.regret_static_term += static_increment
 
         # Path term is difference
@@ -778,7 +881,7 @@ class RollingOracle(Comparator):
             "oracle_refreshes": self.oracle_refreshes,
             "oracle_stalled_count": self.oracle_stalled_count,
             "window_size": len(self.window_buffer),
-            "comparator_type": "dynamic",  # Rolling oracle is dynamic type
+            "comparator_type": f"rolling_oracle_window{self.window_W}",  # More specific type name
             "drift_detected": self.drift_detected,
             "drift_episodes_count": len(self.drift_episodes),
             "drift_threshold": self.drift_threshold,
