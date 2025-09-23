@@ -332,6 +332,7 @@ def run_single_experiment(
     seed: int,
     base_out_dir: str,
     output_granularity: str = "seed",
+    parquet_out: str = "results_parquet",
 ) -> Optional[str]:
     """Run a single experiment with given parameters and seed."""
     import re
@@ -340,6 +341,7 @@ def run_single_experiment(
     config_kwargs = params.copy()
     config_kwargs["seeds"] = 1  # Single seed per run
     config_kwargs["output_granularity"] = output_granularity  # Pass through granularity
+    config_kwargs["parquet_out"] = parquet_out  # Pass through parquet output directory
 
     # Set output directory for this specific run
     grid_id = create_grid_id(params)
@@ -386,12 +388,20 @@ def run_parameter_combination(
     parquet_out: str = "results_parquet",
     parquet_write_events: bool = False,
     no_legacy_csv: bool = False,
+    experiment_name: str = None,
 ) -> List[str]:
     """Run all seeds for a single parameter combination."""
     grid_id = create_grid_id(params)
     print(f"\n=== Running grid cell: {grid_id} ===")
     print(f"Parameters: {params}")
     print(f"Output granularity: {output_granularity}")
+
+    # Create experiment-specific parquet directory if experiment_name is provided
+    if experiment_name:
+        experiment_parquet_out = os.path.join(parquet_out, experiment_name)
+        print(f"Using experiment-specific parquet directory: {experiment_parquet_out}")
+    else:
+        experiment_parquet_out = parquet_out
 
     # Create output directory for this grid cell
     grid_output_dir = os.path.join(base_out_dir, "sweep", grid_id)
@@ -400,7 +410,7 @@ def run_parameter_combination(
     if parallel == 1:
         # Sequential execution
         for seed in seeds:
-            run_single_experiment(params, seed, base_out_dir, output_granularity)
+            run_single_experiment(params, seed, base_out_dir, output_granularity, experiment_parquet_out)
 
     else:
         # Parallel execution
@@ -410,6 +420,7 @@ def run_parameter_combination(
                 params,
                 base_out_dir=base_out_dir,
                 output_granularity=output_granularity,
+                parquet_out=experiment_parquet_out,
             )
             pool.map(run_func, seeds)
 
@@ -685,6 +696,10 @@ def main():
         print(f"Error: Grid file {grid_file_path} not found")
         return 1
 
+    # Extract experiment name from grid file name (e.g., "01_regret_decomposition.yaml" -> "01_regret_decomposition")
+    experiment_name = os.path.splitext(os.path.basename(args.grid_file))[0]
+    print(f"Experiment name: {experiment_name}")
+
     grid_raw = load_grid(grid_file_path)
 
     # Backwards compat: matrix is either explicit or the entire file
@@ -763,6 +778,7 @@ def main():
             args.parquet_out,
             args.parquet_write_events,
             args.no_legacy_csv,
+            experiment_name,
         )
 
     # Create sweep manifest (requirement 2)

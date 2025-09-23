@@ -1,0 +1,22 @@
+# grids/06_regret_gate.yaml
+matrix:
+  gamma_delete:  [1.5, 1.75, 2.0]  # only knob we vary
+  gamma:         [1.0]
+  lambda_reg:    [0.05]
+  lambda_:       [0.10]
+  rho_total:     [1.5]
+  delta_b:       [0.10]
+
+  target_G:      [2.0]
+  target_D:      [2.0]
+  target_c:      [0.05]
+  target_C:      [20.0]
+  target_lambda: [0.05]
+  target_PT:     [30.0]
+  target_ST:     [200000.0]
+
+  path_style:    ["rotating"]
+  dim:           [20]
+  T:             [50000]
+  accountant:    ["zcdp"]
+  seed:          [42]
