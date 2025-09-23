@@ -901,6 +901,23 @@ class MemoryPair:
             "finalized_G": getattr(self.calibrator, "finalized_G", None),
         }
 
+    def get_comparator_metrics(self) -> Dict[str, Any]:
+        """Get current comparator metrics for logging."""
+        if self.oracle is not None:
+            # Oracle is enabled - get metrics from oracle
+            metrics = self.oracle.get_oracle_metrics()
+        else:
+            # Oracle disabled - use zero proxy metrics
+            metrics = {
+                "comparator_type": "zero_proxy",
+                "oracle_refresh_step": 0,
+                "oracle_refreshes": 0,
+                "regret_static": self.cumulative_regret,  # Total regret vs zero baseline
+                "is_calibrated": True,  # Zero oracle is always "calibrated"
+                "events_seen": self.events_seen,
+            }
+        return metrics
+
 
 class LambdaEstimator:
     def __init__(self, ema_beta: float = 0.9, floor: float = 1e-6, cap: float = 1e3):

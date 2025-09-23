@@ -162,6 +162,34 @@ class TestRegretConsistency:
         assert abs(regret_terms["regret_inc"] - regret_terms_no_reg["regret_inc"]) > 1e-6, \
             "Regularization should make a measurable difference in regret calculation"
 
+    def test_fallback_zero_proxy(self):
+        """Test that zero proxy fallback uses consistent regularized loss and correct labeling"""
+        lambda_reg = 0.1
+        
+        # Create MemoryPair without oracle (fallback case)
+        mp = MemoryPair(dim=2)
+        mp.lambda_reg = lambda_reg
+        mp.phase = Phase.LEARNING
+        mp.oracle = None  # No oracle - should use fallback
+        
+        x = np.array([0.5, 0.5])
+        y = 0.7
+        
+        # Insert to trigger regret calculation
+        pred = mp.insert(x, y)
+        
+        # Check comparator metrics
+        metrics = mp.get_comparator_metrics()
+        assert metrics["comparator_type"] == "zero_proxy", \
+            "Fallback should be labeled as zero_proxy"
+        
+        # Manually verify the regret calculation uses same regularized objective
+        theta_comp = np.zeros(mp.theta.shape)  # Zero baseline
+        regret_terms = mp._regret_terms(x, y, mp.theta, theta_comp, lambda_reg)
+        
+        assert abs(mp.regret_increment - regret_terms["regret_inc"]) < 1e-12, \
+            "Fallback regret should use consistent _regret_terms with zero comparator"
+
 
 if __name__ == "__main__":
     # Run tests
@@ -183,5 +211,8 @@ if __name__ == "__main__":
     
     test_suite.test_lambda_consistency()
     print("✓ Lambda consistency test passed")
+    
+    test_suite.test_fallback_zero_proxy()
+    print("✓ Fallback zero proxy test passed")
     
     print("\n🎉 All regret consistency tests passed!")
