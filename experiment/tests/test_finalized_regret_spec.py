@@ -16,8 +16,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../code"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from memory_pair.src.comparators import StaticOracle, RollingOracle
-from memory_pair.src.metrics import loss_half_mse
+from code.memory_pair.src.comparators import StaticOracle, RollingOracle
+from code.memory_pair.src.metrics import loss_half_mse
 from experiment.utils.configs.config import Config
 from exp_integration import build_params_from_config, write_seed_summary_parquet, write_event_rows_parquet
 
