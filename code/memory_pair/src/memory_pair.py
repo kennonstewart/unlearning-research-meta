@@ -138,6 +138,9 @@ class MemoryPair:
 
         # Oracle (optional)
         self.oracle: Optional[Union[RollingOracle, "StaticOracle"]] = None
+        
+        # Track last event for logging oracle_objective
+        self._last_event_info: Optional[Tuple[np.ndarray, float]] = None
         if cfg and getattr(cfg, "enable_oracle", False):
             comparator_type = getattr(cfg, "comparator", "dynamic")
             if comparator_type == "static":
@@ -456,6 +459,10 @@ class MemoryPair:
             theta_comp = np.zeros(self.theta.shape)  # θ* = 0
             regret_terms = self._regret_terms(x, y, self.theta, theta_comp, self.lambda_reg)
             self.regret_increment = regret_terms["regret_inc"]
+
+        # Track last event for oracle_objective calculation in logging
+        if self.phase in [Phase.LEARNING, Phase.INTERLEAVING]:
+            self._last_event_info = (x.copy(), y)
 
         if self.regret_increment is not None:
             try:
@@ -916,6 +923,73 @@ class MemoryPair:
                 "is_calibrated": True,  # Zero oracle is always "calibrated"
                 "events_seen": self.events_seen,
             }
+        return metrics
+
+    def get_metrics_dict(self) -> Dict[str, Any]:
+        """Get comprehensive metrics for logging, including regret and oracle information."""
+        metrics = {
+            # Core regret metrics
+            "regret_increment": self.regret_increment,
+            "cum_regret": self.cumulative_regret,
+            "static_regret_increment": self.static_regret_increment,
+            "path_regret_increment": self.path_regret_increment,
+            "noise_regret_increment": self.noise_regret_inc,
+            "noise_regret_cum": self.noise_regret_cum,
+            "cum_regret_with_noise": self.cumulative_regret + self.noise_regret_cum,
+            
+            # Basic model state
+            "events_seen": self.events_seen,
+            "inserts_seen": self.inserts_seen,
+            "deletes_seen": self.deletes_seen,
+            "phase": self.phase.name if isinstance(self.phase, Phase) else str(self.phase),
+            "ready_to_predict": self.ready_to_predict,
+            "N_star": self.N_star,
+            "N_gamma": self.N_gamma,
+            
+            # Lambda regularization
+            "lambda_reg": self.lambda_reg,
+            "lambda_raw": self.lambda_raw,
+        }
+        
+        # Add comparator/oracle metrics
+        comparator_metrics = self.get_comparator_metrics()
+        metrics.update(comparator_metrics)
+        
+        # Set oracle_objective to comparator's regularized loss if we have regret info
+        if self.oracle is not None and hasattr(self, '_last_event_info'):
+            # If we tracked the last event, compute the comparator's loss
+            x, y = self._last_event_info
+            if self.oracle.is_calibrated:
+                oracle_params = self.oracle.get_current_oracle()
+                if oracle_params is not None:
+                    pred_comp = float(oracle_params @ x)
+                    oracle_objective = (
+                        loss_half_mse(pred_comp, y) + 
+                        0.5 * self.lambda_reg * float(oracle_params @ oracle_params)
+                    )
+                    metrics["oracle_objective"] = oracle_objective
+        elif self.oracle is None and hasattr(self, '_last_event_info'):
+            # Zero oracle case
+            x, y = self._last_event_info
+            oracle_objective = loss_half_mse(0.0, y)  # Zero prediction, no regularization term
+            metrics["oracle_objective"] = oracle_objective
+            
+        # Add privacy/accountant metrics if available
+        if hasattr(self, 'accountant') and self.accountant is not None:
+            try:
+                accountant_metrics = self.accountant.metrics()
+                metrics.update(accountant_metrics)
+            except Exception:
+                pass
+                
+        # Add calibration metrics if available
+        if hasattr(self, 'calibrator') and self.calibrator is not None:
+            try:
+                calib_metrics = self.get_recalibration_stats()
+                metrics.update(calib_metrics)
+            except Exception:
+                pass
+        
         return metrics
 
 

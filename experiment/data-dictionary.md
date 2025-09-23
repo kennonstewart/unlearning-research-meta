@@ -80,7 +80,7 @@ Grain: 1 row per event.
 
 **Regret Metrics**
 * `regret` (DOUBLE): Instantaneous regret
-* `regret_increment` (DOUBLE): Regret increment for this event
+* `regret_increment` (DOUBLE): $\mathcal{L}_{\lambda}(\theta_{curr}) - \mathcal{L}_{\lambda}(\theta_{comp})$ on (x_t,y_t)
 * `static_regret_increment` (DOUBLE): Static regret component
 * `path_regret_increment` (DOUBLE): Path regret component
 * `cum_regret` (DOUBLE): Cumulative regret
@@ -104,12 +104,12 @@ Grain: 1 row per event.
 * `delta_P` (DOUBLE): Path length delta
 
 **Oracle & Comparator Metrics**
-* `oracle_objective` (DOUBLE): Oracle objective value
+* `oracle_objective` (DOUBLE): Comparator's **regularized** loss for this event (ERM/static or rolling), used with `regret_increment` to reconstruct learner loss
 * `oracle_w_norm` (DOUBLE): Oracle weight norm
 * `oracle_refresh_step` (DOUBLE): Oracle refresh step
 * `oracle_refreshes` (BIGINT): Number of oracle refreshes
 * `oracle_stalled_count` (BIGINT): Number of oracle stalls
-* `comparator_type` (VARCHAR): Comparator type (dynamic, static)
+* `comparator_type` (VARCHAR): Comparator type (`static_oracle_erm_fullprefix`, `rolling_oracle_window{W}`, `zero_proxy`)
 * `window_size` (BIGINT): Sliding window size
 
 **Norms & Stepsize Metrics**
