@@ -237,15 +237,8 @@ class StaticOracle(Comparator):
             return {"regret_increment": 0.0}
         # If frozen, compute regret vs fixed w* without updating stats
         if self._frozen:
-            pred_current = float(current_theta @ x)
-            loss_current = self._compute_regularized_loss(
-                pred_current, y, current_theta
-            )
-            pred_oracle = float(self.w_star_fixed @ x)
-            loss_oracle = self._compute_regularized_loss(
-                pred_oracle, y, self.w_star_fixed
-            )
-            regret_increment = loss_current - loss_oracle
+            regret_terms = self._regret_terms(x, y, current_theta, self.w_star_fixed, self.lambda_reg)
+            regret_increment = regret_terms["regret_inc"]
             self.regret_static += regret_increment
             self.events_seen += 1
             return {"regret_increment": regret_increment}
@@ -261,16 +254,11 @@ class StaticOracle(Comparator):
         except np.linalg.LinAlgError:
             self.w_star_fixed = np.linalg.pinv(A) @ self.xty
 
-        # Compute current loss with regularization
-        pred_current = float(current_theta @ x)
-        loss_current = self._compute_regularized_loss(pred_current, y, current_theta)
-
-        # Compute static oracle loss
-        pred_oracle = float(self.w_star_fixed @ x)
-        loss_oracle = self._compute_regularized_loss(pred_oracle, y, self.w_star_fixed)
-
+        # Compute regret using consistent regularized objective
+        regret_terms = self._regret_terms(x, y, current_theta, self.w_star_fixed, self.lambda_reg)
+        regret_increment = regret_terms["regret_inc"]
+        
         # Update static regret
-        regret_increment = loss_current - loss_oracle
         self.regret_static += regret_increment
         self.events_seen += 1
 
@@ -285,6 +273,33 @@ class StaticOracle(Comparator):
         base_loss = loss_half_mse(pred, y)
         reg_term = 0.5 * self.lambda_reg * float(np.dot(w, w))
         return base_loss + reg_term
+
+    def _regret_terms(self, x: np.ndarray, y: float, theta_curr: np.ndarray, theta_comp: np.ndarray, lambda_reg: float) -> Dict[str, float]:
+        """
+        Compute regret terms with the SAME regularized objective for both current and comparator.
+        
+        Args:
+            x: Feature vector
+            y: Target value  
+            theta_curr: Current model parameters
+            theta_comp: Comparator model parameters
+            lambda_reg: Regularization parameter
+            
+        Returns:
+            Dictionary with loss_curr_reg, loss_comp_reg, and regret_inc
+        """
+        # compute both sides with the SAME regularized objective
+        pred_curr = float(theta_curr @ x)
+        pred_comp = float(theta_comp @ x)
+        
+        loss_curr = loss_half_mse(pred_curr, y) + 0.5 * lambda_reg * float(theta_curr @ theta_curr)
+        loss_comp = loss_half_mse(pred_comp, y) + 0.5 * lambda_reg * float(theta_comp @ theta_comp)
+        
+        return {
+            "loss_curr_reg": float(loss_curr),
+            "loss_comp_reg": float(loss_comp),
+            "regret_inc": float(loss_curr - loss_comp),
+        }
 
     def get_oracle_metrics(self) -> Dict[str, Any]:
         """Get current static oracle metrics for logging."""
@@ -724,27 +739,15 @@ class RollingOracle(Comparator):
                 "path_increment": 0.0,
             }
 
-        # Compute current loss with regularization
-        pred_current = float(current_theta @ x)
-        loss_current = self._compute_regularized_loss(pred_current, y, current_theta)
-
-        # Compute oracle loss with regularization
-        pred_oracle = float(self.oracle_state.w_star @ x)
-        loss_oracle = self._compute_regularized_loss(
-            pred_oracle, y, self.oracle_state.w_star
-        )
-
-        # Update dynamic regret
-        regret_increment = loss_current - loss_oracle
+        # Compute regret using consistent regularized objective
+        regret_terms = self._regret_terms(x, y, current_theta, self.oracle_state.w_star, self.lambda_reg)
+        regret_increment = regret_terms["regret_inc"]
         self.regret_dynamic += regret_increment
 
         static_increment = 0.0
         if self.w_star_first is not None:
-            pred_first = float(self.w_star_first @ x)
-            loss_first = self._compute_regularized_loss(
-                pred_first, y, self.w_star_first
-            )
-            static_increment = loss_current - loss_first
+            static_terms = self._regret_terms(x, y, current_theta, self.w_star_first, self.lambda_reg)
+            static_increment = static_terms["regret_inc"]
             self.regret_static_term += static_increment
 
         # Path term is difference
@@ -767,6 +770,33 @@ class RollingOracle(Comparator):
         base_loss = loss_half_mse(pred, y)
         reg_term = 0.5 * self.lambda_reg * float(np.dot(w, w))
         return base_loss + reg_term
+
+    def _regret_terms(self, x: np.ndarray, y: float, theta_curr: np.ndarray, theta_comp: np.ndarray, lambda_reg: float) -> Dict[str, float]:
+        """
+        Compute regret terms with the SAME regularized objective for both current and comparator.
+        
+        Args:
+            x: Feature vector
+            y: Target value  
+            theta_curr: Current model parameters
+            theta_comp: Comparator model parameters
+            lambda_reg: Regularization parameter
+            
+        Returns:
+            Dictionary with loss_curr_reg, loss_comp_reg, and regret_inc
+        """
+        # compute both sides with the SAME regularized objective
+        pred_curr = float(theta_curr @ x)
+        pred_comp = float(theta_comp @ x)
+        
+        loss_curr = loss_half_mse(pred_curr, y) + 0.5 * lambda_reg * float(theta_curr @ theta_curr)
+        loss_comp = loss_half_mse(pred_comp, y) + 0.5 * lambda_reg * float(theta_comp @ theta_comp)
+        
+        return {
+            "loss_curr_reg": float(loss_curr),
+            "loss_comp_reg": float(loss_comp),
+            "regret_inc": float(loss_curr - loss_comp),
+        }
 
     def get_oracle_metrics(self) -> Dict[str, Any]:
         """Get current oracle metrics for logging."""

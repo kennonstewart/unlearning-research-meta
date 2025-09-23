@@ -234,6 +234,33 @@ class MemoryPair:
             total_grad = total_grad * (100.0 / grad_norm)
         return total_grad
 
+    def _regret_terms(self, x: np.ndarray, y: float, theta_curr: np.ndarray, theta_comp: np.ndarray, lambda_reg: float) -> Dict[str, float]:
+        """
+        Compute regret terms with the SAME regularized objective for both current and comparator.
+        
+        Args:
+            x: Feature vector
+            y: Target value  
+            theta_curr: Current model parameters
+            theta_comp: Comparator model parameters
+            lambda_reg: Regularization parameter
+            
+        Returns:
+            Dictionary with loss_curr_reg, loss_comp_reg, and regret_inc
+        """
+        # compute both sides with the SAME regularized objective
+        pred_curr = float(theta_curr @ x)
+        pred_comp = float(theta_comp @ x)
+        
+        loss_curr = loss_half_mse(pred_curr, y) + 0.5 * lambda_reg * float(theta_curr @ theta_curr)
+        loss_comp = loss_half_mse(pred_comp, y) + 0.5 * lambda_reg * float(theta_comp @ theta_comp)
+        
+        return {
+            "loss_curr_reg": float(loss_curr),
+            "loss_comp_reg": float(loss_comp),
+            "regret_inc": float(loss_curr - loss_comp),
+        }
+
     def _update_lambda_estimate(
         self,
         g_old: np.ndarray,
@@ -425,10 +452,10 @@ class MemoryPair:
                 self.static_regret_increment = incs.get("static_increment", 0.0)
                 self.path_regret_increment = incs.get("path_increment", 0.0)
         else:
-            pred = float(self.theta @ x)
-            zero_pred_loss = loss_half_mse(0.0, y)
-            current_loss = loss_half_mse(pred, y)
-            self.regret_increment = current_loss - zero_pred_loss
+            # Fallback: zero-baseline comparator using same regularized objective
+            theta_comp = np.zeros(self.theta.shape)  # θ* = 0
+            regret_terms = self._regret_terms(x, y, self.theta, theta_comp, self.lambda_reg)
+            self.regret_increment = regret_terms["regret_inc"]
 
         if self.regret_increment is not None:
             try:
