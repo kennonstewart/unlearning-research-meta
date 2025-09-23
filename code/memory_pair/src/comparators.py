@@ -76,6 +76,33 @@ class Comparator(ABC):
         """Current accumulated path length P_T."""
         pass
 
+    def _regret_terms(self, x: np.ndarray, y: float, theta_curr: np.ndarray, theta_comp: np.ndarray, lambda_reg: float) -> Dict[str, float]:
+        """
+        Compute regret terms with the SAME regularized objective for both current and comparator.
+        
+        Args:
+            x: Feature vector
+            y: Target value  
+            theta_curr: Current model parameters
+            theta_comp: Comparator model parameters
+            lambda_reg: Regularization parameter
+            
+        Returns:
+            Dictionary with loss_curr_reg, loss_comp_reg, and regret_inc
+        """
+        # compute both sides with the SAME regularized objective
+        pred_curr = float(theta_curr @ x)
+        pred_comp = float(theta_comp @ x)
+        
+        loss_curr = loss_half_mse(pred_curr, y) + 0.5 * lambda_reg * float(theta_curr @ theta_curr)
+        loss_comp = loss_half_mse(pred_comp, y) + 0.5 * lambda_reg * float(theta_comp @ theta_comp)
+        
+        return {
+            "loss_curr_reg": float(loss_curr),
+            "loss_comp_reg": float(loss_comp),
+            "regret_inc": float(loss_curr - loss_comp),
+        }
+
 
 @dataclass
 class OracleState:
@@ -337,19 +364,20 @@ class StaticOracle(Comparator):
             regret_terms = self._regret_terms(x, y, current_theta, self.w_star_fixed, self.lambda_reg)
             regret_increment = regret_terms["regret_inc"]
             self.regret_static += regret_increment
+            # Increment events seen once at end
             self.events_seen += 1
             return {"regret_increment": regret_increment}
 
         # Add sample to statistics
         self._add_sample_to_stats(x, y)
         
-        # Increment events seen before checking refresh
+        # Increment events seen 
         self.events_seen += 1
         
-        # Check if we should refresh the oracle
+        # Check if we should refresh the oracle (after processing this event)
         if self._should_refresh_oracle():
             self.w_star_fixed = self._solve_ridge_erm()
-            self.oracle_refresh_step = self.events_seen
+            self.oracle_refresh_step = self.events_seen  # Current count after increment
             self.oracle_refreshes += 1
 
         # Compute regret using consistent regularized objective
@@ -370,33 +398,6 @@ class StaticOracle(Comparator):
         base_loss = loss_half_mse(pred, y)
         reg_term = 0.5 * self.lambda_reg * float(np.dot(w, w))
         return base_loss + reg_term
-
-    def _regret_terms(self, x: np.ndarray, y: float, theta_curr: np.ndarray, theta_comp: np.ndarray, lambda_reg: float) -> Dict[str, float]:
-        """
-        Compute regret terms with the SAME regularized objective for both current and comparator.
-        
-        Args:
-            x: Feature vector
-            y: Target value  
-            theta_curr: Current model parameters
-            theta_comp: Comparator model parameters
-            lambda_reg: Regularization parameter
-            
-        Returns:
-            Dictionary with loss_curr_reg, loss_comp_reg, and regret_inc
-        """
-        # compute both sides with the SAME regularized objective
-        pred_curr = float(theta_curr @ x)
-        pred_comp = float(theta_comp @ x)
-        
-        loss_curr = loss_half_mse(pred_curr, y) + 0.5 * lambda_reg * float(theta_curr @ theta_curr)
-        loss_comp = loss_half_mse(pred_comp, y) + 0.5 * lambda_reg * float(theta_comp @ theta_comp)
-        
-        return {
-            "loss_curr_reg": float(loss_curr),
-            "loss_comp_reg": float(loss_comp),
-            "regret_inc": float(loss_curr - loss_comp),
-        }
 
     def get_oracle_metrics(self) -> Dict[str, Any]:
         """Get current static oracle metrics for logging."""
@@ -869,33 +870,6 @@ class RollingOracle(Comparator):
         base_loss = loss_half_mse(pred, y)
         reg_term = 0.5 * self.lambda_reg * float(np.dot(w, w))
         return base_loss + reg_term
-
-    def _regret_terms(self, x: np.ndarray, y: float, theta_curr: np.ndarray, theta_comp: np.ndarray, lambda_reg: float) -> Dict[str, float]:
-        """
-        Compute regret terms with the SAME regularized objective for both current and comparator.
-        
-        Args:
-            x: Feature vector
-            y: Target value  
-            theta_curr: Current model parameters
-            theta_comp: Comparator model parameters
-            lambda_reg: Regularization parameter
-            
-        Returns:
-            Dictionary with loss_curr_reg, loss_comp_reg, and regret_inc
-        """
-        # compute both sides with the SAME regularized objective
-        pred_curr = float(theta_curr @ x)
-        pred_comp = float(theta_comp @ x)
-        
-        loss_curr = loss_half_mse(pred_curr, y) + 0.5 * lambda_reg * float(theta_curr @ theta_curr)
-        loss_comp = loss_half_mse(pred_comp, y) + 0.5 * lambda_reg * float(theta_comp @ theta_comp)
-        
-        return {
-            "loss_curr_reg": float(loss_curr),
-            "loss_comp_reg": float(loss_comp),
-            "regret_inc": float(loss_curr - loss_comp),
-        }
 
     def get_oracle_metrics(self) -> Dict[str, Any]:
         """Get current oracle metrics for logging."""
