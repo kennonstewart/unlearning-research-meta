@@ -11,6 +11,8 @@ Previously, average regret was computed including all events from the start of a
 - Did not align with theoretical regret guarantees 
 - Led to misleading downstream analytics and dashboards
 
+The workload phase detection was previously inferred from operation types (first 'delete' event), which was unreliable and didn't capture the true intent of the experimental phases.
+
 ## Solution
 
 ### New DuckDB Views
@@ -20,9 +22,9 @@ Previously, average regret was computed including all events from the start of a
 
 ### Workload Phase Definition
 
-The workload phase begins at:
-1. **First 'delete' event** per run (grid_id, seed), OR
-2. **N_star sample complexity threshold** if no deletes exist, OR  
+The workload phase is now explicitly tracked using a `phase` column in the event logs, providing accurate phase boundaries. The workload phase begins at:
+1. **First event with phase='workload'** per run (grid_id, seed), OR
+2. **N_star sample complexity threshold** if no workload phase events exist, OR  
 3. **First event** if neither boundary is found (fallback)
 
 ### Key Metrics
@@ -64,6 +66,7 @@ print(analysis[['grid_id', 'final_workload_avg_regret', 'final_total_avg_regret'
 2. **Better Comparisons**: More accurate algorithm performance measurement
 3. **Improved Analytics**: Dashboards and gating logic reflect true workload performance
 4. **Centralized Logic**: Single definition of workload-only regret in SQL
+5. **Explicit Phase Tracking**: Uses explicit phase column instead of inferring from operation types
 
 ## Performance Impact
 

@@ -358,6 +358,7 @@ def bootstrap_phase(
         base_log_entry = {
             "event": state.event,
             "op": "calibrate",
+            "phase": "bootstrap",
             "regret": model.cumulative_regret
             if hasattr(model, "cumulative_regret")
             else np.nan,
@@ -477,6 +478,7 @@ def warmup_phase(
         base_log_entry = {
             "event": state.event,
             "op": "warmup",
+            "phase": "warmup",
             "regret": model.cumulative_regret
             if hasattr(model, "cumulative_regret")
             else np.nan,
@@ -568,6 +570,7 @@ def workload_phase(
                 base_log_entry = {
                     "event": state.event,
                     "op": "insert",
+                    "phase": "workload",
                     "regret": model.cumulative_regret
                     if hasattr(model, "cumulative_regret")
                     else np.nan,
@@ -593,6 +596,7 @@ def workload_phase(
                 base_log_entry = {
                     "event": state.event,
                     "op": "delete",
+                    "phase": "workload",
                     "regret": model.cumulative_regret
                     if hasattr(model, "cumulative_regret")
                     else np.nan,

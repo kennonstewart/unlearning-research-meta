@@ -500,6 +500,9 @@ class RollingOracle(Comparator):
         self.drift_episodes: List[int] = []  # Track when drift was detected
         self.drift_detected = False
 
+        # Calibration state
+        self.is_calibrated = False
+
     def reset(self) -> None:
         """Reset oracle state."""
         self.window_buffer.clear()
@@ -516,6 +519,7 @@ class RollingOracle(Comparator):
         self.P_T_history.clear()
         self.drift_episodes.clear()
         self.drift_detected = False
+        self.is_calibrated = False
 
     def update_target(
         self,
@@ -897,6 +901,59 @@ class RollingOracle(Comparator):
             )
 
         return metrics
+
+    def calibrate_with_initial_data(
+        self, data_buffer: List[Tuple[np.ndarray, float]]
+    ) -> None:
+        """Calibrate rolling oracle using initial data from calibration phase."""
+        # Reset oracle state
+        self.reset()
+        
+        # Add initial data to window buffer
+        for x, y in data_buffer:
+            self.window_buffer.append((x.copy(), y))
+        
+        # If we have data, initialize the oracle state with the first window
+        if len(data_buffer) > 0:
+            # Use the first window_W samples (or all if fewer)
+            window_data = data_buffer[:self.window_W]
+            
+            # Create initial oracle state by solving ERM on the first window
+            if len(window_data) > 0:
+                # Build sufficient statistics for ridge regression
+                xtx = np.zeros((self.dim, self.dim))
+                xty = np.zeros(self.dim)
+                
+                for x, y in window_data:
+                    xtx += np.outer(x, x)
+                    xty += y * x
+                
+                # Solve ridge regression: (X^T X + λI)^{-1} X^T y
+                try:
+                    reg_matrix = xtx + self.lambda_reg * np.eye(self.dim)
+                    w_star = np.linalg.solve(reg_matrix, xty)
+                except np.linalg.LinAlgError:
+                    # Fallback to zero vector if singular
+                    w_star = np.zeros(self.dim)
+                
+                # Create oracle state
+                self.oracle_state = OracleState(
+                    w_star=w_star,
+                    last_refresh_step=len(window_data),
+                    last_objective=0.0,  # Will be computed on first update
+                    window_size=len(window_data),
+                    path_length_norm=self.path_length_norm
+                )
+                
+                # Store first window oracle for static term baseline
+                self.w_star_first = w_star.copy()
+                
+                # Update events seen
+                self.events_seen = len(window_data)
+                self.last_refresh_event = len(window_data)
+        
+        # Mark as calibrated
+        self.is_calibrated = True
 
     def get_current_oracle(self) -> Optional[np.ndarray]:
         """Get current oracle parameters."""

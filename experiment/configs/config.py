@@ -87,7 +87,7 @@ class Config:
 
     # Comparator and drift configuration
     comparator: str = "static"  # "static" or "dynamic" (mapped from --comparator)
-    enable_oracle: bool = False  # Enable oracle/comparator functionality
+    enable_oracle: bool = True  # Enable oracle/comparator functionality
     drift_threshold: float = 0.1  # Threshold for drift detection
     drift_kappa: float = 0.5  # LR boost factor (1 + kappa)
     drift_window: int = 10  # Duration of LR boost in steps

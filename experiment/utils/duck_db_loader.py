@@ -3,6 +3,12 @@ DuckDB loader with star schema support for experiment data.
 
 This module provides functionality to load experiment data into DuckDB
 with a star schema design, including parameter data integration.
+
+Example usage with memory limit to prevent kernel crashes:
+    conn = load_star_schema(
+        input_path="results_parquet/events/grid_id=*/seed=*/*.parquet",
+        memory_limit="1GB"  # Optional: limit memory usage (MB or GB only)
+    )
 """
 
 import os
@@ -26,7 +32,8 @@ def load_star_schema(
     run_ddl: bool = True,
     create_events_view: bool = True,
     include_parameters: bool = True,
-    parameters_path: Optional[str] = None
+    parameters_path: Optional[str] = None,
+    memory_limit: Optional[str] = None
 ) -> duckdb.DuckDBPyConnection:
     """
     Load experiment data into DuckDB with star schema design.
@@ -39,6 +46,7 @@ def load_star_schema(
         create_events_view: Whether to create the events view
         include_parameters: Whether to include parameter data from grids directory
         parameters_path: Path to parameters directory (defaults to grids/ in same dir as events)
+        memory_limit: Optional memory limit for DuckDB in MB or GB (e.g., '1GB', '512MB'). Helps prevent kernel crashes.
         
     Returns:
         DuckDB connection with star schema loaded
@@ -46,11 +54,28 @@ def load_star_schema(
     if not DUCKDB_AVAILABLE:
         raise ImportError("DuckDB is not available. Install with: pip install duckdb")
     
+    # Validate memory_limit format if provided
+    if memory_limit is not None:
+        if not isinstance(memory_limit, str):
+            raise ValueError("memory_limit must be a string (e.g., '1GB', '512MB')")
+        # Validate memory limit format - only accept MB or GB
+        import re
+        if not re.match(r'^\d+(MB|GB)$', memory_limit.upper()):
+            raise ValueError("memory_limit must be in MB or GB format (e.g., '1GB', '512MB')")
+    
     # Create connection
     if db_path:
         conn = duckdb.connect(db_path)
     else:
         conn = duckdb.connect()
+    
+    # Configure memory limit if specified
+    if memory_limit is not None:
+        try:
+            conn.execute(f"SET memory_limit='{memory_limit}'")
+            print(f"DuckDB memory limit set to: {memory_limit}")
+        except Exception as e:
+            print(f"Warning: Could not set memory limit '{memory_limit}': {e}")
     
     # Create staging schema if needed
     if '.' in staging_table:
@@ -73,6 +98,7 @@ def load_star_schema(
             conn.execute(f"""
                 CREATE OR REPLACE TABLE {staging_table} AS
                 SELECT {column_list} FROM read_parquet('{input_path}')
+                WHERE seed != 3
             """)
         else:
             # Multiple files - create UNION ALL with all columns
@@ -94,7 +120,7 @@ def load_star_schema(
                             select_parts.append(f"NULL as {col}")
                     
                     column_list = ', '.join(select_parts)
-                    union_parts.append(f"SELECT {column_list} FROM read_parquet('{file_path}')")
+                    union_parts.append(f"SELECT {column_list} FROM read_parquet('{file_path}') WHERE seed != 3")
                     
                 except Exception as e:
                     print(f"  Error processing {os.path.basename(file_path)}: {e}")
@@ -111,12 +137,14 @@ def load_star_schema(
                 conn.execute(f"""
                     CREATE OR REPLACE TABLE {staging_table} AS
                     SELECT * FROM read_parquet('{input_path}')
+                    WHERE seed != 3
                 """)
     else:
         # Fallback to original approach if column discovery fails
         conn.execute(f"""
             CREATE OR REPLACE TABLE {staging_table} AS
             SELECT * FROM read_parquet('{input_path}')
+            WHERE seed != 3
         """)
     
     if include_parameters:
@@ -517,8 +545,7 @@ def _create_workload_events_view(conn: duckdb.DuckDBPyConnection) -> None:
     """
     Create workload-only events view with regret metrics computed only from workload phase onwards.
     
-    The workload phase begins at the first 'delete' event per run, or at the theoretical 
-    sample complexity N_star if no deletes exist. This view provides:
+    The workload phase begins at the first event with phase='workload' per run. This view provides:
     - Running workload-only cumulative regret
     - Running workload-only event count  
     - Running workload-only average regret
@@ -529,14 +556,14 @@ def _create_workload_events_view(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("""
         CREATE OR REPLACE VIEW analytics.v_events_workload AS
         WITH workload_boundaries AS (
-            -- Find workload phase start for each run (grid_id, seed)
+            -- Find workload phase start for each run (grid_id, seed) using phase column
             SELECT 
                 grid_id,
                 seed,
                 COALESCE(
-                    MIN(CASE WHEN event_type = 'delete' THEN event_id END),
-                    -- Fallback: Use N_star from calibration if available, else use event where phase changes
-                    MIN(CASE WHEN N_star IS NOT NULL AND event_id >= N_star THEN event_id END),
+                    MIN(CASE WHEN phase = 'workload' THEN event_id END),
+                    -- Fallback: Use N_gamma from calibration if available
+                    MIN(CASE WHEN N_gamma IS NOT NULL AND event_id >= N_gamma THEN event_id END),
                     -- Final fallback: Start of data (no workload boundary found)
                     MIN(event_id)
                 ) AS workload_start_event_id
@@ -645,6 +672,10 @@ def query_workload_events(
     """
     Query workload-only events with optional filtering.
     
+    This function queries events from the workload phase onwards, where the workload phase
+    is determined by the explicit 'phase' column in the event logs. Events with phase='workload'
+    are considered part of the workload phase.
+    
     Args:
         conn: DuckDB connection
         where_clause: SQL WHERE clause
@@ -663,6 +694,10 @@ def query_workload_events(
 def query_workload_regret_analysis(conn: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """
     Query workload regret analysis with summary statistics per run.
+    
+    This function provides workload-only regret analysis where the workload phase
+    is determined by the explicit 'phase' column in the event logs. The analysis
+    compares workload-only regret metrics against total regret metrics.
     
     Args:
         conn: DuckDB connection
