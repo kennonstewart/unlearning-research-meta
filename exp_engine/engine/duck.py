@@ -206,7 +206,91 @@ def create_connection_and_views(base_out: str, connection: Optional = None):
             # Skip creating events_summary if there's an issue
             pass
     
+    # Create workload-only events view for theoretical regret analysis
+    try:
+        _create_workload_events_view(connection)
+    except Exception as e:
+        print(f"Warning: Could not create workload events view: {e}")
+    
     return connection
+
+
+def _create_workload_events_view(connection) -> None:
+    """
+    Create workload-only events view with regret metrics computed only from workload phase onwards.
+    
+    The workload phase begins at the first 'delete' event per run, or at the theoretical 
+    sample complexity N_star if no deletes exist. This view provides:
+    - Running workload-only cumulative regret
+    - Running workload-only event count  
+    - Running workload-only average regret
+    
+    Args:
+        connection: DuckDB connection
+    """
+    connection.execute("""
+        CREATE OR REPLACE VIEW events_workload AS
+        WITH workload_boundaries AS (
+            -- Find workload phase start for each run (grid_id, seed)
+            SELECT 
+                grid_id,
+                seed,
+                COALESCE(
+                    MIN(CASE WHEN op = 'delete' THEN event_id END),
+                    -- Fallback: Use N_star from calibration if available, else use event where phase changes
+                    MIN(CASE WHEN N_star IS NOT NULL AND event_id >= N_star THEN event_id END),
+                    -- Final fallback: Start of data (no workload boundary found)
+                    MIN(event_id)
+                ) AS workload_start_event_id
+            FROM events
+            GROUP BY grid_id, seed
+        ),
+        workload_baseline AS (
+            -- Get cumulative regret at workload phase start (baseline to subtract)
+            SELECT 
+                wb.grid_id,
+                wb.seed,
+                wb.workload_start_event_id,
+                COALESCE(e.cum_regret, 0.0) AS workload_baseline_cum_regret,
+                COALESCE(e.noise_regret_cum, 0.0) AS workload_baseline_noise_regret,
+                COALESCE(e.cum_regret_with_noise, 0.0) AS workload_baseline_cum_regret_with_noise
+            FROM workload_boundaries wb
+            LEFT JOIN events e ON 
+                wb.grid_id = e.grid_id 
+                AND wb.seed = e.seed 
+                AND wb.workload_start_event_id = e.event_id
+        )
+        SELECT 
+            e.*,
+            wb.workload_start_event_id,
+            wb.workload_baseline_cum_regret,
+            wb.workload_baseline_noise_regret,
+            wb.workload_baseline_cum_regret_with_noise,
+            -- Workload-only cumulative regret (subtract baseline)
+            GREATEST(0.0, COALESCE(e.cum_regret, 0.0) - wb.workload_baseline_cum_regret) AS workload_cum_regret,
+            GREATEST(0.0, COALESCE(e.noise_regret_cum, 0.0) - wb.workload_baseline_noise_regret) AS workload_noise_regret_cum,
+            GREATEST(0.0, COALESCE(e.cum_regret_with_noise, 0.0) - wb.workload_baseline_cum_regret_with_noise) AS workload_cum_regret_with_noise,
+            -- Workload-only event count (events since workload start)
+            GREATEST(1, e.event_id - wb.workload_start_event_id + 1) AS workload_events_seen,
+            -- Workload-only average regret
+            CASE 
+                WHEN e.event_id >= wb.workload_start_event_id THEN
+                    GREATEST(0.0, COALESCE(e.cum_regret, 0.0) - wb.workload_baseline_cum_regret) / 
+                    GREATEST(1, e.event_id - wb.workload_start_event_id + 1)
+                ELSE NULL  -- Pre-workload events don't have workload avg regret
+            END AS workload_avg_regret,
+            CASE 
+                WHEN e.event_id >= wb.workload_start_event_id THEN
+                    GREATEST(0.0, COALESCE(e.cum_regret_with_noise, 0.0) - wb.workload_baseline_cum_regret_with_noise) / 
+                    GREATEST(1, e.event_id - wb.workload_start_event_id + 1)
+                ELSE NULL  -- Pre-workload events don't have workload avg regret
+            END AS workload_avg_regret_with_noise,
+            -- Flag indicating if this event is in workload phase
+            CASE WHEN e.event_id >= wb.workload_start_event_id THEN TRUE ELSE FALSE END AS is_workload_phase
+        FROM events e
+        INNER JOIN workload_baseline wb ON e.grid_id = wb.grid_id AND e.seed = wb.seed
+        ORDER BY e.grid_id, e.seed, e.event_id
+    """)
 
 
 def query_events(connection, where_clause: str = "1=1", limit: Optional[int] = None) -> "pd.DataFrame":
@@ -225,3 +309,101 @@ def query_events(connection, where_clause: str = "1=1", limit: Optional[int] = N
         query += f" LIMIT {limit}"
     
     return connection.execute(query).df()
+
+
+def query_workload_events(connection, where_clause: str = "1=1", limit: Optional[int] = None) -> "pd.DataFrame":
+    """Query workload-only events view with optional filtering.
+    
+    Args:
+        connection: DuckDB connection with views configured
+        where_clause: SQL WHERE clause (default: no filtering)
+        limit: Optional limit on number of rows
+        
+    Returns:
+        Pandas DataFrame with workload-only regret metrics
+    """
+    query = f"SELECT * FROM events_workload WHERE {where_clause}"
+    if limit:
+        query += f" LIMIT {limit}"
+    
+    return connection.execute(query).df()
+
+
+def query_workload_regret_analysis(connection) -> "pd.DataFrame":
+    """Query workload regret analysis with summary statistics per run.
+    
+    Args:
+        connection: DuckDB connection with views configured
+        
+    Returns:
+        Pandas DataFrame with workload regret analysis per run
+    """
+    return connection.execute("""
+        SELECT 
+            grid_id,
+            seed,
+            workload_start_event_id,
+            COUNT(*) FILTER (WHERE is_workload_phase) as workload_events,
+            COUNT(*) FILTER (WHERE NOT is_workload_phase) as pre_workload_events,
+            MAX(workload_cum_regret) as final_workload_cum_regret,
+            MAX(workload_avg_regret) as final_workload_avg_regret,
+            MAX(workload_cum_regret_with_noise) as final_workload_cum_regret_with_noise,
+            MAX(workload_avg_regret_with_noise) as final_workload_avg_regret_with_noise,
+            -- Compare workload vs total average regret
+            MAX(avg_regret) as final_total_avg_regret,
+            MAX(workload_avg_regret) - MAX(avg_regret) as workload_vs_total_avg_regret_diff,
+            SUM(CASE WHEN is_workload_phase AND workload_avg_regret < 0 THEN 1 ELSE 0 END) as negative_workload_regret_count
+        FROM events_workload
+        GROUP BY grid_id, seed, workload_start_event_id
+        ORDER BY grid_id, seed
+    """).df()
+
+
+def query_regret_analysis(connection) -> "pd.DataFrame":
+    """Query regret analysis with summary statistics per run.
+    
+    Args:
+        connection: DuckDB connection with views configured
+        
+    Returns:
+        Pandas DataFrame with regret analysis per run
+    """
+    return connection.execute("""
+        SELECT 
+            grid_id,
+            seed,
+            COUNT(*) as total_events,
+            MAX(cum_regret) as final_cum_regret,
+            MAX(avg_regret) as final_avg_regret,
+            MAX(cum_regret_with_noise) as final_cum_regret_with_noise,
+            MAX(avg_regret_with_noise) as final_avg_regret_with_noise,
+            SUM(CASE WHEN regret < 0 THEN 1 ELSE 0 END) as negative_count
+        FROM events
+        GROUP BY grid_id, seed
+        ORDER BY grid_id, seed
+    """).df()
+
+
+def get_negative_regret_summary(connection) -> "pd.DataFrame":
+    """Get summary of negative regret events.
+    
+    Args:
+        connection: DuckDB connection with views configured
+        
+    Returns:
+        Pandas DataFrame with negative regret summary
+    """
+    return connection.execute("""
+        SELECT 
+            grid_id,
+            seed,
+            COUNT(*) FILTER (WHERE regret < 0) as negative_regret_events,
+            COUNT(*) as total_events,
+            COUNT(*) FILTER (WHERE regret < 0) * 100.0 / COUNT(*) as negative_regret_pct,
+            MIN(regret) as min_regret,
+            AVG(regret) FILTER (WHERE regret < 0) as avg_negative_regret
+        FROM events
+        GROUP BY grid_id, seed
+        HAVING COUNT(*) FILTER (WHERE regret < 0) > 0
+        ORDER BY negative_regret_pct DESC
+    """).df()

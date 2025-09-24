@@ -63,6 +63,30 @@ Grain: 1 row per experiment configuration (`grid_id`).
 
 ---
 
+### `analytics.v_events_workload`
+
+**Purpose:** Computes workload-only regret metrics that align with theoretical guarantees by excluding calibration and learning phases.
+
+**Grain:** 1 row per event, with additional workload-specific columns.
+
+**Workload Phase Definition:** 
+- Begins at the first 'delete' event per run (grid_id, seed), OR
+- Falls back to N_star sample complexity threshold if no deletes exist, OR  
+- Uses first event if neither boundary is found
+
+**Key Columns:**
+* All columns from `analytics.fact_event`
+* `workload_start_event_id` (BIGINT): Event ID where workload phase begins for this run
+* `workload_baseline_cum_regret` (DOUBLE): Cumulative regret at workload phase start (subtracted baseline)
+* `workload_cum_regret` (DOUBLE): Workload-only cumulative regret (≥ 0, baseline-adjusted)
+* `workload_avg_regret` (DOUBLE): Workload-only average regret = workload_cum_regret / workload_events_seen
+* `workload_events_seen` (BIGINT): Number of events processed in workload phase for this event
+* `workload_cum_regret_with_noise` (DOUBLE): Workload-only cumulative regret including noise
+* `workload_avg_regret_with_noise` (DOUBLE): Workload-only average regret including noise
+* `is_workload_phase` (BOOLEAN): TRUE if this event is in the workload phase, FALSE for pre-workload
+
+**Usage:** This view enables analysis of regret performance that matches theoretical intent, focusing only on the algorithm's performance after reaching readiness (post-calibration, post-warmup).
+
 ### `analytics.fact_event`
 
 Grain: 1 row per event.
