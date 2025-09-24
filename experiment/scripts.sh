@@ -22,34 +22,37 @@ run_grid () {
 }
 
 # 1) Regret decomposition (static vs path/noise)
-run_grid "grids/01_regret_decomposition.yaml" "regret_decomposition"
+run_grid "grids/1a_dynamic_regret_decomposition.yaml" "dynamic_regret_decomposition"
+
+# 1a) Regret decomposition (dynamic vs path/noise)
+run_grid "grids/1b_static_regret_decomposition.yaml" "static_regret_decomposition"
 
 # 2) Stepsize schedule / policy ablation
-run_grid "grids/02_strong_convexity.yaml" "stepsize_schedules"
+# run_grid "grids/02_strong_convexity.yaml" "stepsize_schedules"
 
 # 3) Strong convexity & sensitivity sweep (λ, G, D, curvature)
-run_grid "grids/03_path_length_sensitivity.yaml" "path_length_sensitivity"
+# run_grid "grids/03_path_length_sensitivity.yaml" "path_length_sensitivity"
 
 # 4) Path length vs energy (P_T vs S_T) analysis
-run_grid "grids/04_stepsize_ablation.yaml" "stepsize_ablation"
+#run_grid "grids/04_stepsize_ablation.yaml" "stepsize_ablation"
 
 # 5) Drift adaptation on/off and thresholds
-run_grid "grids/05_privacy_vs_capacity.yaml" "privacy_vs_capacity"
+# run_grid "grids/05_privacy_vs_capacity.yaml" "privacy_vs_capacity"
 
 # 6) Oracle/comparator behavior (type, window)s
-run_grid "grids/06_regret_gate.yaml" "regret_gate"
+# run_grid "grids/06_regret_gate.yaml" "regret_gate"
 
 # 7) Privacy odometer trade-offs (ρ_total, δ, m, σ)
-run_grid "grids/07_lbfgs_stability.yaml" "lbfgs_stability"
+# run_grid "grids/07_lbfgs_stability.yaml" "lbfgs_stability"
 
 # 8) Deletion regret gate (γ_delete etc.)
-run_grid "grids/08_deletion_regret_gate.yaml" "regret_gate"
+# run_grid "grids/08_deletion_regret_gate.yaml" "regret_gate"
 
 # 9) Noise ablation (σ_step vs theory, sens/delete)
-run_grid "grids/09_noise_ablation.yaml" "noise_ablation"
+# run_grid "grids/09_noise_ablation.yaml" "noise_ablation"
 
 # 10) Accountant comparison (e.g., zCDP vs RDP) — if applicable
-run_grid "grids/10_accountant_comparison.yaml" "accountant_comparison"
+# run_grid "grids/10_accountant_comparison.yaml" "accountant_comparison"
 
 # ---- (Optional) Run them all in one go ----
 # Comment any line above to skip, then:

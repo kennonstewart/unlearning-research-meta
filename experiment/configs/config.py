@@ -86,7 +86,7 @@ class Config:
     online_standardize: bool = False
 
     # Comparator and drift configuration
-    comparator: str = "dynamic"  # "static" or "dynamic" (mapped from --comparator)
+    comparator: str = "static"  # "static" or "dynamic" (mapped from --comparator)
     enable_oracle: bool = False  # Enable oracle/comparator functionality
     drift_threshold: float = 0.1  # Threshold for drift detection
     drift_kappa: float = 0.5  # LR boost factor (1 + kappa)

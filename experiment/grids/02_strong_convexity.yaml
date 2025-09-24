@@ -20,3 +20,5 @@ matrix:
   T:             [50000]
   accountant:    ["zcdp"]
   seed:          [42]
+  enable_oracle:    [true]                 # Enable oracle for regret decomposition
+  comparator:        ["dynamic"]
