@@ -16,7 +16,8 @@
 # --- Environment ---
 module purge
 module load python/3.11
-source ~/venvs/memorypair/bin/activate     # or micromamba/conda env
+git clone https://github.com/kennonstewart/unlearning-research-meta.git memorypair   
+cd memorypair
 
 # --- I/O roots (scratch is faster; copy summaries back later) ---
 BASE_OUT="/scratch/$USER/memorypair_$(date +%Y%m%d_%H%M)"
@@ -25,7 +26,7 @@ PARQUET_OUT="$BASE_OUT/parquet"
 mkdir -p "$BASE_OUT" "$PARQUET_OUT"
 
 # --- Files (paths relative to repo root you rsync’d to Great Lakes) ---
-GRID_FILE="configs/grids.yaml"            # or configs/grids.regret-decomposition.yaml
+GRID_FILE="experiment/configs/grids.yaml" # grid file (relative to repo root)
 SEEDS=3                                   # replicas per config (adjust below)
 PARALLEL=8                                # <= --cpus-per-task
 
