@@ -1,0 +1,39 @@
+# grids.regret_decomp.yaml
+matrix:
+  # --- Hold most knobs fixed to avoid confounds ------------------------------
+  gamma_delete:     [1.75]          # stable deletion gate; avoid frequent trips
+  gamma:            [1.0]           # tight learner gate
+  lambda_reg:       [0.05]          # modest model-side curvature
+  rho_total:        [1.0]           # fixed privacy budget so σ is stable
+  delta_b:          [0.05]          # fixed noise log-term
+  target_G:         [5.0]           # keep gradients in a moderate, realistic band
+  target_D:         [5.0]
+  target_c:         [0.05]
+  target_C:         [20.0]
+  target_lambda:    [0.05]
+  target_ST:        [200000.0]      # keep AdaGrad energy controlled
+
+  # --- Key levers for regret decomposition ----------------------------------
+  # 1) Static term scaling: sweep λ (theory: ~ (G^2/λ) ln T) and T (horizon)
+  lambda_:          [0.05, 0.20]    # odometer strong convexity assumption
+  T:                [10000, 50000]  # probe the ln T growth with low drift configs
+
+  # 2) Dynamic term scaling: sweep path length P_T via target_PT & path_style
+  #    Using multiple drift geometries helps show same P_T with different "shapes".
+  target_PT:        [0.0, 20.0, 100.0, 400.0]
+  path_style:       ["stationary", "rotating", "piecewise_jump", "seasonal"]
+
+  # --- Problem size / misc ---------------------------------------------------
+  dim:              [20]
+  accountant:       ["zcdp"]
+  seed:             [42, 43]        # small replication to stabilize variance
+
+  # --- L-BFGS / optimizer stability -----------------------------------------
+  m_max:            [8]
+  eta_max:          [1.0]
+  adagrad_eps:      [1e-12]
+  D_bound:          [2.0]
+
+  # --- Diagnostics -----------------------------------------------------------
+  drift_adaptation: [true]
+  enable_oracle:    [true]

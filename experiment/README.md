@@ -12,12 +12,12 @@ python grid_runner.py \
   --seeds 5 \
   --base-out results/grid_$(date +%Y_%m_%d)
 
-# When running the command from the root directory
-python experiment/grid_runner.py \
-  --grid-file experiment/grids/01_regret_decomposition.yaml \
+# When running the grid configuration for the pathwise regret experiment.
+python grid_runner.py \ 
+  --grid-file configs/grids.regret-decomposition.yaml \
   --parallel 4 \
-  --seeds 5 \
-  --base-out experiment/results/grid_$(date +%Y_%m_%d)
+  --seeds 3 \ 
+  --base-out results/grid_$(date +%Y_%m_%d)
 
 # Using different grid configurations
 python experiment/grid_runner.py \
@@ -32,22 +32,7 @@ python experiment/grid_runner.py \
   --output-granularity seed \
   --base-out experiment/results/deletion_capacity_$(date +%Y_%m_%d)
 
-# Event-level output (one row per event)
-python experiment/grid_runner.py \
-  --grid-file experiment/grids/01_regret_decomposition.yaml \
-  --seeds 3 \
-  --output-granularity event \
-  --base-out experiment/results/grid_$(date +%Y_%m_%d)_events
-
-# Parallel execution with 4 processes
-python experiment/grid_runner.py \
-  --grid-file experiment/grids/01_regret_decomposition.yaml \
-  --parallel 4 \
-  --seeds 5 \
-  --base-out experiment/results/grid_$(date +%Y_%m_%d)_p4
-
-# Dry run to preview parameter combinations
-python experiment/grid_runner.py --grid-file experiment/grids/01_regret_decomposition.yaml --dry-run
+python agents/grid_runner.py --grid-file agents/grids.yaml --dry-run
 ```
 
 ## Grid Configuration
@@ -79,6 +64,7 @@ The parameter grids are defined in the `grids/` directory. Multiple grid files a
 The original `configs/grids.yaml` is still available for backward compatibility.
 
 Key notes for this synthetic-only setup:
+
 - Algorithm/accountant: `algo: memorypair`, `accountant: zcdp`.
 - Theory-first data stream: any presence of `target_*` values routes the runner to the theory-first synthetic stream.
 - Strong convexity: enable via `strong_convexity: true` and set `lambda_reg > 0` (in the grid).
