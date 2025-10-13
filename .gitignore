@@ -32,6 +32,4 @@ wheels/
 # cache files
 __pycache__/
 experiment/artifacts/
-experiment/results/
-experiment/results_parquet/
 .tmp/

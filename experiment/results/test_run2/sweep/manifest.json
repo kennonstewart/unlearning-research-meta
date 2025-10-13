@@ -1,0 +1,18 @@
+{
+  "4ef8bb5d5896c663b1b473a37117e473": {
+    "dataset": "synthetic",
+    "algo": "memorypair",
+    "accountant": "zcdp",
+    "T": 1000,
+    "path_style": "rotating",
+    "dim": 20,
+    "target_G": 2.0,
+    "target_D": 2.0,
+    "target_lambda": 0.5,
+    "target_PT": 25.0,
+    "target_ST": 50000.0,
+    "lambda_": 0.5,
+    "lambda_reg": 0.0,
+    "seed": 42
+  }
+}
