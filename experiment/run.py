@@ -46,7 +46,6 @@ from exp_engine.engine.io import write_event_rows
 # Import algorithm and data loader
 from memory_pair.src.memory_pair import MemoryPair
 from memory_pair.src.accountant import ZCDPAccountant
-from memory_pair.src.calibrator import Calibrator
 from data_loader import get_theory_stream, parse_event_record
 
 
@@ -160,20 +159,16 @@ def run_single_experiment(
         m_max=config.m_max,
     )
     
-    # Initialize calibrator
-    calibrator = Calibrator(
-        quantile=config.quantile,
-        D_cap=config.D_cap,
-        ema_beta=config.ema_beta,
-    )
-    
     # Initialize model
+    # MemoryPair takes G, D, c, C directly (these come from theory targets)
     model = MemoryPair(
         dim=dim,
+        G=config.target_G,
+        D=config.target_D,
+        c=config.target_c,
+        C=config.target_C,
         accountant=accountant,
-        calibrator=calibrator,
-        recal_window=config.recal_window,
-        recal_threshold=config.recal_threshold,
+        cfg=config,  # Pass config for additional parameters
     )
     
     # Process events
@@ -185,13 +180,13 @@ def run_single_experiment(
     event_type = first_meta.get("op", "insert")
     
     if event_type == "insert":
-        prediction = model.predict(x)
-        loss = 0.5 * (prediction - y) ** 2
-        model.update(x, y)
+        loss = model.insert(x, y)
+        prediction = float(model.theta @ x)  # Prediction before update
     else:  # delete
-        prediction = model.predict(x)
-        loss = 0.5 * (prediction - y) ** 2
-        model.delete(x, y)
+        # For delete, we need to get prediction first
+        prediction = float(model.theta @ x)
+        result = model.delete(x, y)
+        loss = 0.5 * (prediction - y) ** 2  # Compute loss from prediction
     
     # Record event
     event_row = {
@@ -219,13 +214,12 @@ def run_single_experiment(
         event_type = meta.get("op", "insert")
         
         if event_type == "insert":
-            prediction = model.predict(x)
-            loss = 0.5 * (prediction - y) ** 2
-            model.update(x, y)
+            loss = model.insert(x, y)
+            prediction = float(model.theta @ x)
         else:  # delete
-            prediction = model.predict(x)
+            prediction = float(model.theta @ x)
+            result = model.delete(x, y)
             loss = 0.5 * (prediction - y) ** 2
-            model.delete(x, y)
         
         # Record event
         event_row = {
