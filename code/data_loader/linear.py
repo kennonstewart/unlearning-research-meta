@@ -274,61 +274,6 @@ def get_rotating_linear_stream(
     )
 
 
-def get_synthetic_linear_stream(
-    dim=20,
-    seed=42,
-    noise_std=0.1,
-    use_event_schema=True,
-    eigs: Optional[List[float]] = None,
-    cond_number: Optional[float] = None,
-    rand_orth_seed: int = 42,
-    feature_scale: float = 1.0,
-    path_type: str = "rotating",
-    path_control: bool = True,
-    rotate_angle: float = 0.01,
-    drift_rate: float = 0.001,
-    w_scale: Optional[float] = None,
-    fix_w_norm: bool = True,
-    strong_convexity_estimation: bool = True,
-    G_hat: Optional[float] = None,
-    D_hat: Optional[float] = None,
-    c_hat: Optional[float] = None,
-    C_hat: Optional[float] = None,
-):
-    """Back-compat entry point that routes to rotating-only stream.
-
-    Legacy knobs are accepted but ignored. If `eigs` is provided and
-    `cond_number` is not, approximate a cond_number from the provided eigenvalues.
-    """
-    if cond_number is None and eigs is not None and len(eigs) > 0:
-        ev = np.array(eigs, dtype=float)
-        ev = ev[ev > 0]
-        if ev.size:
-            mn = float(ev.min())
-            cond_number = float(ev.max() / max(mn, 1e-12))
-        else:
-            cond_number = 10.0
-    if cond_number is None:
-        cond_number = 10.0
-
-    return get_rotating_linear_stream(
-        dim=dim,
-        seed=seed,
-        noise_std=noise_std,
-        cond_number=cond_number,
-        feature_scale=feature_scale,
-        rotate_angle=rotate_angle,
-        w_scale=w_scale,
-        fix_w_norm=fix_w_norm,
-        strong_convexity_estimation=strong_convexity_estimation,
-        G_hat=G_hat,
-        D_hat=D_hat,
-        c_hat=c_hat,
-        C_hat=C_hat,
-        _legacy_drift_rate=drift_rate,
-    )
-
-
 # Helper functions for PT controllers (kept for convenience)
 def set_rotation_by_PT(T: int, w_norm: float, target_PT: float) -> float:
     import math

@@ -1,4 +1,4 @@
-from .linear import get_synthetic_linear_stream, get_rotating_linear_stream
+from .linear import get_rotating_linear_stream
 from .theory_loader import get_theory_stream
 from .event_schema import (
     create_event_record,
@@ -7,7 +7,6 @@ from .event_schema import (
 )
 
 __all__ = [
-    "get_synthetic_linear_stream",
     "get_rotating_linear_stream",
     "get_theory_stream",
     "create_event_record",

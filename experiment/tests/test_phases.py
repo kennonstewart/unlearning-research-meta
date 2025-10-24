@@ -22,7 +22,7 @@ from code.memory_pair.src.memory_pair import MemoryPair
 from experiment.configs.config import Config
 
 # Stream + record parsing
-from code.data_loader import get_synthetic_linear_stream
+from code.data_loader import get_rotating_linear_stream
 from code.data_loader.event_schema import parse_event_record
 
 # Phases and logger
@@ -82,7 +82,7 @@ def test_bootstrap_phase_logging():
     state = PhaseState()
 
     dim = 6
-    gen = get_synthetic_linear_stream(dim=dim, seed=123, path_type="rotating")
+    gen = get_rotating_linear_stream(dim=dim, seed=123)
     _prime_state_with_next_event(gen, state)
 
     model = _make_model(dim, cfg)
@@ -107,7 +107,7 @@ def test_sensitivity_calibration_phase_no_logs():
     state = PhaseState()
 
     dim = 6
-    gen = get_synthetic_linear_stream(dim=dim, seed=321, path_type="rotating")
+    gen = get_rotating_linear_stream(dim=dim, seed=321)
     _prime_state_with_next_event(gen, state)
 
     model = _make_model(dim, cfg)
@@ -130,7 +130,7 @@ def test_warmup_phase_logging():
     state = PhaseState()
 
     dim = 6
-    gen = get_synthetic_linear_stream(dim=dim, seed=999, path_type="rotating")
+    gen = get_rotating_linear_stream(dim=dim, seed=999)
     _prime_state_with_next_event(gen, state)
 
     model = _make_model(dim, cfg)
@@ -164,7 +164,7 @@ def test_finalize_accountant_and_workload_phase_logging():
     state = PhaseState()
 
     dim = 6
-    gen = get_synthetic_linear_stream(dim=dim, seed=777, path_type="rotating")
+    gen = get_rotating_linear_stream(dim=dim, seed=777)
     _prime_state_with_next_event(gen, state)
 
     model = _make_model(dim, cfg)
