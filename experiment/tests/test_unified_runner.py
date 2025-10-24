@@ -13,6 +13,10 @@ import tempfile
 import json
 import pytest
 
+# Constants
+GRID_ID_LENGTH = 12  # exp_engine uses 12-character SHA-256 prefix
+TEST_TIMEOUT = 120  # Conservative timeout for CI environments
+
 
 def test_unified_runner_dry_run():
     """Test that dry run mode works and generates grid IDs."""
@@ -36,7 +40,7 @@ def test_unified_runner_dry_run():
     # Check that a grid_id hash is generated (appears as "  1. <hash>:")
     # The hash is followed by a colon in the dry run output
     import re
-    grid_id_pattern = r'\b[0-9a-f]{12}\b'
+    grid_id_pattern = rf'\b[0-9a-f]{{{GRID_ID_LENGTH}}}\b'
     matches = re.findall(grid_id_pattern, result.stdout)
     assert len(matches) > 0, f"No grid_id found in output: {result.stdout}"
 
@@ -60,7 +64,7 @@ def test_unified_runner_execution():
             capture_output=True,
             text=True,
             cwd=os.path.join(script_dir, "..", ".."),
-            timeout=60,
+            timeout=TEST_TIMEOUT,
         )
         
         assert result.returncode == 0, f"Execution failed: {result.stderr}"
