@@ -39,10 +39,10 @@ class MemoryPair:
     def __init__(
         self,
         dim: int,
-        G: float,
-        D: float,
-        c: float,
-        C: float,
+        G: float = 1.0,
+        D: float = 1.0,
+        c: float = 1.0,
+        C: float = 1.0,
         accountant: Optional[Accountant] = None,
         cfg: Optional[Any] = None,
     ):
