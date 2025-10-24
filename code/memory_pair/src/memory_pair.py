@@ -1,7 +1,6 @@
 # /code/memory_pair/src/memory_pair.py
 
 import numpy as np
-from enum import Enum
 from typing import Optional, Union, Tuple, Dict, Any
 from dataclasses import dataclass
 
@@ -9,17 +8,15 @@ try:
     from .odometer import N_star_live, m_theory_live
     from .lbfgs import LimitedMemoryBFGS
     from .metrics import loss_half_mse
-    from .calibrator import Calibrator
     from .comparators import RollingOracle
-    from .accountant import get_adapter
+    from .accountant import ZCDPAccountant
     from .accountant.types import Accountant
 except (ModuleNotFoundError, ImportError):
     from odometer import N_star_live, m_theory_live
     from lbfgs import LimitedMemoryBFGS
     from metrics import loss_half_mse
-    from calibrator import Calibrator
     from comparators import RollingOracle
-    from accountant import get_adapter
+    from accountant import ZCDPAccountant
     from accountant.types import Accountant
 
 
@@ -32,38 +29,42 @@ class CalibStats:
     N_star: int
 
 
-class Phase(Enum):
-    """
-    Enumeration of the three phases in the MemoryPair state machine.
-
-    CALIBRATION: Bootstrap phase to estimate G, D, c, C
-    LEARNING: Insert-only phase until ready_to_predict (inserts >= N*)
-    INTERLEAVING: Normal operation with both inserts and deletes allowed
-    """
-
-    CALIBRATION = 1
-    LEARNING = 2
-    INTERLEAVING = 3
-
-
 class MemoryPair:
     """
     Online learning algorithm with unlearning capabilities and zCDP privacy accounting.
+    
+    Simplified theory-first implementation that accepts theoretical constants as inputs.
+    
+    Args:
+        dim: Dimension of the parameter space
+        G: Gradient bound (default 1.0). Should reflect maximum gradient norm.
+        D: Diameter bound (default 1.0). Should reflect maximum parameter distance.
+        c: Lower curvature bound (default 1.0)
+        C: Upper curvature bound (default 1.0)
+        accountant: Optional privacy accountant. If None, creates a ZCDPAccountant from cfg.
+        cfg: Optional configuration object with additional parameters
     """
 
     def __init__(
         self,
         dim: int,
+        G: float = 1.0,
+        D: float = 1.0,
+        c: float = 1.0,
+        C: float = 1.0,
         accountant: Optional[Accountant] = None,
-        calibrator: Optional[Calibrator] = None,
-        recal_window: Optional[int] = None,
-        recal_threshold: float = 0.3,
         cfg: Optional[Any] = None,
     ):
         self.theta = np.zeros(dim)
         m_max = getattr(cfg, "m_max", 10) if cfg else 10
         m_max = self._safe_int(m_max, 10)
         self.lbfgs = LimitedMemoryBFGS(m_max=m_max, cfg=cfg)
+
+        # Store theoretical constants
+        self.G = float(G)
+        self.D = float(D)
+        self.c = float(c)
+        self.C = float(C)
 
         # zCDP-only accountant
         if accountant is not None:
@@ -78,14 +79,16 @@ class MemoryPair:
                 "delta_b": getattr(cfg, "delta_b", 0.05),
                 "m_max": getattr(cfg, "m_max", None),
             }
-            self.accountant = get_adapter("zcdp", **acct_kwargs)
+            self.accountant = ZCDPAccountant(**acct_kwargs)
+
+        # Finalize accountant immediately with provided constants
+        if self.accountant is not None:
+            stats = {"G": self.G, "D": self.D, "c": self.c, "C": self.C}
+            T_estimate = getattr(cfg, "max_events", 10000) if cfg else 10000
+            self.accountant.finalize(stats, T_estimate)
 
         self.cfg = cfg
         self.lambda_reg = getattr(cfg, "lambda_reg", 0.0) if cfg else 0.0
-
-        # State machine attributes
-        self.phase = Phase.CALIBRATION
-        self.calibrator = calibrator or Calibrator()
 
         # Tracking attributes
         self.cumulative_regret = 0.0
@@ -98,19 +101,19 @@ class MemoryPair:
         self.events_seen = 0
         self.inserts_seen = 0
         self.deletes_seen = 0
-        self.N_star: Optional[int] = None
-        self.N_gamma: Optional[int] = None
-        self.ready_to_predict = False
-        self.calibration_stats: Optional[dict] = None
-
-        # Frozen snapshot of calibrator stats after calibration
-        self.calib_stats: Optional[CalibStats] = None
-
-        # Adaptive recalibration attributes
-        self.recal_window = recal_window
-        self.recal_threshold = recal_threshold
-        self.last_recal_event = 0
-        self.recalibrations_count = 0
+        
+        # Compute N_gamma immediately since we have constants
+        try:
+            from .theory import N_gamma
+        except (ModuleNotFoundError, ImportError):
+            from theory import N_gamma
+        
+        m_cap = 0
+        if self.accountant is not None:
+            m_cap = self.accountant.metrics().get("m_capacity", 0)
+        gamma = getattr(cfg, "gamma", 0.5) if cfg else 0.5
+        self.N_gamma = N_gamma(self.G, self.D, self.c, self.C, m_cap, gamma)
+        self.ready_to_predict = False  # Will be enabled after N_gamma events
 
         # For external gradient access
         self.last_grad: Optional[np.ndarray] = None
@@ -305,82 +308,6 @@ class MemoryPair:
         else:
             self.sc_stable = 0
 
-    def calibrate_step(self, x: np.ndarray, y: float) -> float:
-        if self.phase != Phase.CALIBRATION:
-            raise RuntimeError(
-                f"calibrate_step() can only be called during CALIBRATION phase, current phase: {self.phase}"
-            )
-
-        pred = float(self.theta @ x)
-
-        g_old = self._compute_regularized_gradient(x, pred, y)
-        self.S_scalar += float(np.dot(g_old, g_old))
-        self.t += 1
-
-        self._update_step_size()
-
-        direction = self.lbfgs.direction(g_old, calibrator=self.calibrator)
-        self.d_norm = float(np.linalg.norm(direction))
-
-        # Trust region clip with safe d_max
-        d_max_raw = getattr(self.cfg, "d_max", float("inf")) if self.cfg else float("inf")
-        d_max = self._safe_pos_float(d_max_raw, float("inf"))
-        if np.isfinite(d_max) and self.d_norm > d_max:
-            direction = direction * (d_max / self.d_norm)
-            self.d_norm = d_max
-
-        s = self.eta_t * direction
-        theta_prev = self.theta
-        theta_new = theta_prev + s
-
-        pred_new = float(theta_new @ x)
-        g_new = self._compute_regularized_gradient(x, pred_new, y)
-        y_vec = g_new - g_old
-
-        self.pair_admitted, self.pair_damped = self.lbfgs.add_pair(s, y_vec)
-        self.theta = theta_new
-
-        theta_norm = np.linalg.norm(self.theta)
-        if theta_norm > 10.0:
-            self.theta = self.theta * (10.0 / theta_norm)
-
-        self._update_lambda_estimate(g_old, g_new, theta_prev, theta_new)
-
-        self.calibrator.observe(g_old, self.theta)
-
-        self.events_seen += 1
-        self.inserts_seen += 1
-        self.last_grad = g_old
-
-        return pred
-
-    def finalize_calibration(self, gamma: float) -> None:
-        if self.phase != Phase.CALIBRATION:
-            raise RuntimeError(
-                f"finalize_calibration() can only be called during CALIBRATION phase, current phase: {self.phase}"
-            )
-
-        stats = self.calibrator.finalize(gamma, self)
-        self.N_star = stats["N_star"]
-
-        self.calibration_stats = stats
-
-        self.calib_stats = CalibStats(
-            G=stats["G"],
-            D=stats["D"],
-            c=stats["c"],
-            C=stats["C"],
-            N_star=stats["N_star"],
-        )
-
-        # Transition to LEARNING
-        self.phase = Phase.LEARNING
-
-        print(
-            f"[MemoryPair] Calibration complete. N* = {self.N_star}, transitioning to LEARNING phase."
-        )
-        print("[MemoryPair] Odometer will be finalized after warmup completes.")
-
     @property
     def can_predict(self) -> bool:
         return self.ready_to_predict
@@ -392,11 +319,6 @@ class MemoryPair:
         *,
         return_grad: bool = False,
     ) -> Union[float, Tuple[float, np.ndarray]]:
-        if self.phase == Phase.CALIBRATION:
-            raise RuntimeError(
-                "Use calibrate_step() during CALIBRATION phase, not insert()"
-            )
-
         pred = float(self.theta @ x)
 
         base_loss_t = self._compute_regularized_loss(pred, y)
@@ -413,7 +335,7 @@ class MemoryPair:
 
         self._update_step_size()
 
-        direction = self.lbfgs.direction(g_old, calibrator=self.calibrator)
+        direction = self.lbfgs.direction(g_old)
         self.d_norm = float(np.linalg.norm(direction))
 
         d_max_raw = getattr(self.cfg, "d_max", float("inf")) if self.cfg else float("inf")
@@ -441,11 +363,7 @@ class MemoryPair:
 
         self.last_grad = g_old
 
-        if self.phase in [Phase.LEARNING, Phase.INTERLEAVING]:
-            self.calibrator.observe_ongoing(g_old)
-            self._check_recalibration_trigger()
-
-        if self.oracle is not None and self.phase in [Phase.LEARNING, Phase.INTERLEAVING]:
+        if self.oracle is not None:
             if hasattr(self.oracle, "maybe_update"):
                 oracle_refreshed = self.oracle.maybe_update(x, y, self.theta)
 
@@ -461,8 +379,7 @@ class MemoryPair:
             self.regret_increment = regret_terms["regret_inc"]
 
         # Track last event for oracle_objective calculation in logging
-        if self.phase in [Phase.LEARNING, Phase.INTERLEAVING]:
-            self._last_event_info = (x.copy(), y)
+        self._last_event_info = (x.copy(), y)
 
         if self.regret_increment is not None:
             try:
@@ -471,51 +388,6 @@ class MemoryPair:
             except Exception:
                 pass
 
-        if (
-            self.phase == Phase.LEARNING
-            and self.N_star is not None
-            and self.inserts_seen >= self.N_star
-            and self.N_gamma is None
-        ):
-            self.phase = Phase.INTERLEAVING
-            print(
-                f"[MemoryPair] Reached N* = {self.N_star} inserts. Transitioning to INTERLEAVING phase."
-            )
-            print("[Finalize] Finalizing accountant...")
-
-            if self.accountant is not None:
-                self.accountant.finalize(
-                    {
-                        "G": self.calib_stats.G,
-                        "D": self.calib_stats.D,
-                        "c": self.calib_stats.c,
-                        "C": self.calib_stats.C,
-                    },
-                    T_estimate=self.calib_stats.N_star or self.events_seen or 1,
-                )
-
-            try:
-                from .theory import N_gamma
-            except (ModuleNotFoundError, ImportError):
-                from theory import N_gamma
-
-            m_cap = 0
-            if self.accountant is not None:
-                m_cap = self.accountant.metrics().get("m_capacity", 0)
-            gamma = getattr(self.cfg, "gamma", 0.5)
-            self.N_gamma = N_gamma(
-                self.calib_stats.G,
-                self.calib_stats.D,
-                self.calib_stats.c,
-                self.calib_stats.C,
-                m_cap,
-                gamma,
-            )
-            print(
-                f"[MemoryPair] N_gamma = {self.N_gamma} events required before predictions."
-            )
-            self._maybe_enable_predictions()
-
         self._maybe_enable_predictions()
 
         if return_grad:
@@ -523,8 +395,6 @@ class MemoryPair:
         return pred
 
     def delete(self, x: np.ndarray, y: float) -> Optional[str]:
-        if self.phase != Phase.INTERLEAVING:
-            raise RuntimeError("Deletions are only allowed during INTERLEAVING phase")
         return self._delete_with_accountant(x, y)
 
     def _delete_with_accountant(self, x: np.ndarray, y: float) -> Optional[str]:
@@ -535,7 +405,7 @@ class MemoryPair:
         g = self._compute_regularized_gradient(x, pred, y)
 
         self._update_step_size()
-        influence = self.lbfgs.direction(g, calibrator=self.calibrator)
+        influence = self.lbfgs.direction(g)
         sensitivity = np.linalg.norm(influence)
 
         ok, sigma, reason = self.accountant.pre_delete(sensitivity)
@@ -548,13 +418,13 @@ class MemoryPair:
             except (ModuleNotFoundError, ImportError):
                 from theory import regret_insert_bound, regret_delete_bound
 
-            L = self.calib_stats.G
+            L = self.G
             ins_reg = regret_insert_bound(
                 self.S_scalar,
-                self.calib_stats.G,
-                self.calib_stats.D,
-                self.calib_stats.c,
-                self.calib_stats.C,
+                self.G,
+                self.D,
+                self.c,
+                self.C,
             )
 
             m_used = self.accountant.metrics().get("m_used", 0)
@@ -581,7 +451,7 @@ class MemoryPair:
         delta_b = getattr(self.cfg, "delta_b", 0.05)
         lambda_safe = max(self.lambda_reg, 1e-12)
         delta_reg = (
-            (self.calib_stats.G / lambda_safe)
+            (self.G / lambda_safe)
             * sigma
             * np.sqrt(2 * np.log(1 / max(delta_b, 1e-12)))
         )
@@ -598,17 +468,8 @@ class MemoryPair:
     def _update_step_size(self) -> None:
         eps = getattr(self.cfg, "adagrad_eps", 1e-12) if self.cfg else 1e-12
 
-        # D bound from calibrator or cfg; sanitize
-        D_bound_cal = getattr(self.calibrator, "D_hat_t", None)
-        if (
-            D_bound_cal is None
-            or (isinstance(D_bound_cal, float) and not np.isfinite(D_bound_cal))
-            or (isinstance(D_bound_cal, (int, float)) and D_bound_cal <= 0)
-        ):
-            D_bound_cfg = getattr(self.cfg, "D_bound", 1.0) if self.cfg else 1.0
-            D_bound = self._safe_pos_float(D_bound_cfg, 1.0)
-        else:
-            D_bound = float(D_bound_cal)
+        # Use provided D constant directly
+        D_bound = self.D
 
         # eta_max from cfg; sanitize
         eta_max_raw = getattr(self.cfg, "eta_max", 1.0) if self.cfg else 1.0
@@ -627,7 +488,7 @@ class MemoryPair:
         self.base_eta_t = min(self.base_eta_t, eta_max)
 
         # Apply drift boost if active (no change to comparison semantics)
-        if self.drift_boost_remaining > 0:
+        if hasattr(self, 'drift_boost_remaining') and self.drift_boost_remaining > 0:
             self.eta_t = self.base_eta_t * (1.0 + self.drift_kappa)
             self.drift_boost_remaining -= 1
         else:
@@ -681,16 +542,8 @@ class MemoryPair:
             }
         else:
             policy = "adagrad"
-            D_bound_cal = getattr(self.calibrator, "D_hat_t", None)
-            if (
-                D_bound_cal is None
-                or (isinstance(D_bound_cal, float) and not np.isfinite(D_bound_cal))
-                or (isinstance(D_bound_cal, (int, float)) and D_bound_cal <= 0)
-            ):
-                D_bound_cfg = getattr(self.cfg, "D_bound", 1.0) if self.cfg else 1.0
-                D_val = self._safe_pos_float(D_bound_cfg, 1.0)
-            else:
-                D_val = float(D_bound_cal)
+            # Use provided D constant directly
+            D_val = self.D
             params = {
                 "D": D_val,
                 "S_t": self.S_scalar,
@@ -867,47 +720,6 @@ class MemoryPair:
 
         return diagnostics
 
-    def _check_recalibration_trigger(self) -> None:
-        if (
-            self.recal_window is None
-            or self.phase != Phase.INTERLEAVING
-            or not self.odometer
-            or not hasattr(self.odometer, "supports_recalibration")
-            or not self.odometer.supports_recalibration()
-        ):
-            return
-
-        events_since_last_recal = self.events_seen - self.last_recal_event
-        if events_since_last_recal < self.recal_window:
-            return
-
-        if self.calibrator.check_drift(self.recal_threshold):
-            print(
-                f"[MemoryPair] Drift detected at event {self.events_seen}. Triggering recalibration."
-            )
-            self._perform_recalibration()
-
-        self.last_recal_event = self.events_seen
-
-    def _perform_recalibration(self) -> None:
-        try:
-            new_stats = self.calibrator.get_updated_stats(self)
-            remaining_T = max(1000, self.events_seen)
-            if self.odometer:
-                self.odometer.recalibrate_with(new_stats, remaining_T)
-            self.recalibrations_count += 1
-            print(f"[MemoryPair] Recalibration #{self.recalibrations_count} completed.")
-        except Exception as e:
-            print(f"[MemoryPair] Recalibration failed: {e}")
-
-    def get_recalibration_stats(self) -> Dict[str, Any]:
-        return {
-            "recalibrations_count": self.recalibrations_count,
-            "last_recal_event": self.last_recal_event,
-            "current_G_ema": getattr(self.calibrator, "G_ema", None),
-            "finalized_G": getattr(self.calibrator, "finalized_G", None),
-        }
-
     def get_comparator_metrics(self) -> Dict[str, Any]:
         """Get current comparator metrics for logging."""
         if self.oracle is not None:
@@ -941,10 +753,14 @@ class MemoryPair:
             "events_seen": self.events_seen,
             "inserts_seen": self.inserts_seen,
             "deletes_seen": self.deletes_seen,
-            "phase": self.phase.name if isinstance(self.phase, Phase) else str(self.phase),
             "ready_to_predict": self.ready_to_predict,
-            "N_star": self.N_star,
             "N_gamma": self.N_gamma,
+            
+            # Theoretical constants
+            "G": self.G,
+            "D": self.D,
+            "c": self.c,
+            "C": self.C,
             
             # Lambda regularization
             "lambda_reg": self.lambda_reg,
@@ -979,14 +795,6 @@ class MemoryPair:
             try:
                 accountant_metrics = self.accountant.metrics()
                 metrics.update(accountant_metrics)
-            except Exception:
-                pass
-                
-        # Add calibration metrics if available
-        if hasattr(self, 'calibrator') and self.calibrator is not None:
-            try:
-                calib_metrics = self.get_recalibration_stats()
-                metrics.update(calib_metrics)
             except Exception:
                 pass
         
