@@ -34,6 +34,15 @@ class MemoryPair:
     Online learning algorithm with unlearning capabilities and zCDP privacy accounting.
     
     Simplified theory-first implementation that accepts theoretical constants as inputs.
+    
+    Args:
+        dim: Dimension of the parameter space
+        G: Gradient bound (default 1.0). Should reflect maximum gradient norm.
+        D: Diameter bound (default 1.0). Should reflect maximum parameter distance.
+        c: Lower curvature bound (default 1.0)
+        C: Upper curvature bound (default 1.0)
+        accountant: Optional privacy accountant. If None, creates a ZCDPAccountant from cfg.
+        cfg: Optional configuration object with additional parameters
     """
 
     def __init__(
