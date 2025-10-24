@@ -7,7 +7,7 @@ import os
 sys.path.append('./code')
 
 import numpy as np
-from code.memory_pair.src.memory_pair import MemoryPair, Phase
+from code.memory_pair.src.memory_pair import MemoryPair
 from code.memory_pair.src.comparators import StaticOracle
 from code.memory_pair.src.metrics import loss_half_mse
 
@@ -25,10 +25,9 @@ class TestAcceptanceCriteria:
         """
         lambda_reg = 0.1
         
-        # Create MemoryPair with oracle
-        mp = MemoryPair(dim=2)
+        # Create MemoryPair with oracle - provide default constants
+        mp = MemoryPair(dim=2, G=1.0, D=1.0, c=1.0, C=1.0)
         mp.lambda_reg = lambda_reg
-        mp.phase = Phase.LEARNING
         
         oracle = StaticOracle(dim=2, lambda_reg=lambda_reg)
         oracle.calibrate_with_initial_data([(np.array([1.0, 0.0]), 1.0)])
@@ -167,10 +166,9 @@ class TestAcceptanceCriteria:
         """
         lambda_reg = 0.15
         
-        # Create MemoryPair without oracle
-        mp = MemoryPair(dim=2)
+        # Create MemoryPair without oracle - provide default constants
+        mp = MemoryPair(dim=2, G=1.0, D=1.0, c=1.0, C=1.0)
         mp.lambda_reg = lambda_reg
-        mp.phase = Phase.LEARNING
         mp.oracle = None  # Zero proxy
         
         # Perform insert
@@ -208,10 +206,9 @@ class TestAcceptanceCriteria:
         """
         lambda_reg = 0.1
         
-        # Test with oracle enabled
-        mp = MemoryPair(dim=2)
+        # Test with oracle enabled - provide default constants
+        mp = MemoryPair(dim=2, G=1.0, D=1.0, c=1.0, C=1.0)
         mp.lambda_reg = lambda_reg
-        mp.phase = Phase.LEARNING
         
         oracle = StaticOracle(dim=2, lambda_reg=lambda_reg)
         oracle.calibrate_with_initial_data([(np.array([1.0, 0.0]), 1.0)])
