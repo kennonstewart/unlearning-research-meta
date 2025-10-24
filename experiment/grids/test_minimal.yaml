@@ -1,0 +1,49 @@
+# Minimal test grid for validating the new runner
+matrix:
+  # Algorithm and accountant
+  algo: ["memorypair"]
+  accountant: ["zcdp"]
+  
+  # Theory-first stream targets (minimal values for fast testing)
+  target_G: [2.0]
+  target_D: [2.0]
+  target_c: [0.1]
+  target_C: [10.0]
+  target_lambda: [0.5]
+  target_PT: [25.0]
+  target_ST: [50000.0]
+  
+  # Privacy parameters
+  rho_total: [1.0]
+  delta_total: [1e-5]
+  
+  # Algorithm parameters
+  lambda_: [0.8]
+  lambda_reg: [0.0]
+  quantile: [0.95]
+  D_cap: [10.0]
+  
+  # Execution parameters (very small for testing)
+  dim: [5]
+  max_events: [100]
+  seeds: [1]
+  bootstrap_iters: [50]
+  
+  # Stream configuration
+  path_style: ["rotating"]
+  rotate_angle: [0.01]
+  
+  # Advanced options
+  recal_window: [null]
+  recal_threshold: [0.3]
+  ema_beta: [0.9]
+  m_max: [10]
+  delta_b: [0.05]
+  
+  # Feature flags
+  adaptive_geometry: [false]
+  dynamic_comparator: [true]
+  strong_convexity: [false]
+
+# Only run 1 combination for smoke test
+limit: 1
