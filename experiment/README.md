@@ -1,95 +1,168 @@
-# Grid Search for Deletion Capacity Experiments
+# Experiment Runner for Theory-First Deletion Capacity Studies
 
-This directory contains the grid search automation for deletion capacity experiments as specified in `AGENTS.md`.
+This directory contains the unified experiment runner for deletion capacity experiments following the "theory-first" paradigm.
 
 ## Quick Start
 
+### Using the Unified Runner (Recommended)
+
+The new `run.py` script is the recommended way to run experiments with full `exp_engine` integration:
+
 ```bash
-# When running the command from the experiment directory
-python grid_runner.py \
+# Run a grid search from YAML
+python experiment/run.py --grid-file grids/01_theory_grid.yaml --parallel 4 --seeds 5
+
+# Run a single experiment with theory-first parameters
+python experiment/run.py \
+  --target-G 2.0 --target-D 2.0 --target-c 0.1 --target-C 10.0 \
+  --target-lambda 0.5 --target-PT 25.0 --target-ST 50000.0 \
+  --rho-total 1.0 --max-events 1000 --seeds 3
+
+# Dry run to preview grid combinations
+python experiment/run.py --grid-file grids/01_theory_grid.yaml --dry-run
+```
+
+### Legacy Runner (Deprecated)
+
+The old `grid_runner.py` and `runner.py` scripts are deprecated and replaced by compatibility stubs.
+For existing workflows, use:
+
+```bash
+# DEPRECATED - use run.py instead
+python experiment/grid_runner.py \
   --grid-file grids/01_regret_decomposition.yaml \
   --parallel 4 \
   --seeds 5 \
   --base-out results/grid_$(date +%Y_%m_%d)
-
-# When running the grid configuration for the pathwise regret experiment.
-python grid_runner.py \ 
-  --grid-file configs/grids.regret-decomposition.yaml \
-  --parallel 4 \
-  --seeds 3 \ 
-  --base-out results/grid_$(date +%Y_%m_%d)
-
-# Using different grid configurations
-python experiment/grid_runner.py \
-  --grid-file experiment/grids/02_privacy_sensitivity.yaml \
-  --seeds 3 \
-  --output-granularity seed \
-  --base-out experiment/results/privacy_sensitivity_$(date +%Y_%m_%d)
-
-python experiment/grid_runner.py \
-  --grid-file experiment/grids/03_deletion_capacity.yaml \
-  --seeds 3 \
-  --output-granularity seed \
-  --base-out experiment/results/deletion_capacity_$(date +%Y_%m_%d)
-
-python agents/grid_runner.py --grid-file agents/grids.yaml --dry-run
 ```
 
 ## Grid Configuration
 
-The parameter grids are defined in the `grids/` directory. Multiple grid files are available for different experiment types:
+Parameter grids are defined in YAML files in the `grids/` directory.
+
+### Theory-First Grid Format (Recommended)
+
+The new format emphasizes theory-first parameters that define the learning problem:
+
+```yaml
+matrix:
+  # Theory-first stream targets (fundamental constants)
+  target_G: [2.0]          # Gradient norm bound
+  target_D: [2.0]          # Parameter/domain diameter
+  target_c: [0.1]          # Min inverse-Hessian eigenvalue
+  target_C: [10.0]         # Max inverse-Hessian eigenvalue
+  target_lambda: [0.5]     # Strong convexity of loss
+  target_PT: [25.0]        # Total path length over horizon
+  target_ST: [50000.0]     # Cumulative squared gradient
+  
+  # Privacy parameters (grid search)
+  rho_total: [0.5, 1.0, 2.0]
+  
+  # Execution parameters
+  dim: [10]
+  max_events: [1000]
+  seeds: [1]
+```
 
 ### Available Grid Files
 
-1. **`grids/01_regret_decomposition.yaml`** (default)
-   - Focuses on regret decomposition experiments
-   - Enables oracle functionality for detailed regret analysis
-   - Covers core regret controls, privacy parameters, and theory-first stream targets
-   - ~16K combinations (limited to 50 for focused analysis)
+1. **`grids/01_theory_grid.yaml`** (NEW - Recommended)
+   - Theory-first parameter format
+   - Direct integration with `exp_engine` for Parquet output
+   - Content-addressed grid IDs for reproducibility
 
-2. **`grids/02_privacy_sensitivity.yaml`**
-   - Analyzes sensitivity to privacy budget variations
-   - Tests different epsilon, delta, and rho_total values
-   - Fixed regret budget with varying privacy allocations
-   - ~100 combinations (limited for focused analysis)
+2. **`grids/test_minimal.yaml`** (NEW)
+   - Minimal grid for testing and validation
+   - Fast execution for CI/CD pipelines
 
-3. **`grids/03_deletion_capacity.yaml`**
-   - Focuses on deletion capacity under different parameter regimes
-   - Tests various deletion ratios and regret budget splits
-   - Analyzes theory parameter impact on capacity
-   - ~150 combinations (limited for focused analysis)
+3. **`grids/01_regret_decomposition.yaml`** (Legacy)
+   - Original regret decomposition experiments
+   - Uses legacy parameter format
 
-### Legacy Grid File
+### Legacy Grid Files (Deprecated)
 
-The original `configs/grids.yaml` is still available for backward compatibility.
+The following grid files use the legacy format and are maintained for backward compatibility:
+- `grids/02_privacy_sensitivity.yaml`
+- `grids/03_deletion_capacity.yaml`
 
-Key notes for this synthetic-only setup:
+## Key Features
 
-- Algorithm/accountant: `algo: memorypair`, `accountant: zcdp`.
-- Theory-first data stream: any presence of `target_*` values routes the runner to the theory-first synthetic stream.
-- Strong convexity: enable via `strong_convexity: true` and set `lambda_reg > 0` (in the grid).
-- Gamma pairing: `gamma_bar` and `gamma_split` are paired by index (not crossed). If you want more splits for the same gamma_bar, broadcast one list, e.g. `gamma_bar: [1.0]`, `gamma_split: [0.5, 0.6, 0.7]`.
+- **Theory-First Paradigm**: Experiments are defined by theoretical constants (G, D, c, C, λ, P_T, S_T) rather than implementation details
+- **Content-Addressed Grid IDs**: Each parameter combination gets a unique, deterministic hash for reproducibility
+- **Parquet-First Storage**: All results written to HIVE-partitioned Parquet via `exp_engine`
+- **Parallel Execution**: Run multiple seeds in parallel with `--parallel N`
+- **Dry Run Mode**: Preview grid combinations before running with `--dry-run`
 
-### Included Grid (agents/grids.yaml)
+## Architecture
 
-- Privacy: `rho_total` in `[0.5, 1.0, 2.0]`
-- Delete rate: `delete_ratio` in `[1, 5, 10]`
-- Regret split pairs: `(gamma_bar, gamma_split)` in `[(0.6,0.5), (1.0,0.6), (1.5,0.7)]`
-- Drift regimes via `target_PT` in `[100, 250]` (with `path_style: rotating`)
-- Fixed theory constants: `target_G=2.0, target_D=2.0, target_c=0.1, target_C=10.0, target_lambda=0.05, target_ST=40000`
-- Strong-convexity regularization: `lambda_reg` in `[0.01, 0.05]`
+The unified runner (`run.py`) directly calls:
+- `get_theory_stream()` from `code/data_loader` for synthetic data generation
+- `MemoryPair` from `code/memory_pair` for the learning algorithm
+- `exp_engine.io.write_event_rows()` for Parquet output
+- `exp_engine.cah.attach_grid_id()` for content-addressed hashing
 
-This yields a compact sweep that exercises the core levers without exploding combinations.
+This eliminates the fragmentation between `grid_runner.py`, `runner.py`, and `exp_engine`,
+creating a single, clean execution path.
+
+## Migration Guide
+
+### From Old Grid Runner
+
+**Old:**
+```bash
+python experiment/grid_runner.py --grid-file grids/my_grid.yaml --base-out results/
+```
+
+**New:**
+```bash
+python experiment/run.py --grid-file grids/my_grid.yaml --output-dir results_parquet/
+```
+
+### From Old Runner (Single Experiments)
+
+**Old:**
+```bash
+python experiment/runner.py --gamma-bar 1.0 --eps-total 1.0 --max-events 1000
+```
+
+**New:**
+```bash
+python experiment/run.py \
+  --target-G 2.0 --target-D 2.0 --target-c 0.1 --target-C 10.0 \
+  --target-lambda 0.5 --target-PT 25.0 --target-ST 50000.0 \
+  --rho-total 1.0 --max-events 1000
+```
+
+Note: The new runner requires theory-first parameters instead of gamma-based parameters.
+
+## Backward Compatibility
+
+The old `grid_runner.py` and `runner.py` files have been replaced with compatibility stubs
+that import the necessary helper functions for existing tests. You will see deprecation
+warnings when importing from these modules. Update your code to use `experiment/run.py`
+for new work.
 
 ## Output Structure
 
-Results are written under the chosen `--base-out` directory. See the main README for schema details. The `grid_id` encodes key parameters, including theory-first targets and zCDP settings, for easy filtering in downstream analysis.
+### Parquet-First Output (Default)
 
-## Parquet-First Mode
+The unified runner writes results directly to Parquet format using `exp_engine`:
 
-- Write Parquet seed/event logs while skipping legacy CSV:
-  - `--parquet-out results_parquet --parquet-write-events --no-legacy-csv`
-  - Seed summaries are always saved to Parquet; event logs are saved when `--parquet-write-events` is set.
-- Aggregation reads directly from `results_parquet` and materializes `all_runs.csv` for plot compatibility and `all_runs.parquet` for Parquet-native workflows.
-  - DuckDB is used under the hood; install with `pip install duckdb`.
-  - If Parquet aggregation fails, the runner falls back to legacy CSV aggregation.
+```
+results_parquet/
+├── events/                          # Event-level data
+│   └── grid_id=<hash>/
+│       └── seed=<n>/
+│           └── *.parquet
+├── grids/                           # Grid parameters
+│   └── grid_id=<hash>/
+│       └── params.json
+```
+
+Each grid cell gets a unique content-addressed `grid_id` based on its parameters,
+ensuring reproducibility and deduplication.
+
+### Legacy CSV Output (Deprecated)
+
+The old `grid_runner.py` script wrote CSV files to a different structure.
+This format is maintained for backward compatibility with existing tests.
