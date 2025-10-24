@@ -10,72 +10,63 @@ except ImportError:
 
 
 class ParameterPathController:
-    """Controls parameter path for synthetic linear stream.
+    """Controls the ground-truth parameter path. Only rotating path is supported.
 
-    Supports static, rotating, and drifting paths with optional norm control
-    of the parameter vector w* via w_scale and fix_w_norm.
+    The controller rotates the parameter in the first two coordinates by a small
+    angle each step, optionally keeping the norm fixed to a provided scale.
     """
 
     def __init__(
         self,
         dim: int,
         seed: int = 42,
-        path_type: str = "rotating",
         rotate_angle: float = 0.01,
-        drift_rate: float = 0.001,
         w_scale: Optional[float] = None,
         fix_w_norm: bool = True,
     ):
         self.dim = dim
         self.rng = np.random.default_rng(seed)
-        self.path_type = path_type
+        # Only rotating path supported
         self.rotate_angle = rotate_angle
-        self.drift_rate = drift_rate
         self.fix_w_norm = fix_w_norm
+
         # Initialize parameter (optionally with controlled norm)
         if w_scale is None:
-            # Backward-compatible: original random init
+            # Random initialization; keep its norm as w_scale
             self.w_star = self.rng.normal(size=dim)
-            self.w_scale = np.linalg.norm(self.w_star)
+            self.w_scale = float(np.linalg.norm(self.w_star))
         else:
-            # Initialize on a sphere of radius w_scale
             v = self.rng.normal(size=dim)
             v /= np.linalg.norm(v) + 1e-12
-            self.w_star = v * w_scale
+            self.w_star = v * float(w_scale)
             self.w_scale = float(w_scale)
+
         self.t = 0
         self.P_T_cumulative = 0.0
 
     def get_next_parameter(self) -> tuple[np.ndarray, float]:
-        """Get next ground-truth parameter and path increment."""
+        """Return the next w* and the path increment delta_P."""
         self.t += 1
 
-        if self.path_type == "rotating":
-            # Simple rotation with controlled magnitude
-            w_new = self._rotate_parameter()
-        elif self.path_type == "drift":
-            # Linear drift
-            w_new = self._drift_parameter()
-        else:
-            # Static parameter
-            w_new = self.w_star.copy()
+        # Always apply rotation
+        w_new = self._rotate_parameter()
 
         if self.fix_w_norm and np.linalg.norm(w_new) > 0:
             w_new = (w_new / np.linalg.norm(w_new)) * self.w_scale
 
-        # Compute path increment
-        delta_P = np.linalg.norm(w_new - self.w_star)
+        delta_P = float(np.linalg.norm(w_new - self.w_star))
         self.P_T_cumulative += delta_P
 
         self.w_star = w_new
-        return self.w_star.copy(), float(delta_P)
+        return self.w_star.copy(), delta_P
 
     def _rotate_parameter(self) -> np.ndarray:
-        """Apply controlled rotation to parameter."""
-        # Rotate by small angle (self.rotate_angle radians per step)
-        angle = self.rotate_angle
+        """Rotate the parameter by self.rotate_angle in the first two dims.
+
+        If dim < 2 the parameter is unchanged.
+        """
+        angle = float(self.rotate_angle)
         if self.dim >= 2:
-            # Rotate in first two dimensions
             c, s = np.cos(angle), np.sin(angle)
             R = np.eye(self.dim)
             R[0, 0] = c
@@ -83,20 +74,15 @@ class ParameterPathController:
             R[1, 0] = s
             R[1, 1] = c
             return R @ self.w_star
-        else:
-            return self.w_star.copy()
-
-    def _drift_parameter(self) -> np.ndarray:
-        """Apply linear drift to parameter."""
-        drift_rate = self.drift_rate
-        drift = self.rng.normal(scale=drift_rate, size=self.dim)
-        return self.w_star + drift
+        return self.w_star.copy()
 
 
 class CovarianceGenerator:
-    """Generate Gaussian data with configurable covariance structure.
+    """Generate Gaussian features with configurable covariance.
 
-    Supports configurable feature scaling.
+    The covariance is constructed as Q diag(eigs) Q^T where Q is a random
+    orthogonal matrix. If eigs is not provided, eigenvalues are set by
+    geometric spacing using cond_number.
     """
 
     def __init__(
@@ -109,61 +95,59 @@ class CovarianceGenerator:
     ):
         self.dim = dim
         self.rng = np.random.default_rng(rand_orth_seed)
-        self.feature_scale = feature_scale
+        self.feature_scale = float(feature_scale)
 
-        # Generate eigenvalues
         if eigs is not None:
             if len(eigs) != dim:
                 raise ValueError(f"eigs must have length {dim}, got {len(eigs)}")
-            self.eigenvalues = np.array(eigs)
+            self.eigenvalues = np.array(eigs, dtype=float)
         elif cond_number is not None:
+            cn = max(float(cond_number), 1e-12)
             # Geometric spacing from 1 to 1/cond_number
-            self.eigenvalues = np.geomspace(1.0, 1.0 / cond_number, dim)
+            self.eigenvalues = np.geomspace(1.0, 1.0 / cn, dim)
         else:
-            # Default: uniform eigenvalues
-            self.eigenvalues = np.ones(dim)
+            self.eigenvalues = np.ones(dim, dtype=float)
 
-        # Generate random orthogonal matrix Q
+        # Random orthogonal basis
         A = self.rng.normal(size=(dim, dim))
         Q, _ = np.linalg.qr(A)
         self.Q = Q
 
-        # Construct covariance matrix Σ = Q * diag(λ) * Q^T
         self.Sigma = self.Q @ np.diag(self.eigenvalues) @ self.Q.T
-        self.L = np.linalg.cholesky(self.Sigma)  # For efficient sampling
+        # Cholesky may fail if Sigma is not positive definite due to numerical
+        # issues; add small jitter if necessary.
+        jitter = 1e-12
+        try:
+            self.L = np.linalg.cholesky(self.Sigma)
+        except np.linalg.LinAlgError:
+            self.L = np.linalg.cholesky(self.Sigma + jitter * np.eye(dim))
 
     def sample(self, n: int) -> np.ndarray:
-        """Sample n points from the Gaussian distribution."""
         z = self.rng.normal(size=(n, self.dim))
         return (z @ self.L.T) * self.feature_scale
 
 
 class StrongConvexityEstimator:
-    """Online estimation of strong convexity parameter using secant method."""
+    """Online secant-based estimate of strong convexity (lambda).
+
+    This estimator simulates the earlier behavior used in diagnostics/tests.
+    """
 
     def __init__(self, ema_beta: float = 0.1, bounds: List[float] = [1e-8, 1e6]):
-        self.ema_beta = ema_beta
+        self.ema_beta = float(ema_beta)
         self.bounds = bounds
-        self.lambda_est = None
-
-        # Previous values for secant computation
-        self.prev_grad = None
-        self.prev_w = None
+        self.lambda_est: Optional[float] = None
+        self.prev_grad: Optional[np.ndarray] = None
+        self.prev_w: Optional[np.ndarray] = None
 
     def update(self, grad: np.ndarray, w: np.ndarray) -> Optional[float]:
-        """Update lambda estimate using secant approximation."""
         if self.prev_grad is not None and self.prev_w is not None:
-            # Compute secant estimate
             grad_diff = grad - self.prev_grad
             w_diff = w - self.prev_w
-
-            w_diff_norm_sq = np.linalg.norm(w_diff) ** 2
-
+            w_diff_norm_sq = float(np.linalg.norm(w_diff) ** 2)
             if w_diff_norm_sq > 1e-12:
-                lambda_new = np.dot(grad_diff, w_diff) / w_diff_norm_sq
-                lambda_new = np.clip(lambda_new, self.bounds[0], self.bounds[1])
-
-                # EMA update
+                lambda_new = float(np.dot(grad_diff, w_diff) / w_diff_norm_sq)
+                lambda_new = float(np.clip(lambda_new, self.bounds[0], self.bounds[1]))
                 if self.lambda_est is None:
                     self.lambda_est = lambda_new
                 else:
@@ -171,117 +155,14 @@ class StrongConvexityEstimator:
                         1 - self.ema_beta
                     ) * self.lambda_est + self.ema_beta * lambda_new
 
-        # Store for next iteration
         self.prev_grad = grad.copy()
         self.prev_w = w.copy()
-
         return self.lambda_est
-
-
-def get_synthetic_linear_stream(
-    dim=20,
-    seed=42,
-    noise_std=0.1,
-    use_event_schema=True,
-    # Covariance/feature scaling
-    eigs: Optional[List[float]] = None,
-    cond_number: Optional[float] = None,
-    rand_orth_seed: int = 42,
-    feature_scale: float = 1.0,
-    # Parameter path controls
-    path_type: str = "rotating",
-    path_control: bool = True,
-    rotate_angle: float = 0.01,
-    drift_rate: float = 0.001,
-    w_scale: Optional[float] = None,
-    fix_w_norm: bool = True,
-    # Estimation diagnostics
-    strong_convexity_estimation: bool = True,
-    G_hat: Optional[float] = None,
-    D_hat: Optional[float] = None,
-    c_hat: Optional[float] = None,
-    C_hat: Optional[float] = None,
-):
-
-    """Generate an infinite linear regression stream with configurable covariance.
-
-    Parameters
-    ----------
-    dim : int
-        Feature dimension.
-    seed : int
-        Random seed for reproducibility.
-    noise_std : float
-        Standard deviation of additive Gaussian noise.
-    use_event_schema : bool
-        If True, emit event records. If False, emit legacy (x, y) tuples.
-    eigs : list of float, optional
-        Eigenvalues for covariance matrix. If None, use cond_number or uniform.
-    cond_number : float, optional
-        Condition number for geometric eigenvalue spacing.
-    rand_orth_seed : int
-        Seed for generating random orthogonal matrix.
-    feature_scale : float
-        Scaling applied to features after covariance generation.
-    path_type : str
-        Type of parameter path: "static", "rotating", or "drift".
-    path_control : bool
-        Whether to enable controlled parameter path.
-    rotate_angle : float
-        Rotation angle per step in radians for rotating path.
-    drift_rate : float
-        Magnitude of drift per step for drifting path.
-    w_scale : float or None
-        Norm to fix w* to, if fix_w_norm is True. If None, use initial norm.
-    fix_w_norm : bool
-        Whether to keep w* norm fixed during path updates.
-    strong_convexity_estimation : bool
-        Whether to estimate strong convexity parameter.
-
-    Returns
-    -------
-    Iterator or Stream
-        Infinite stream of data points with event schema or legacy tuples.
-
-    Notes
-    -----
-    Diagnostics include metrics related to parameter drift, feature norms, and noise.
-    """
-    set_global_seed(seed)
-    rng = np.random.default_rng(seed)
-
-    # Initialize components
-    cov_gen = CovarianceGenerator(dim, eigs, cond_number, rand_orth_seed, feature_scale)
-    path_controller = (
-        ParameterPathController(
-            dim,
-            seed,
-            path_type,
-            rotate_angle=rotate_angle,
-            drift_rate=drift_rate,
-            w_scale=w_scale,
-            fix_w_norm=fix_w_norm,
-        )
-        if path_control
-        else None
-    )
-    sc_estimator = StrongConvexityEstimator() if strong_convexity_estimation else None
-
-    # Always emit event records; legacy tuple mode removed
-    return _generate_linear_stream_with_schema(
-        cov_gen, path_controller, sc_estimator, noise_std, rng,
-        rotate_angle=rotate_angle,
-        drift_rate=drift_rate,
-        G_hat=G_hat,
-        D_hat=D_hat,
-        c_hat=c_hat,
-        C_hat=C_hat,
-    )
 
 
 def _generate_linear_stream_with_schema(
     cov_gen: CovarianceGenerator,
-    path_controller: Optional[ParameterPathController],
+    path_controller: ParameterPathController,
     sc_estimator: Optional[StrongConvexityEstimator],
     noise_std: float,
     rng: np.random.Generator,
@@ -292,51 +173,29 @@ def _generate_linear_stream_with_schema(
     c_hat: Optional[float] = None,
     C_hat: Optional[float] = None,
 ) -> Iterator[Dict[str, Any]]:
-    """Generate infinite linear stream with event schema and diagnostics.
-
-    Includes metrics for drift magnitude, feature norm, parameter norm, and noise.
-    """
+    """Infinite generator that yields event records with diagnostics."""
     event_id = 0
-
-    # Dummy parameters for gradient computation (would normally come from learning algorithm)
     w_learner = rng.normal(size=cov_gen.dim) * 0.1
 
     while True:
-        # Generate data point
         x = cov_gen.sample(1)[0].astype(np.float32)
+        w_star, delta_P = path_controller.get_next_parameter()
+        P_T_true = path_controller.P_T_cumulative
 
-        # Get current ground-truth parameter
-        if path_controller is not None:
-            w_star, delta_P = path_controller.get_next_parameter()
-            P_T_true = path_controller.P_T_cumulative
-        else:
-            w_star = rng.normal(size=cov_gen.dim)
-            delta_P = 0.0
-            P_T_true = 0.0
-
-        # Generate target
-        noise = rng.normal(scale=noise_std)
+        noise = float(rng.normal(scale=noise_std))
         y = float(x @ w_star + noise)
 
-        # Compute diagnostics
         x_norm = float(np.linalg.norm(x))
         w_star_norm = float(np.linalg.norm(w_star))
-        noise_draw = float(noise)
 
-        # Compute gradient for strong convexity estimation
         lambda_est = None
         if sc_estimator is not None:
-            # Simulate gradient: ∇f(w) = (w - w*)
             grad = w_learner - w_star
             lambda_est = sc_estimator.update(grad, w_learner)
-
-            # Simple update to w_learner (for next iteration)
             w_learner = w_learner - 0.01 * grad
 
-        # Create sample ID
         sample_id = f"linear_{event_id:06d}"
 
-        # Create event record with diagnostics
         yield create_event_record_with_diagnostics(
             x=x,
             y=y,
@@ -347,7 +206,7 @@ def _generate_linear_stream_with_schema(
                 "delta_P": delta_P,
                 "x_norm": x_norm,
                 "w_star_norm": w_star_norm,
-                "noise": noise_draw,
+                "noise": noise,
                 "rotate_angle": rotate_angle,
                 "drift_rate": drift_rate,
                 "G_hat": G_hat,
@@ -362,48 +221,128 @@ def _generate_linear_stream_with_schema(
         event_id += 1
 
 
-# Helper functions for theory-first PT controller
+def get_rotating_linear_stream(
+    dim: int = 20,
+    seed: int = 42,
+    noise_std: float = 0.1,
+    cond_number: float = 10.0,
+    feature_scale: float = 1.0,
+    rotate_angle: float = 0.01,
+    w_scale: Optional[float] = None,
+    fix_w_norm: bool = True,
+    strong_convexity_estimation: bool = True,
+    G_hat: Optional[float] = None,
+    D_hat: Optional[float] = None,
+    c_hat: Optional[float] = None,
+    C_hat: Optional[float] = None,
+    _legacy_drift_rate: Optional[float] = None,
+) -> Iterator[Dict[str, Any]]:
+    """Rotating-only linear stream with unified seeding."""
+    set_global_seed(seed)
+    rng = np.random.default_rng(seed)
+
+    cov_gen = CovarianceGenerator(
+        dim=dim,
+        eigs=None,
+        cond_number=cond_number,
+        rand_orth_seed=seed,
+        feature_scale=feature_scale,
+    )
+
+    path_controller = ParameterPathController(
+        dim=dim,
+        seed=seed,
+        rotate_angle=rotate_angle,
+        w_scale=w_scale,
+        fix_w_norm=fix_w_norm,
+    )
+
+    sc_estimator = StrongConvexityEstimator() if strong_convexity_estimation else None
+
+    return _generate_linear_stream_with_schema(
+        cov_gen,
+        path_controller,
+        sc_estimator,
+        noise_std,
+        rng,
+        rotate_angle=rotate_angle,
+        drift_rate=_legacy_drift_rate,
+        G_hat=G_hat,
+        D_hat=D_hat,
+        c_hat=c_hat,
+        C_hat=C_hat,
+    )
+
+
+def get_synthetic_linear_stream(
+    dim=20,
+    seed=42,
+    noise_std=0.1,
+    use_event_schema=True,
+    eigs: Optional[List[float]] = None,
+    cond_number: Optional[float] = None,
+    rand_orth_seed: int = 42,
+    feature_scale: float = 1.0,
+    path_type: str = "rotating",
+    path_control: bool = True,
+    rotate_angle: float = 0.01,
+    drift_rate: float = 0.001,
+    w_scale: Optional[float] = None,
+    fix_w_norm: bool = True,
+    strong_convexity_estimation: bool = True,
+    G_hat: Optional[float] = None,
+    D_hat: Optional[float] = None,
+    c_hat: Optional[float] = None,
+    C_hat: Optional[float] = None,
+):
+    """Back-compat entry point that routes to rotating-only stream.
+
+    Legacy knobs are accepted but ignored. If `eigs` is provided and
+    `cond_number` is not, approximate a cond_number from the provided eigenvalues.
+    """
+    if cond_number is None and eigs is not None and len(eigs) > 0:
+        ev = np.array(eigs, dtype=float)
+        ev = ev[ev > 0]
+        if ev.size:
+            mn = float(ev.min())
+            cond_number = float(ev.max() / max(mn, 1e-12))
+        else:
+            cond_number = 10.0
+    if cond_number is None:
+        cond_number = 10.0
+
+    return get_rotating_linear_stream(
+        dim=dim,
+        seed=seed,
+        noise_std=noise_std,
+        cond_number=cond_number,
+        feature_scale=feature_scale,
+        rotate_angle=rotate_angle,
+        w_scale=w_scale,
+        fix_w_norm=fix_w_norm,
+        strong_convexity_estimation=strong_convexity_estimation,
+        G_hat=G_hat,
+        D_hat=D_hat,
+        c_hat=c_hat,
+        C_hat=C_hat,
+        _legacy_drift_rate=drift_rate,
+    )
+
+
+# Helper functions for PT controllers (kept for convenience)
 def set_rotation_by_PT(T: int, w_norm: float, target_PT: float) -> float:
-    """
-    Set rotation angle to achieve target path length PT over T steps.
-    
-    Args:
-        T: Number of steps
-        w_norm: Parameter vector norm (typically target_D/2)
-        target_PT: Target path length
-        
-    Returns:
-        theta: Rotation angle per step
-    """
     import math
-    
-    # PT = T * 2 * w_norm * sin(theta/2)
-    # Solve for theta: theta = 2 * arcsin(PT / (T * 2 * w_norm))
+
     sin_half_theta = target_PT / (T * 2 * w_norm)
-    sin_half_theta = min(sin_half_theta, 0.99)  # Clamp to feasible range
-    
+    sin_half_theta = min(max(sin_half_theta, 0.0), 0.99)
     if sin_half_theta <= 0:
         return 0.0
-    else:
-        theta = 2 * math.asin(sin_half_theta)
-        return np.clip(theta, 1e-6, 0.3)  # Apply PT controller bounds
+    theta = 2 * math.asin(sin_half_theta)
+    return float(np.clip(theta, 1e-6, 0.3))
 
 
 def set_brownian_by_PT(T: int, dim: int, target_PT: float) -> float:
-    """
-    Set Brownian drift scale to achieve target path length PT over T steps.
-    
-    Args:
-        T: Number of steps
-        dim: Dimension of parameter space
-        target_PT: Target path length
-        
-    Returns:
-        drift_std: Standard deviation for Brownian drift
-    """
     import math
-    
-    # For Brownian motion: E[PT] ≈ T * E[||drift||] ≈ T * drift_std * sqrt(dim)
-    # Solve for drift_std: drift_std = PT / (T * sqrt(dim))
+
     drift_std = target_PT / (T * math.sqrt(dim))
-    return max(drift_std, 0.0)  # Ensure non-negative
+    return float(max(drift_std, 0.0))

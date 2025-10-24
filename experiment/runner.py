@@ -41,8 +41,7 @@ if _CODE_DIR not in sys.path:
 
 import numpy as np
 from data_loader import (
-    get_synthetic_linear_stream,
-    get_theory_stream,
+    get_rotating_linear_stream,
     parse_event_record,
 )
 from memory_pair.src.memory_pair import MemoryPair
@@ -59,53 +58,19 @@ from exp_integration import write_event_rows_parquet, build_params_from_config
 
 
 def _get_data_stream(cfg: Config, seed: int):
-    """Get synthetic data stream with unified interface for event records.
+    """Get synthetic data stream (rotating linear stream only).
 
-    Prefers the theory-first stream when any target_* is provided; otherwise falls back to legacy synthetic stream.
+    This runner uses the rotating-only synthetic linear stream regardless of
+    theory-target fields. Legacy theory-first functionality was removed.
     """
-    # Theory-first branch when any target_* is provided
-    any_theory_targets = any(
-        [
-            getattr(cfg, "target_G", None) is not None,
-            getattr(cfg, "target_D", None) is not None,
-            getattr(cfg, "target_c", None) is not None,
-            getattr(cfg, "target_C", None) is not None,
-            getattr(cfg, "target_lambda", None) is not None,
-            getattr(cfg, "target_PT", None) is not None,
-            getattr(cfg, "target_ST", None) is not None,
-        ]
+    return get_rotating_linear_stream(
+        seed=seed,
+        rotate_angle=getattr(cfg, "rotate_angle", 0.01),
+        G_hat=getattr(cfg, "G_hat", None),
+        D_hat=getattr(cfg, "D_hat", None),
+        c_hat=getattr(cfg, "c_hat", None),
+        C_hat=getattr(cfg, "C_hat", None),
     )
-
-    if any_theory_targets:
-        # Theory-first: zCDP-only
-        return get_theory_stream(
-            dim=20,  # Default dimension for synthetic data
-            T=cfg.max_events,
-            target_G=cfg.target_G,
-            target_D=cfg.target_D,
-            target_c=cfg.target_c,
-            target_C=cfg.target_C,
-            target_lambda=cfg.target_lambda,
-            target_PT=cfg.target_PT,
-            target_ST=cfg.target_ST,
-            accountant="zcdp",
-            rho_total=getattr(cfg, "rho_total", 1.0),
-            delta_total=cfg.delta_total,
-            path_style=getattr(cfg, "path_style", "rotating"),
-            seed=seed,
-        )
-    else:
-        # Legacy synthetic linear stream
-        return get_synthetic_linear_stream(
-            seed=seed,
-            use_event_schema=True,
-            rotate_angle=cfg.rotate_angle,
-            drift_rate=cfg.drift_rate,
-            G_hat=cfg.G_hat,
-            D_hat=cfg.D_hat,
-            c_hat=cfg.c_hat,
-            C_hat=cfg.C_hat,
-        )
 
 
 # Algorithm mapping - MemoryPair only

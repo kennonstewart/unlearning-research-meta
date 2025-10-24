@@ -51,7 +51,7 @@ class Config:
 
     # Output granularity for grid search
     output_granularity: str = "seed"
-    
+
     # Git results committing (default False)
     commit_results: bool = False
 
@@ -78,7 +78,7 @@ class Config:
 
     # Feature flags (all default False for no-op behavior)
     adaptive_geometry: bool = False
-    dynamic_comparator: bool = False
+    dynamic_comparator: bool = True
     strong_convexity: bool = False
     adaptive_privacy: bool = False
     drift_mode: bool = False
@@ -113,14 +113,20 @@ class Config:
     rho_total: float = 1.0  # Make this required for zCDP
 
     # Debug and testing options
-    disable_regret_gate: bool = False  # Bypass regret gate for debugging privacy accounting
+    disable_regret_gate: bool = (
+        False  # Bypass regret gate for debugging privacy accounting
+    )
 
     # Finalized regret calculation spec
     enforce_nonnegative_regret: bool = True  # Ensure regret >= 0 (finalized spec)
-    parquet_only_mode: bool = True  # Write Parquet-only by default (finalized spec)
+    parquet_only_mode: bool = False  # Write Parquet-only by default (finalized spec)
     parquet_out: str = "results_parquet"  # Base directory for Parquet datasets
-    regret_warmup_threshold: Optional[int] = None  # Events before regret tracking starts (post-warmup)
-    regret_comparator_mode: str = "oracle"  # "oracle", "zero", or "ridge" for regret baseline
+    regret_warmup_threshold: Optional[int] = (
+        None  # Events before regret tracking starts (post-warmup)
+    )
+    regret_comparator_mode: str = (
+        "oracle"  # "oracle", "zero", or "ridge" for regret baseline
+    )
 
     @property
     def gamma_insert(self) -> float:
