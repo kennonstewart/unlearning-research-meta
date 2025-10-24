@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from code.memory_pair.src.memory_pair import MemoryPair, Phase
 from code.memory_pair.src.odometer import ZCDPOdometer
 from code.memory_pair.src.calibrator import Calibrator
-from code.memory_pair.src.accountant import get_adapter
+from code.memory_pair.src.accountant import ZCDPAccountant
 
 
 def test_calibrator():
@@ -49,7 +49,7 @@ def test_memory_pair_state_machine():
     print("\n=== Testing MemoryPair State Machine ===")
     
     dim = 5
-    accountant = get_adapter("zcdp", rho_total=1.0, delta_total=1e-5, gamma=1.0)  # Increased gamma
+    accountant = ZCDPAccountant(rho_total=1.0, delta_total=1e-5, gamma=1.0)  # Increased gamma
     model = MemoryPair(dim=dim, accountant=accountant)
     
     # Should start in CALIBRATION phase
@@ -153,7 +153,7 @@ def test_integration():
     
     dim = 3
     calibrator = Calibrator()
-    accountant = get_adapter("zcdp", rho_total=0.5, delta_total=1e-6, gamma=2.0)  # Higher gamma
+    accountant = ZCDPAccountant(rho_total=0.5, delta_total=1e-6, gamma=2.0)  # Higher gamma
     model = MemoryPair(dim=dim, accountant=accountant, calibrator=calibrator)
     
     # Calibration phase with smaller inputs

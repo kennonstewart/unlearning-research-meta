@@ -11,7 +11,7 @@ try:
     from .metrics import loss_half_mse
     from .calibrator import Calibrator
     from .comparators import RollingOracle
-    from .accountant import get_adapter
+    from .accountant import ZCDPAccountant
     from .accountant.types import Accountant
 except (ModuleNotFoundError, ImportError):
     from odometer import N_star_live, m_theory_live
@@ -19,7 +19,7 @@ except (ModuleNotFoundError, ImportError):
     from metrics import loss_half_mse
     from calibrator import Calibrator
     from comparators import RollingOracle
-    from accountant import get_adapter
+    from accountant import ZCDPAccountant
     from accountant.types import Accountant
 
 
@@ -78,7 +78,7 @@ class MemoryPair:
                 "delta_b": getattr(cfg, "delta_b", 0.05),
                 "m_max": getattr(cfg, "m_max", None),
             }
-            self.accountant = get_adapter("zcdp", **acct_kwargs)
+            self.accountant = ZCDPAccountant(**acct_kwargs)
 
         self.cfg = cfg
         self.lambda_reg = getattr(cfg, "lambda_reg", 0.0) if cfg else 0.0

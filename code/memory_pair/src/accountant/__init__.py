@@ -1,16 +1,9 @@
 """
-Unified accountant factory and adapter interface.
+zCDP accountant interface.
 
-Now zCDP-only. "default" maps to "zcdp".
+Simplified to only support zCDP accounting.
 """
-from typing import Any
 from .types import Accountant
+from .zcdp import Adapter as ZCDPAccountant
 
-__all__ = ["get_adapter"]
-
-def get_adapter(name: str, **kwargs) -> Accountant:
-    name = (name or "zcdp").lower()
-    if name in ("default", "zcdp"):
-        from .zcdp import Adapter
-        return Adapter(**kwargs)
-    raise ValueError(f"Unknown accountant type: {name} (only 'zcdp' is supported)")
+__all__ = ["Accountant", "ZCDPAccountant"]

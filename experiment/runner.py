@@ -46,7 +46,7 @@ from data_loader import (
 )
 from memory_pair.src.memory_pair import MemoryPair
 from memory_pair.src.calibrator import Calibrator
-from memory_pair.src.accountant import get_adapter
+from memory_pair.src.accountant import ZCDPAccountant
 
 # Optional Parquet writer integration (exp_engine)
 try:  # pragma: no cover - optional dependency
@@ -231,8 +231,7 @@ class ExperimentRunner:
 
     def _create_model(self, first_x):
         """Create model with zCDP accountant."""
-        accountant = get_adapter(
-            "zcdp",
+        accountant = ZCDPAccountant(
             rho_total=self.cfg.rho_total,
             delta_total=self.cfg.delta_total,
             T=self.cfg.max_events,
