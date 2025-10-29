@@ -11,8 +11,6 @@ python-json-logger>=2.0
 PyYAML>=6.0
 click
 tqdm>=4.62
-torch>=2.2
 pyarrow>=6.0
 duckdb>=0.8
-snakemake >= 7.0
-statsmodels>=0.13
+ipykernel

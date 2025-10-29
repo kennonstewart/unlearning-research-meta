@@ -1,7 +1,5 @@
 {
   "name": "Online Unlearning Research",
-  // ✅ Use the Dockerfile to build the container.
-  // The "image" property should be removed.
   "build": {
     "dockerfile": "Dockerfile"
   },
