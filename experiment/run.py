@@ -180,8 +180,8 @@ def run_single_experiment(
     event_type = first_meta.get("op", "insert")
     
     if event_type == "insert":
-        loss = model.insert(x, y)
-        prediction = float(model.theta @ x)  # Prediction before update
+        prediction = model.insert(x, y)  # Prediction before update
+        loss = 0.5 * (prediction - y) ** 2  # Compute loss from prediction
     else:  # delete
         # For delete, we need to get prediction first
         prediction = float(model.theta @ x)
@@ -214,8 +214,8 @@ def run_single_experiment(
         event_type = meta.get("op", "insert")
         
         if event_type == "insert":
-            loss = model.insert(x, y)
-            prediction = float(model.theta @ x)
+            prediction = model.insert(x, y)  # Prediction before update
+            loss = 0.5 * (prediction - y) ** 2  # Compute loss from prediction
         else:  # delete
             prediction = float(model.theta @ x)
             result = model.delete(x, y)
