@@ -501,16 +501,7 @@ def get_theory_stream(
         
         # Generate target with noise
         base_noise = rng.normal(scale=noise_std)
-        y_raw = float(x @ w_star + base_noise)
-        
-        # Bound residual by r_eps (simple clamping)
-        r_eps = 2.0 * noise_std  # Reasonable bound for residual
-        residual_raw = x @ w_learner - y_raw
-        if abs(residual_raw) > r_eps:
-            # Adjust y to bring residual into bounds
-            y = y_raw + np.sign(residual_raw) * (abs(residual_raw) - r_eps)
-        else:
-            y = y_raw
+        y = float(x @ w_star + base_noise)
         
         # Compute gradient for bound enforcement
         # Direct approach: generate gradient with target energy per step
@@ -529,12 +520,39 @@ def get_theory_stream(
         
         # Apply ST controller scaling: g <- mu * g (before clipping)
         grad_scaled = st_ctrl.apply_scaling(grad_raw)
-        
+
         # Apply gradient clipping (soft-clip + hard cap)
         grad_clipped, was_clipped = grad_ctrl.clip_gradient(grad_scaled)
-        
-        # Update S_T controller with clipped gradient norm squared
-        grad_norm_sq = np.linalg.norm(grad_clipped) ** 2
+
+        # Adjust (x, y) so the realized learner gradient matches grad_clipped
+        grad_target = grad_clipped.copy()
+        grad_data_target = grad_target - target_lambda * w_learner
+        grad_data_norm = float(np.linalg.norm(grad_data_target))
+
+        x_norm_initial = float(np.linalg.norm(x))
+        x_norm_target_cap = 2.0 * x_norm_target
+
+        if grad_data_norm > 1e-12:
+            if x_norm_initial < 1e-6:
+                x_norm_initial = x_norm_target
+
+            x_norm_desired = float(np.clip(x_norm_initial, 1e-6, x_norm_target_cap))
+            residual_needed = grad_data_norm / x_norm_desired
+            x_direction = grad_data_target / grad_data_norm
+            x = x_direction * x_norm_desired
+        else:
+            residual_needed = 0.0
+
+        pred_adjusted = float(x @ w_learner)
+        y = pred_adjusted - residual_needed
+
+        # Recompute noise relative to the current w_star for diagnostics
+        noise_realized = float(y - x @ w_star)
+
+        # Use the realized gradient for downstream diagnostics/controllers
+        grad_clipped = (pred_adjusted - y) * x + target_lambda * w_learner
+        grad_alignment_error = float(np.linalg.norm(grad_clipped - grad_target))
+        grad_norm_sq = float(np.linalg.norm(grad_clipped) ** 2)
         st_ctrl.update(grad_norm_sq)
         
         # Update strong convexity estimation
@@ -560,7 +578,9 @@ def get_theory_stream(
             "delta_P": delta_P,
             "x_norm": x_norm,
             "w_star_norm": w_star_norm,
-            "noise": float(base_noise),
+            "noise": float(noise_realized),
+            "clip_rate": clip_rate,
+            "grad_alignment_error": grad_alignment_error,
             # Theory targets (emitted periodically)
             "theory_targets": theory_targets_block if event_id % 1000 == 0 else None,
             # Passthrough for LBFGS
