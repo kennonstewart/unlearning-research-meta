@@ -1,0 +1,60 @@
+# Expansive grid for theory-first unlearning experiments
+#
+# This grid is designed to thoroughly evaluate the algorithm's performance
+# across a wide range of conditions, including different data geometries,
+# privacy budgets, and algorithmic feature flags.
+
+matrix:
+  # --- Core Algorithm and Accountant ---
+  algo: ["memorypair"]
+  accountant: ["zcdp"]
+
+  # --- Grid Search over Theory-first Stream Targets ---
+  # Explore how performance changes with the underlying problem geometry.
+  target_G: [1.0, 5.0]          # Gradient norm bound
+  target_D: [1.0, 5.0]          # Parameter/domain diameter
+  target_c: [0.1]
+  target_C: [10.0]
+  target_lambda: [0.5]
+  target_PT: [25.0]
+  target_ST: [50000.0]
+
+  # --- Grid Search over Privacy Parameters ---
+  # A wider range to understand the privacy-utility trade-off.
+  rho_total: [0.1, 0.5, 1.0, 2.0, 5.0]
+  delta_total: [1e-5]
+
+  # --- Algorithm Hyperparameters ---
+  # Kept fixed to isolate the effect of other variables, but could be varied later.
+  lambda_: [0.8]
+  lambda_reg: [0.0]
+  quantile: [0.95]
+  D_cap: [10.0]
+
+  # --- Grid Search over Execution Parameters ---
+  # Check scalability and long-term behavior.
+  max_events: [1000, 5000]       # Horizon T
+  seeds: [3]                     # Use 3 seeds for more stable results per cell
+  bootstrap_iters: [500]
+
+  # --- Grid Search over Stream Configuration ---
+  dim: [10, 50]                  # Feature dimension (low and medium)
+  path_style: ["rotating"]
+  rotate_angle: [0.01]
+
+  # --- Advanced Options (Fixed for now) ---
+  recal_window: [null]
+  recal_threshold: [0.3]
+  ema_beta: [0.9]
+  m_max: [10]
+  delta_b: [0.05]
+
+  # --- Grid Search over Key Feature Flags ---
+  # Systematically test the impact of each algorithmic variation.
+  adaptive_geometry: [false, true]
+  dynamic_comparator: [false, true]
+  strong_convexity: [false] # This seems less critical for the main model
+
+# The limit is removed to allow a full run.
+# Add 'limit: N' during testing to run only the first N combinations.
+# limit: 20
